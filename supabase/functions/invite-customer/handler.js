@@ -55,6 +55,7 @@ export function createInviteHandler({ env, createClient }) {
       }
 
       const userClient = createClient(supabaseUrl, publicKey, {
+        global: { headers: { Authorization: `Bearer ${bearerToken}` } },
         auth: { autoRefreshToken: false, persistSession: false },
       });
       const { data: userResult, error: userError } = await userClient.auth.getUser(bearerToken);
@@ -80,10 +81,8 @@ export function createInviteHandler({ env, createClient }) {
         return response(400, { error: 'Enter a valid customer and email address.' }, appOrigin);
       }
 
-      const adminClient = createClient(supabaseUrl, serverSecret, {
-        auth: { autoRefreshToken: false, persistSession: false },
-      });
-      const { data: membership, error: membershipError } = await adminClient
+      // Use the verified caller JWT for direct reads so authenticated grants and RLS apply.
+      const { data: membership, error: membershipError } = await userClient
         .from('organization_memberships')
         .select('role')
         .eq('organization_id', organizationId)
@@ -96,7 +95,7 @@ export function createInviteHandler({ env, createClient }) {
         return response(403, { error: 'Organization administrator access is required.' }, appOrigin);
       }
 
-      const { data: customer, error: customerError } = await adminClient
+      const { data: customer, error: customerError } = await userClient
         .from('customers')
         .select('id, archived')
         .eq('organization_id', organizationId)
@@ -106,6 +105,9 @@ export function createInviteHandler({ env, createClient }) {
         return response(404, { error: 'Customer record not found.' }, appOrigin);
       }
 
+      const adminClient = createClient(supabaseUrl, serverSecret, {
+        auth: { autoRefreshToken: false, persistSession: false },
+      });
       const emailHash = await sha256Hex(email);
       const rpcArgs = {
         p_organization_id: organizationId,
