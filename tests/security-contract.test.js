@@ -93,6 +93,7 @@ test('admin cross-organization pgTAP assertion runs as authenticated', async () 
 
 test('customer invitations verify the caller JWT, enforce exact origin, and check organization admin membership', async () => {
   const edgeFunction = await readFile(resolve(root, 'supabase/functions/invite-customer/handler.js'), 'utf8');
+  const invitationMigration = await readFile(resolve(root, 'supabase/migrations/20261002120000_customer_invitation_lifecycle.sql'), 'utf8');
   const entrypoint = await readFile(resolve(root, 'supabase/functions/invite-customer/index.ts'), 'utf8');
   const functionConfig = await readFile(resolve(root, 'supabase/config.toml'), 'utf8');
   assert.match(edgeFunction, /requestOrigin !== appOrigin/);
@@ -101,7 +102,9 @@ test('customer invitations verify the caller JWT, enforce exact origin, and chec
   assert.match(edgeFunction, /auth\.getUser\(bearerToken\)/);
   assert.match(edgeFunction, /organization_memberships/);
   assert.match(edgeFunction, /\['owner', 'admin'\]/);
-  assert.match(edgeFunction, /customer_portal_accounts/);
+  assert.match(edgeFunction, /finalize_customer_invitation/);
+  assert.match(invitationMigration, /insert into public\.customer_portal_accounts/);
+  assert.match(invitationMigration, /grant execute on function public\.finalize_customer_invitation[^;]*to service_role/i);
   assert.match(edgeFunction, /SUPABASE_SERVICE_ROLE_KEY/);
   assert.match(edgeFunction, /redirectTo: appRedirectUrl/);
   assert.match(entrypoint, /Deno\.serve\(createInviteHandler/);
