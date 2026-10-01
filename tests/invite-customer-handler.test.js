@@ -20,20 +20,41 @@ function makeHarness(options = {}) {
     ['SUPABASE_PUBLISHABLE_KEY', 'synthetic-publishable-key'],
     ['SUPABASE_SERVICE_ROLE_KEY', 'synthetic-server-only-key'],
   ]);
-  const calls = { clientKeys: [], queries: [], invitations: [], rpcs: [] };
+  const calls = { clientKeys: [], clientOptions: [], queries: [], invitations: [], rpcs: [] };
   const env = { get: (name) => config.get(name) ?? null };
   const state = { status: options.initialState ?? 'new', authUserId: null };
   let finalizeIndex = 0;
 
-  const createClient = (_url, key) => {
+  const createClient = (_url, key, clientOptions = {}) => {
     calls.clientKeys.push(key);
+    calls.clientOptions.push({ key, options: clientOptions });
     if (key === 'synthetic-publishable-key') {
-      return { auth: { getUser: async (token) => {
-        calls.token = token;
-        return options.getUserError
-          ? { data: { user: null }, error: options.getUserError }
-          : { data: { user: { id: 'synthetic-admin-1' } }, error: null };
-      } } };
+      return {
+        auth: { getUser: async (token) => {
+          calls.token = token;
+          return options.getUserError
+            ? { data: { user: null }, error: options.getUserError }
+            : { data: { user: { id: 'synthetic-admin-1' } }, error: null };
+        } },
+        from(table) {
+          const filters = [];
+          const query = {
+            select(columns) { calls.selects ??= []; calls.selects.push([table, columns]); return query; },
+            eq(column, value) { filters.push([column, value]); return query; },
+            async maybeSingle() {
+              calls.queries.push({ table, filters: [...filters] });
+              if (table === 'organization_memberships') {
+                return { data: options.membership === undefined ? { role: 'owner' } : options.membership, error: options.membershipError ?? null };
+              }
+              if (table === 'customers') {
+                return { data: options.customer === undefined ? { id: validPayload.customer_id, archived: false } : options.customer, error: options.customerError ?? null };
+              }
+              throw new Error('Unexpected synthetic table');
+            },
+          };
+          return query;
+        },
+      };
     }
     return {
       auth: { admin: { inviteUserByEmail: async (email, inviteOptions) => {
@@ -42,24 +63,6 @@ function makeHarness(options = {}) {
         if (options.inviteError) return { data: { user: null }, error: options.inviteError };
         return { data: { user: { id: invitedUserId } }, error: null };
       } } },
-      from(table) {
-        const filters = [];
-        const query = {
-          select(columns) { calls.selects ??= []; calls.selects.push([table, columns]); return query; },
-          eq(column, value) { filters.push([column, value]); return query; },
-          async maybeSingle() {
-            calls.queries.push({ table, filters: [...filters] });
-            if (table === 'organization_memberships') {
-              return { data: options.membership === undefined ? { role: 'owner' } : options.membership, error: options.membershipError ?? null };
-            }
-            if (table === 'customers') {
-              return { data: options.customer === undefined ? { id: validPayload.customer_id, archived: false } : options.customer, error: options.customerError ?? null };
-            }
-            throw new Error('Unexpected synthetic table');
-          },
-        };
-        return query;
-      },
       async rpc(name, args) {
         calls.rpcs.push({ name, args });
         if (name === 'reserve_customer_invitation') {
@@ -160,15 +163,27 @@ test('only organization owners/admins and non-archived customers in that organiz
     const response = await handler(request());
     assert.equal(response.status, 403);
     assert.equal(calls.rpcs.length, 0);
+    assert.deepEqual(calls.clientKeys, ['synthetic-publishable-key']);
   });
   await t.test('missing membership is denied', async () => {
-    const { handler } = makeHarness({ membership: null });
+    const { handler, calls } = makeHarness({ membership: null });
     assert.equal((await handler(request())).status, 403);
+    assert.deepEqual(calls.clientKeys, ['synthetic-publishable-key']);
+  });
+  await t.test('membership query errors fail closed before privileged client or invite actions', async () => {
+    const { handler, calls } = makeHarness({ membershipError: new Error('synthetic permission error') });
+    const response = await handler(request());
+    assert.equal(response.status, 500);
+    assert.deepEqual(await json(response), { error: 'Administrator access could not be checked.' });
+    assert.deepEqual(calls.clientKeys, ['synthetic-publishable-key']);
+    assert.equal(calls.rpcs.length, 0);
+    assert.equal(calls.invitations.length, 0);
   });
   await t.test('unknown or archived customer is rejected before reservation', async () => {
     for (const customer of [null, { id: validPayload.customer_id, archived: true }]) {
       const { handler, calls } = makeHarness({ customer });
       assert.equal((await handler(request()).then((r) => r.status)), 404);
+      assert.deepEqual(calls.clientKeys, ['synthetic-publishable-key']);
       assert.equal(calls.rpcs.length, 0);
     }
   });
@@ -181,6 +196,8 @@ test('only organization owners/admins and non-archived customers in that organiz
     assert.ok(membership.filters.some(([field, value]) => field === 'user_id' && value === 'synthetic-admin-1'));
     assert.ok(customer.filters.some(([field, value]) => field === 'organization_id' && value === validPayload.organization_id));
     assert.ok(customer.filters.some(([field, value]) => field === 'id' && value === validPayload.customer_id));
+    const callerClient = calls.clientOptions.find(({ key }) => key === 'synthetic-publishable-key');
+    assert.equal(callerClient.options.global.headers.Authorization, 'Bearer synthetic-admin-token');
   });
 });
 
