@@ -140,7 +140,7 @@ test('customer portal queries and rendering never select or expose customer phon
   const portalData = await readFile(resolve(root, 'src/portal-data.js'), 'utf8');
   const main = await readFile(resolve(root, 'src/main.js'), 'utf8');
   const customerSelection = portalData.match(/rowsFor\(supabase, 'customers', '([^']+)'/i)?.[1] ?? '';
-  const customerPortal = main.slice(main.indexOf('function renderCustomer()'), main.indexOf('async function refreshCurrentContext()'));
+  const customerPortal = main.slice(main.indexOf('function renderCustomer()'), main.indexOf('async function refreshCurrentContext('));
 
   assert.ok(customerSelection, 'customer portal selection is explicit');
   assert.doesNotMatch(customerSelection, /phone/i);
@@ -153,7 +153,7 @@ test('customer history enhancement uses only recorded customer-visible fields an
   const portalData = await readFile(resolve(root, 'src/portal-data.js'), 'utf8');
   const main = await readFile(resolve(root, 'src/main.js'), 'utf8');
   const customerPortalModule = await readFile(resolve(root, 'src/customer-portal.js'), 'utf8');
-  const customerPortal = main.slice(main.indexOf('function renderCustomerBillingResults()'), main.indexOf('async function refreshCurrentContext()'));
+  const customerPortal = main.slice(main.indexOf('function renderCustomerBillingResults()'), main.indexOf('async function refreshCurrentContext('));
   const customerFacingCode = `${customerPortal}\n${customerPortalModule}`;
 
   assert.match(portalData, /'bills', 'id, customer_id, period, amount_due_cents, due_date, plan_snapshot'/);

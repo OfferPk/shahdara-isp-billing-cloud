@@ -95,8 +95,16 @@ if (!supabase) {
   function setMessage(node, message = '', isError = false) {
     if (!node) return;
     node.textContent = message;
+    node.setAttribute('role', isError ? 'alert' : 'status');
+    node.setAttribute('aria-live', isError ? 'assertive' : 'polite');
+    node.setAttribute('aria-atomic', 'true');
     node.classList.toggle('error-text', isError);
     node.classList.toggle('success-text', Boolean(message) && !isError);
+  }
+
+  function announceApp(message) {
+    const announcement = document.querySelector('#app-announcement');
+    if (announcement) announcement.textContent = message;
   }
 
   function showLogin(message = '') {
@@ -114,6 +122,9 @@ if (!supabase) {
   }
 
   async function selectContext(context) {
+    const contextChanged = pageState.context?.organizationId !== context.organizationId
+      || pageState.context?.kind !== context.kind
+      || pageState.context?.customerId !== context.customerId;
     if (pageState.context?.organizationId !== context.organizationId || pageState.context?.kind !== context.kind) {
       pageState.customerListSearch = '';
       pageState.customerListStatus = 'all';
@@ -132,8 +143,10 @@ if (!supabase) {
     try {
       pageState.rows = await loadPortalRows(supabase, context);
       renderPortal();
+      if (contextChanged) portalPanel.querySelector('h1')?.focus();
+      announceApp(context.kind === 'admin' ? 'Administrator portal loaded.' : `Customer portal loaded for ${context.customerName}.`);
     } catch (error) {
-      portalPanel.innerHTML = `<div class="panel"><p class="eyebrow">Could not load records</p><h2>Access was not granted</h2><p class="error-text">${escapeHtml(error.message || 'The request failed.')}</p><p>Database row-level policies remain authoritative; contact the ISP administrator if this account should have portal access.</p><button class="button secondary" data-action="sign-out">Sign out</button></div>`;
+      portalPanel.innerHTML = `<div class="panel" role="alert"><p class="eyebrow">Could not load records</p><h2>Access was not granted</h2><p class="error-text">${escapeHtml(error.message || 'The request failed.')}</p><p>Database row-level policies remain authoritative; contact the ISP administrator if this account should have portal access.</p><button class="button secondary" data-action="sign-out">Sign out</button></div>`;
       bindSharedActions();
     }
   }
@@ -156,13 +169,14 @@ if (!supabase) {
     try {
       pageState.contexts = await loadContexts(supabase, session.user);
       if (!pageState.contexts.length) {
-        portalPanel.innerHTML = '<div class="panel"><p class="eyebrow">No portal access</p><h2>This email is not linked to an ISP account</h2><p>Ask the ISP administrator to assign an Admin role or send a customer invitation.</p><button class="button secondary" data-action="sign-out">Sign out</button></div>';
+        portalPanel.innerHTML = '<div class="panel" role="status"><p class="eyebrow">No portal access</p><h2>This email is not linked to an ISP account</h2><p>Ask the ISP administrator to assign an Admin role or send a customer invitation.</p><button class="button secondary" data-action="sign-out">Sign out</button></div>';
+        announceApp('No portal access is linked to this account.');
         bindSharedActions();
         return;
       }
       await selectContext(pageState.contexts[0]);
     } catch (error) {
-      portalPanel.innerHTML = `<div class="panel"><p class="eyebrow">Sign-in could not be completed</p><h2>Account access needs review</h2><p class="error-text">${escapeHtml(error.message || 'The request failed.')}</p><button class="button secondary" data-action="sign-out">Sign out</button></div>`;
+      portalPanel.innerHTML = `<div class="panel" role="alert"><p class="eyebrow">Sign-in could not be completed</p><h2>Account access needs review</h2><p class="error-text">${escapeHtml(error.message || 'The request failed.')}</p><button class="button secondary" data-action="sign-out">Sign out</button></div>`;
       bindSharedActions();
     } finally {
       pageState.loadingUserId = null;
@@ -206,7 +220,7 @@ if (!supabase) {
     const accountLabel = pageState.context?.kind === 'admin'
       ? `Signed in as ${pageState.user?.email ?? ''}`
       : 'Linked customer account';
-    return `<div class="portal-heading"><div><p class="eyebrow">${escapeHtml(label)}</p><h1>${escapeHtml(pageState.context.organizationName ?? 'Shahdara Fiber Net')}</h1><p class="muted">${escapeHtml(accountLabel)}</p></div><div class="header-actions">${contextSelectHtml()}<button class="button secondary small" data-action="sign-out">Sign out</button></div></div>`;
+    return `<div class="portal-heading"><div><p class="eyebrow">${escapeHtml(label)}</p><h1 tabindex="-1">${escapeHtml(pageState.context.organizationName ?? 'Shahdara Fiber Net')}</h1><p class="muted">${escapeHtml(accountLabel)}</p></div><div class="header-actions">${contextSelectHtml()}<button class="button secondary small" data-action="sign-out">Sign out</button></div></div>`;
   }
 
   function wirePortalBase() {
@@ -394,19 +408,19 @@ if (!supabase) {
       </section>
       <button class="customer-fab" type="button" data-action="open-add-customer" aria-label="Add customer" title="Add customer"><span aria-hidden="true">+</span></button>
       <section class="panel data-panel"><div class="section-heading"><div><p class="eyebrow">Monthly snapshots</p><h2>Bills</h2></div><span class="muted">${bills.length} records</span></div>
-        <div class="table-wrap"><table><thead><tr><th>Month</th><th>Customer</th><th>Bill</th><th>Receipts</th><th>Credit applied</th><th>Balance</th><th>Status</th><th></th></tr></thead><tbody>${bills.slice(0, 100).map((bill) => {
+        <div class="table-wrap" role="region" tabindex="0" aria-label="Bills table; scroll horizontally to view all columns"><table><caption class="sr-only">Monthly bills, receipts, credits, balances, status, and available actions.</caption><thead><tr><th scope="col">Month</th><th scope="col">Customer</th><th scope="col">Bill</th><th scope="col">Receipts</th><th scope="col">Credit applied</th><th scope="col">Balance</th><th scope="col">Status</th><th scope="col">Actions</th></tr></thead><tbody>${bills.slice(0, 100).map((bill) => {
           const applied = allocationTotals(rows, bill.id);
           const balance = bill.amount_due_cents == null ? null : Math.max(0, Number(bill.amount_due_cents) - applied);
           const status = bill.amount_due_cents == null ? 'Not set' : balance === 0 ? 'Paid' : applied > 0 ? 'Partial' : 'Pending';
           const credit = rows.allocations.filter((row) => row.bill_id === bill.id && row.allocation_kind === 'carry-forward').reduce((sum, row) => sum + Number(row.amount_cents || 0), 0);
-          return `<tr><td>${escapeHtml(bill.period.slice(0, 7))}</td><td>${escapeHtml(customerName(bill.customer_id))}</td><td>${formatMoney(bill.amount_due_cents)}</td><td>${formatMoney(receiptTotalForBill(rows, bill.id))}</td><td>${formatMoney(credit)}</td><td>${formatMoney(balance)}</td><td><span class="status-pill">${status}</span></td><td><button class="text-button" data-action="edit-bill" data-id="${escapeHtml(bill.id)}">Correct</button></td></tr>`;
+          return `<tr><td>${escapeHtml(bill.period.slice(0, 7))}</td><td>${escapeHtml(customerName(bill.customer_id))}</td><td>${formatMoney(bill.amount_due_cents)}</td><td>${formatMoney(receiptTotalForBill(rows, bill.id))}</td><td>${formatMoney(credit)}</td><td>${formatMoney(balance)}</td><td><span class="status-pill">${status}</span></td><td><button class="text-button" type="button" data-action="edit-bill" data-id="${escapeHtml(bill.id)}" aria-label="Correct bill for ${escapeHtml(customerName(bill.customer_id))}, ${escapeHtml(bill.period.slice(0, 7))}">Correct</button></td></tr>`;
         }).join('') || '<tr><td colspan="8" class="empty-cell">No bills recorded yet.</td></tr>'}</tbody></table></div>
       </section>
       <section class="panel data-panel"><div class="section-heading"><div><p class="eyebrow">Dated cash entries</p><h2>Receipts</h2></div><span class="muted">${receipts.length} actual receipts</span></div>
-        <div class="table-wrap"><table><thead><tr><th>Date</th><th>Customer</th><th>Method</th><th>Amount</th><th>Actions</th></tr></thead><tbody>${receipts.slice(0, 100).map((receipt) => `<tr><td>${escapeHtml(receipt.received_on)}</td><td>${escapeHtml(customerName(receipt.customer_id))}</td><td>${escapeHtml(receipt.method)}</td><td>${formatMoney(receipt.amount_cents)}</td><td><button class="text-button" data-action="edit-receipt" data-id="${escapeHtml(receipt.id)}">Edit</button><button class="text-button danger" data-action="delete-receipt" data-id="${escapeHtml(receipt.id)}">Delete</button></td></tr>`).join('') || '<tr><td colspan="5" class="empty-cell">No receipts recorded yet.</td></tr>'}</tbody></table></div>
+        <div class="table-wrap" role="region" tabindex="0" aria-label="Receipts table; scroll horizontally to view all columns"><table><caption class="sr-only">Actual cash receipts with date, customer, method, amount, and available actions.</caption><thead><tr><th scope="col">Date</th><th scope="col">Customer</th><th scope="col">Method</th><th scope="col">Amount</th><th scope="col">Actions</th></tr></thead><tbody>${receipts.slice(0, 100).map((receipt) => `<tr><td>${escapeHtml(receipt.received_on)}</td><td>${escapeHtml(customerName(receipt.customer_id))}</td><td>${escapeHtml(receipt.method)}</td><td>${formatMoney(receipt.amount_cents)}</td><td><button class="text-button" type="button" data-action="edit-receipt" data-id="${escapeHtml(receipt.id)}" aria-label="Edit receipt for ${escapeHtml(customerName(receipt.customer_id))}, dated ${escapeHtml(receipt.received_on)}">Edit</button><button class="text-button danger" type="button" data-action="delete-receipt" data-id="${escapeHtml(receipt.id)}" aria-label="Delete receipt for ${escapeHtml(customerName(receipt.customer_id))}, dated ${escapeHtml(receipt.received_on)}">Delete</button></td></tr>`).join('') || '<tr><td colspan="5" class="empty-cell">No receipts recorded yet.</td></tr>'}</tbody></table></div>
       </section>
       <section class="panel data-panel"><div class="section-heading"><div><p class="eyebrow">Customer-visible summaries</p><h2>Incidents</h2></div><span class="muted">${rows.incidents.length} records</span></div>
-        <div class="table-wrap"><table><thead><tr><th>Reported</th><th>Customer</th><th>Summary</th><th>Status</th></tr></thead><tbody>${rows.incidents.slice(0, 100).map((incident) => `<tr><td>${escapeHtml(String(incident.reported_at).slice(0, 10))}</td><td>${escapeHtml(incident.customer_id ? customerName(incident.customer_id) : 'Organization')}</td><td>${escapeHtml(incident.customer_visible_summary)}</td><td>${escapeHtml(incident.status)}</td></tr>`).join('') || '<tr><td colspan="4" class="empty-cell">No incident records yet.</td></tr>'}</tbody></table></div>
+        <div class="table-wrap" role="region" tabindex="0" aria-label="Incidents table; scroll horizontally to view all columns"><table><caption class="sr-only">Customer-visible incident summaries with report date and status.</caption><thead><tr><th scope="col">Reported</th><th scope="col">Customer</th><th scope="col">Summary</th><th scope="col">Status</th></tr></thead><tbody>${rows.incidents.slice(0, 100).map((incident) => `<tr><td>${escapeHtml(String(incident.reported_at).slice(0, 10))}</td><td>${escapeHtml(incident.customer_id ? customerName(incident.customer_id) : 'Organization')}</td><td>${escapeHtml(incident.customer_visible_summary)}</td><td>${escapeHtml(incident.status)}</td></tr>`).join('') || '<tr><td colspan="4" class="empty-cell">No incident records yet.</td></tr>'}</tbody></table></div>
         <p class="muted">Staff-only notes are stored in a separate RLS-protected table and are not sent to customer accounts.</p>
       </section>
       <dialog id="receipt-dialog" class="edit-dialog"><form id="receipt-edit-form" method="dialog"><div class="section-heading"><div><p class="eyebrow">Correction</p><h2>Edit receipt</h2></div><button class="icon-button" type="button" data-action="close-dialog" aria-label="Close">×</button></div><input type="hidden" name="receipt_id"><label>Original bill<select name="bill_id" required></select></label><label>Received on<input name="received_on" type="date" required></label><label>Actual amount (PKR)<input name="amount" inputmode="decimal" required></label><label>Method<input name="method" maxlength="40" required></label><div class="form-actions"><button class="button secondary" type="button" data-action="close-dialog">Cancel</button><button class="button primary" type="submit">Save correction</button></div></form></dialog>`;
@@ -466,7 +480,7 @@ if (!supabase) {
         });
         form.reset();
         setMessage(message, 'Customer saved.');
-        await refreshCurrentContext();
+        await refreshCurrentContext('Customer saved.');
       } catch (error) {
         setMessage(message, error.message || 'Customer could not be saved.', true);
       }
@@ -485,7 +499,7 @@ if (!supabase) {
           p_period: `${period}-01`,
         });
         setMessage(message, 'Bill snapshot saved. Existing monthly snapshots are not overwritten.');
-        await refreshCurrentContext();
+        await refreshCurrentContext('Bill snapshot saved.');
       } catch (error) {
         setMessage(message, error.message || 'Bill could not be created.', true);
       }
@@ -553,7 +567,7 @@ if (!supabase) {
         form.elements.amount.value = '';
         form.elements.method.value = '';
         setMessage(message, 'Receipt recorded. Carry-forward credit is shown separately, not as another payment.');
-        await refreshCurrentContext();
+        await refreshCurrentContext('Receipt recorded. Carry-forward credit remains separate.');
       } catch (error) {
         setMessage(message, `${error.message || 'Receipt could not be recorded.'} Retry the same receipt with its existing request ID; do not start a second cash entry until the first outcome is clear.`, true);
       }
@@ -572,7 +586,7 @@ if (!supabase) {
         const { error } = await supabase.from('bills').update({ amount_due_cents: amount })
           .eq('organization_id', context.organizationId).eq('id', bill.id);
         if (error) throw error;
-        await refreshCurrentContext();
+        await refreshCurrentContext('Bill correction saved.');
       } catch (error) {
         window.alert(error.message || 'Bill could not be corrected.');
       }
@@ -600,7 +614,7 @@ if (!supabase) {
           p_organization_id: context.organizationId,
           p_receipt_id: receipt.id,
         });
-        await refreshCurrentContext();
+        await refreshCurrentContext('Receipt deleted. Any dependent allocations were recalculated.');
       } catch (error) {
         window.alert(error.message || 'Receipt could not be deleted.');
       }
@@ -622,7 +636,7 @@ if (!supabase) {
           p_method: String(formData.get('method') ?? '').trim(),
         });
         portalPanel.querySelector('#receipt-dialog')?.close();
-        await refreshCurrentContext();
+        await refreshCurrentContext('Receipt correction saved.');
       } catch (error) {
         window.alert(error.message || 'Receipt correction could not be saved.');
       }
@@ -731,13 +745,13 @@ if (!supabase) {
         ? 'Receipt entries are hidden until the date range is corrected.'
         : 'No cash receipts match the selected month and receipt dates.';
 
-    results.innerHTML = `<p class="customer-history-count" role="status" aria-live="polite">${countMessage}</p>
+    results.innerHTML = `<p class="customer-history-count" role="${view.invalidDateRange ? 'alert' : 'status'}" aria-live="${view.invalidDateRange ? 'assertive' : 'polite'}" aria-atomic="true">${countMessage}</p>
       <section class="customer-history-block" aria-labelledby="customer-bills-title"><div class="section-heading"><div><p class="eyebrow">Monthly snapshots</p><h3 id="customer-bills-title">Bills</h3></div></div>
-        <div class="table-wrap"><table><thead><tr><th scope="col">Bill month / plan</th><th scope="col">Bill amount</th><th scope="col">Cash receipts linked to bill</th><th scope="col">Credit applied</th><th scope="col">Balance</th><th scope="col">Status</th></tr></thead><tbody>${billRows || `<tr><td colspan="6" class="empty-cell">${billEmpty}</td></tr>`}</tbody></table></div>
+        <div class="table-wrap" role="region" tabindex="0" aria-label="Bills table; scroll horizontally to view all columns"><table><caption class="sr-only">Monthly bill amounts, cash receipts, credit, balance, and status.</caption><thead><tr><th scope="col">Bill month / plan</th><th scope="col">Bill amount</th><th scope="col">Cash receipts linked to bill</th><th scope="col">Credit applied</th><th scope="col">Balance</th><th scope="col">Status</th></tr></thead><tbody>${billRows || `<tr><td colspan="6" class="empty-cell">${billEmpty}</td></tr>`}</tbody></table></div>
         <p class="muted">Bill balances use the complete allocation history. Actual receipts are counted once; carry-forward credit is separate. A bill without a recorded price has no calculated balance.</p>
       </section>
       <section class="customer-history-block" aria-labelledby="customer-receipts-title"><div class="section-heading"><div><p class="eyebrow">Actual cash entries</p><h3 id="customer-receipts-title">Receipts</h3></div><span class="muted">${view.receipts.length} shown</span></div>
-        <div class="table-wrap"><table><thead><tr><th scope="col">Received on</th><th scope="col">Method</th><th scope="col">Origin bill month</th><th scope="col">Amount received</th></tr></thead><tbody>${receiptRows || `<tr><td colspan="4" class="empty-cell">${receiptEmpty}</td></tr>`}</tbody></table></div>
+        <div class="table-wrap" role="region" tabindex="0" aria-label="Receipts table; scroll horizontally to view all columns"><table><caption class="sr-only">Actual cash receipts with received date, method, origin bill month, and amount.</caption><thead><tr><th scope="col">Received on</th><th scope="col">Method</th><th scope="col">Origin bill month</th><th scope="col">Amount received</th></tr></thead><tbody>${receiptRows || `<tr><td colspan="4" class="empty-cell">${receiptEmpty}</td></tr>`}</tbody></table></div>
         <p class="muted">Receipt date filters apply only to this actual-cash list; they do not change bill balances or credit totals.</p>
       </section>`;
   }
@@ -746,7 +760,7 @@ if (!supabase) {
     const rows = pageState.rows;
     const customer = rows.customers[0];
     if (!customer) {
-      portalPanel.innerHTML = `${shellHeader('Customer portal')}<section class="panel"><h2>Profile not found</h2><p>Ask the ISP administrator to review the account link.</p><button class="button secondary" data-action="sign-out">Sign out</button></section>`;
+      portalPanel.innerHTML = `${shellHeader('Customer portal')}<section class="panel" role="alert"><h2>Profile not found</h2><p>Ask the ISP administrator to review the account link.</p><button class="button secondary" data-action="sign-out">Sign out</button></section>`;
       wirePortalBase();
       return;
     }
@@ -804,14 +818,16 @@ if (!supabase) {
     });
   }
 
-  async function refreshCurrentContext() {
+  async function refreshCurrentContext(announcement = 'Portal data updated.') {
     if (!pageState.context) return;
     showPortalLoading();
     try {
       pageState.rows = await loadPortalRows(supabase, pageState.context);
       renderPortal();
+      portalPanel.querySelector('h1')?.focus();
+      announceApp(announcement);
     } catch (error) {
-      portalPanel.innerHTML = `<div class="panel"><h2>Refresh failed</h2><p class="error-text">${escapeHtml(error.message || 'The request failed.')}</p><button class="button secondary" data-action="sign-out">Sign out</button></div>`;
+      portalPanel.innerHTML = `<div class="panel" role="alert"><h2>Refresh failed</h2><p class="error-text">${escapeHtml(error.message || 'The request failed.')}</p><button class="button secondary" data-action="sign-out">Sign out</button></div>`;
       bindSharedActions();
     }
   }
