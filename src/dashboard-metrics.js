@@ -33,5 +33,5 @@ export function renderDashboardMetrics({ month, totals }) {
     { tone: 'outstanding', label: 'Outstanding', icon: 'outstanding', value: formatMoney(totals.outstandingCents), detail: `${formatMoney(totals.creditAppliedCents)} credit applied · not cash` },
   ];
 
-  return `<section class="metric-grid" aria-label="Monthly billing summary">${metrics.map(renderMetric).join('')}</section>`;
+  return `<section class="metric-grid admin-metrics" aria-label="Monthly billing summary">${metrics.map(renderMetric).join('')}</section>`;
 }
