@@ -222,13 +222,9 @@ if (!supabase) {
           </form><p class="form-message" id="bill-message" role="status"></p>
           <hr><p class="muted">One bill per customer/month. Existing snapshots are returned unchanged. Price corrections are recorded and recalculate derived balances.</p>
         </section>
-        <section class="panel"><p class="eyebrow">Customer access</p><h2>Invite customer portal</h2>
-          <form id="invite-form" class="stack">
-            <label for="invite-customer">Customer</label><select id="invite-customer" name="customer_id" required>${monthOptions}</select>
-            <label for="invite-email">Customer email</label><input id="invite-email" name="email" type="email" maxlength="254" required>
-            <button class="button secondary" type="submit">Send invitation</button>
-          </form><p class="form-message" id="invite-message" role="status"></p>
-          <p class="muted">The server checks the caller's organization-admin role. Customer-to-account links cannot be written from the browser.</p>
+        <section class="panel"><p class="eyebrow">Customer access</p><h2>Customer invitations unavailable</h2>
+          <p>Customer accounts cannot be invited yet. The invite-customer Supabase Edge Function must be deployed separately before this feature is available.</p>
+          <p class="muted">Customer-to-account links remain server-managed and cannot be written from the browser.</p>
         </section>
         <section class="panel"><p class="eyebrow">Cash ledger</p><h2>Record actual receipt</h2>
           <form id="receipt-form" class="form-grid">
@@ -513,7 +509,7 @@ if (!supabase) {
         },
       });
       if (error) throw error;
-      setMessage(loginMessage, 'If this address has an invited account, a sign-in link will arrive by email.');
+      setMessage(loginMessage, 'If this address has an invited account, a sign-in link has been requested. Email delivery is not confirmed by this page.');
     } catch (error) {
       setMessage(loginMessage, error.message || 'Sign-in link could not be sent.', true);
     } finally {
