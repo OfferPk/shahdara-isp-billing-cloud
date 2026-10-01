@@ -2,10 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-const [index, main, customerList, metrics, styles] = await Promise.all([
+const [index, main, customerList, adminBills, metrics, styles] = await Promise.all([
   readFile(new URL('../index.html', import.meta.url), 'utf8'),
   readFile(new URL('../src/main.js', import.meta.url), 'utf8'),
   readFile(new URL('../src/customer-list.js', import.meta.url), 'utf8'),
+  readFile(new URL('../src/admin-bills.js', import.meta.url), 'utf8'),
   readFile(new URL('../src/dashboard-metrics.js', import.meta.url), 'utf8'),
   readFile(new URL('../src/styles.css', import.meta.url), 'utf8'),
 ]);
@@ -43,7 +44,7 @@ test('portal route and data refreshes provide a focus destination and announce c
 
 test('all wide billing tables are named, keyboard-scrollable regions with captions and column headers', () => {
   const tableRegions = (source) => [...source.matchAll(/class="table-wrap" role="region" tabindex="0" aria-label="[^"]+"/g)].length;
-  assert.equal(tableRegions(main), 5, 'Admin and Customer portal tables have named keyboard-scroll regions');
+  assert.equal(tableRegions(main), 4, 'remaining Admin and Customer portal tables have named keyboard-scroll regions');
   assert.equal(tableRegions(customerList), 1, 'Admin customer-profile billing table has a named keyboard-scroll region');
   for (const [name, source] of [['portal', main], ['customer profile', customerList]]) {
     const tables = [...source.matchAll(/<table>([\s\S]*?)<\/table>/g)].map((match) => match[1]);
@@ -53,8 +54,10 @@ test('all wide billing tables are named, keyboard-scrollable regions with captio
       assert.match(table, /<th scope="col">/);
     }
   }
-  assert.match(main, /aria-label="Correct bill for \$\{escapeHtml\(customerName\(bill\.customer_id\)\)\}/);
+  assert.match(adminBills, /aria-label="Correct bill for \$\{customerName\}/);
   assert.match(main, /aria-label="Edit receipt for \$\{escapeHtml\(customerName\(receipt\.customer_id\)\)\}/);
+  assert.match(main, /aria-label="Filter bills by payment status"/);
+  assert.match(main, /aria-live="polite">Showing \$\{Math\.min\(filteredAdminBillRows\.length, 100\)\}/);
 });
 
 test('KPI detail text maintains WCAG AA contrast on the colorful Admin card tints', () => {

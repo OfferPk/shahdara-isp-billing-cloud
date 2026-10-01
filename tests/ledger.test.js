@@ -39,6 +39,8 @@ test('dashboard counts dated receipts once and never adds credit allocations to 
   assert.equal(summary.customerCount, 1);
   assert.equal(summary.activeCustomers, 1);
   assert.equal(summary.billedCents, 10000);
+  assert.equal(summary.pricedBillCount, 1);
+  assert.equal(summary.unpricedBillCount, 0);
   assert.equal(summary.cashReceivedCents, 2500);
   assert.equal(summary.receiptCount, 1);
   assert.equal(summary.creditAppliedCents, 10000);
@@ -53,6 +55,8 @@ test('a payment on an unpriced bill is still cash but creates no displayed bill 
     allocations: [],
   });
   assert.equal(summary.billedCents, 0);
+  assert.equal(summary.pricedBillCount, 0);
+  assert.equal(summary.unpricedBillCount, 1);
   assert.equal(summary.cashReceivedCents, 7000);
   assert.equal(summary.outstandingCents, 0);
 });

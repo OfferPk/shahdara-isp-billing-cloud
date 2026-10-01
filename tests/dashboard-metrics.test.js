@@ -9,6 +9,8 @@ function syntheticTotals(overrides = {}) {
     customerCount: 8,
     activeCustomers: 6,
     billedCents: 1250000,
+    pricedBillCount: 2,
+    unpricedBillCount: 0,
     cashReceivedCents: 780000,
     outstandingCents: 510000,
     creditAppliedCents: 90000,
@@ -18,18 +20,18 @@ function syntheticTotals(overrides = {}) {
   };
 }
 
-test('Admin KPI cards retain clear cash, credit, billing, and customer labels', () => {
+test('Admin KPI cards show billed, collected, and pending values with clear month and cash/credit definitions', () => {
   const markup = renderDashboardMetrics({ month: '2026-02', totals: syntheticTotals() });
 
   assert.match(markup, /<section class="metric-grid admin-metrics" aria-label="Monthly billing summary">/);
-  assert.equal((markup.match(/<article class="metric metric--/g) ?? []).length, 4);
-  assert.match(markup, /Customers/);
-  assert.match(markup, /2026-02 billed/);
-  assert.match(markup, /Cash received/);
-  assert.match(markup, /Outstanding/);
-  assert.match(markup, /<h2 class="metric__label">Customers<\/h2>/);
-  assert.match(markup, /12 receipts by actual date/);
-  assert.match(markup, /credit applied · not cash/);
+  assert.equal((markup.match(/<article class="metric metric--/g) ?? []).length, 3);
+  assert.match(markup, /Total Billed · 2026-02/);
+  assert.match(markup, /Collected · 2026-02/);
+  assert.match(markup, /Pending · 2026-02/);
+  assert.match(markup, /12 actual receipts by received date; no credit/);
+  assert.match(markup, /credit applied separately/);
+  assert.match(markup, /2 priced bills; 0 unpriced excluded/);
+  assert.doesNotMatch(markup, /Customers|active/);
   assert.match(markup, new RegExp(formatMoney(1250000).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   assert.match(markup, /aria-hidden="true"/);
 });
@@ -44,7 +46,7 @@ test('Admin KPI renderer escapes month text and ignores private or unknown prope
     }),
   });
 
-  assert.match(markup, /2026-02&lt;img src=x&gt; billed/);
+  assert.match(markup, /Total Billed · 2026-02&lt;img src=x&gt;/);
   assert.doesNotMatch(markup, /<img/);
   assert.doesNotMatch(markup, /03XXXXXXXXX|synthetic private address|Synthetic Name/);
 });

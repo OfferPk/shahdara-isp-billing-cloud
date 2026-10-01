@@ -60,6 +60,7 @@ export function calculateDashboard({ month, customers = [], bills = [], receipts
   }
 
   const pricedBills = monthBills.filter((row) => row.amount_due_cents !== null && row.amount_due_cents !== undefined);
+  const unpricedBillCount = monthBills.length - pricedBills.length;
   const billedCents = pricedBills.reduce((sum, row) => sum + Number(row.amount_due_cents || 0), 0);
   const outstandingCents = pricedBills.reduce((sum, row) => {
     const key = `${row.organization_id ?? ''}:${row.id}`;
@@ -74,6 +75,8 @@ export function calculateDashboard({ month, customers = [], bills = [], receipts
     activeCustomers: safeCustomers.filter((row) => !row.archived && row.service_status === 'active').length,
     customerCount: safeCustomers.length,
     billedCents,
+    pricedBillCount: pricedBills.length,
+    unpricedBillCount,
     cashReceivedCents,
     outstandingCents,
     creditAppliedCents,

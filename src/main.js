@@ -18,6 +18,13 @@ import {
   getCustomerBillingMonths,
   summarizeCustomerBill,
 } from './customer-portal.js';
+import {
+  buildAdminBillRows,
+  countAdminBillFilters,
+  filterAdminBillRows,
+  renderAdminBillCards,
+  renderPrintableReceiptHtml,
+} from './admin-bills.js';
 import './styles.css';
 
 const app = document.querySelector('#app');
@@ -43,6 +50,8 @@ if (!supabase) {
     customerListStatus: 'all',
     customerListArea: '',
     customerAreaOpen: false,
+    billSearch: '',
+    billStatus: 'all',
     customerBillingMonth: '',
     customerReceiptFrom: '',
     customerReceiptThrough: '',
@@ -130,6 +139,8 @@ if (!supabase) {
       pageState.customerListStatus = 'all';
       pageState.customerListArea = '';
       pageState.customerAreaOpen = false;
+      pageState.billSearch = '';
+      pageState.billStatus = 'all';
     }
     if (pageState.context?.organizationId !== context.organizationId
       || pageState.context?.kind !== context.kind
@@ -292,24 +303,86 @@ if (!supabase) {
     content.querySelector('[data-action="close-customer-profile"]')?.focus();
   }
 
-  function openReceiptFormForCustomer(row) {
-    const bill = row?.paymentBill ?? row?.bill;
-    if (!bill || row.billing.status !== 'unpaid' || row.billing.balanceCents == null || row.billing.balanceCents <= 0) return;
+  function currentAdminBillRows() {
+    if (!pageState.rows || pageState.context?.kind !== 'admin') return [];
+    return buildAdminBillRows({
+      customers: pageState.rows.customers,
+      bills: pageState.rows.bills,
+      receipts: pageState.rows.receipts,
+      allocations: pageState.rows.allocations,
+      privateDetails: pageState.rows.privateCustomerDetails,
+      today: localDate(),
+    });
+  }
+
+  function updateAdminBillResults() {
+    const billRows = currentAdminBillRows();
+    const filteredRows = filterAdminBillRows(billRows, { search: pageState.billSearch, status: pageState.billStatus });
+    const counts = countAdminBillFilters(billRows, { search: pageState.billSearch });
+    const grid = portalPanel.querySelector('#admin-bill-card-grid');
+    const count = portalPanel.querySelector('#admin-bill-count');
+    if (grid) grid.innerHTML = renderAdminBillCards(filteredRows, formatMoney);
+    if (count) count.textContent = `Showing ${Math.min(filteredRows.length, 100)} of ${filteredRows.length} matching bills; ${billRows.length} total records.`;
+    for (const button of portalPanel.querySelectorAll('[data-bill-status]')) {
+      const status = button.dataset.billStatus;
+      const selected = status === pageState.billStatus;
+      const label = status === 'unpaid' ? 'Unpaid' : status === 'paid' ? 'Paid' : 'All';
+      button.textContent = `${label} (${counts[status] ?? 0})`;
+      button.setAttribute('aria-pressed', String(selected));
+      button.classList.toggle('is-active', selected);
+    }
+  }
+
+  function openReceiptFormForBill(billRow) {
+    if (!billRow || billRow.status !== 'unpaid' || billRow.balanceCents == null || billRow.balanceCents <= 0) return false;
+    const bill = billRow.bill;
     const form = portalPanel.querySelector('#receipt-form');
     const customerSelect = portalPanel.querySelector('#receipt-customer');
     const billSelect = portalPanel.querySelector('#receipt-bill');
-    if (!form || !customerSelect || !billSelect) return;
-    customerSelect.value = row.customer.id;
-    populateReceiptBills(row.customer.id);
+    if (!form || !customerSelect || !billSelect) return false;
+    customerSelect.value = bill.customer_id;
+    populateReceiptBills(bill.customer_id);
     billSelect.value = bill.id;
-    if (billSelect.value !== bill.id) return;
+    if (billSelect.value !== bill.id) return false;
     form.elements.received_on.value = localDate();
-    form.elements.amount.value = (row.billing.balanceCents / 100).toFixed(2);
+    form.elements.amount.value = (billRow.balanceCents / 100).toFixed(2);
     form.elements.method.value = '';
     setMessage(portalPanel.querySelector('#receipt-message'), 'Review the actual received date and payment method, then submit the receipt. Nothing has been recorded yet.');
     const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     form.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'center' });
     form.elements.received_on.focus({ preventScroll: true });
+    return true;
+  }
+
+  function openReceiptFormForCustomer(row) {
+    const bill = row?.paymentBill ?? row?.bill;
+    if (!bill || row?.billing?.status !== 'unpaid' || row.billing.balanceCents == null || row.billing.balanceCents <= 0) return;
+    const billRow = currentAdminBillRows().find((entry) => entry.bill.id === bill.id);
+    openReceiptFormForBill(billRow);
+  }
+
+  function printExistingReceipt(receiptId) {
+    const receipt = pageState.rows?.receipts.find((row) => row.id === receiptId);
+    if (!receipt) return;
+    const customer = pageState.rows.customers.find((row) => row.id === receipt.customer_id);
+    const bill = pageState.rows.bills.find((row) => row.id === receipt.origin_bill_id && row.customer_id === receipt.customer_id);
+    const printWindow = window.open('', '_blank', 'popup,width=760,height=900');
+    if (!printWindow) {
+      window.alert('Allow the print window to open, then choose Print or Save as PDF.');
+      return;
+    }
+    printWindow.document.open();
+    printWindow.document.write(renderPrintableReceiptHtml({
+      receipt,
+      customer,
+      bill,
+      organizationName: pageState.context.organizationName,
+      formatMoney,
+    }));
+    printWindow.document.close();
+    printWindow.opener = null;
+    printWindow.focus();
+    window.setTimeout(() => printWindow.print(), 150);
   }
 
   function renderAdmin() {
@@ -325,6 +398,16 @@ if (!supabase) {
     const customers = [...rows.customers].sort((a, b) => a.customer_number - b.customer_number);
     const bills = [...rows.bills].sort((a, b) => String(b.period).localeCompare(String(a.period)));
     const receipts = [...rows.receipts].sort((a, b) => String(b.received_on).localeCompare(String(a.received_on)));
+    const adminBillRows = buildAdminBillRows({
+      customers,
+      bills: rows.bills,
+      receipts: rows.receipts,
+      allocations: rows.allocations,
+      privateDetails: rows.privateCustomerDetails,
+      today: localDate(),
+    });
+    const billCounts = countAdminBillFilters(adminBillRows, { search: pageState.billSearch });
+    const filteredAdminBillRows = filterAdminBillRows(adminBillRows, { search: pageState.billSearch, status: pageState.billStatus });
     const customerListRows = buildCustomerListRows({
       customers,
       bills: rows.bills,
@@ -407,14 +490,16 @@ if (!supabase) {
         <dialog id="customer-profile-dialog" class="edit-dialog customer-profile-dialog" aria-labelledby="customer-profile-title"><div id="customer-profile-content"></div></dialog>
       </section>
       <button class="customer-fab" type="button" data-action="open-add-customer" aria-label="Add customer" title="Add customer"><span aria-hidden="true">+</span></button>
-      <section class="panel data-panel"><div class="section-heading"><div><p class="eyebrow">Monthly snapshots</p><h2>Bills</h2></div><span class="muted">${bills.length} records</span></div>
-        <div class="table-wrap" role="region" tabindex="0" aria-label="Bills table; scroll horizontally to view all columns"><table><caption class="sr-only">Monthly bills, receipts, credits, balances, status, and available actions.</caption><thead><tr><th scope="col">Month</th><th scope="col">Customer</th><th scope="col">Bill</th><th scope="col">Receipts</th><th scope="col">Credit applied</th><th scope="col">Balance</th><th scope="col">Status</th><th scope="col">Actions</th></tr></thead><tbody>${bills.slice(0, 100).map((bill) => {
-          const applied = allocationTotals(rows, bill.id);
-          const balance = bill.amount_due_cents == null ? null : Math.max(0, Number(bill.amount_due_cents) - applied);
-          const status = bill.amount_due_cents == null ? 'Not set' : balance === 0 ? 'Paid' : applied > 0 ? 'Partial' : 'Pending';
-          const credit = rows.allocations.filter((row) => row.bill_id === bill.id && row.allocation_kind === 'carry-forward').reduce((sum, row) => sum + Number(row.amount_cents || 0), 0);
-          return `<tr><td>${escapeHtml(bill.period.slice(0, 7))}</td><td>${escapeHtml(customerName(bill.customer_id))}</td><td>${formatMoney(bill.amount_due_cents)}</td><td>${formatMoney(receiptTotalForBill(rows, bill.id))}</td><td>${formatMoney(credit)}</td><td>${formatMoney(balance)}</td><td><span class="status-pill">${status}</span></td><td><button class="text-button" type="button" data-action="edit-bill" data-id="${escapeHtml(bill.id)}" aria-label="Correct bill for ${escapeHtml(customerName(bill.customer_id))}, ${escapeHtml(bill.period.slice(0, 7))}">Correct</button></td></tr>`;
-        }).join('') || '<tr><td colspan="8" class="empty-cell">No bills recorded yet.</td></tr>'}</tbody></table></div>
+      <section id="admin-bills" class="panel data-panel admin-bills-panel" aria-labelledby="admin-bills-title"><div class="section-heading"><div><p class="eyebrow">Monthly snapshots</p><h2 id="admin-bills-title">Bills</h2></div><span class="muted">${bills.length} records</span></div>
+        <div class="bill-list-search"><label for="admin-bill-search">Search bills by customer name or Admin phone</label><input id="admin-bill-search" type="search" autocomplete="off" value="${escapeHtml(pageState.billSearch)}" placeholder="Search customer name or phone"><p class="muted">Phone lookup uses only the Admin-authorized private phone record.</p></div>
+        <div class="bill-list-filters" role="group" aria-label="Filter bills by payment status">
+          <button class="bill-filter-pill ${pageState.billStatus === 'all' ? 'is-active' : ''}" type="button" data-bill-status="all" aria-pressed="${pageState.billStatus === 'all'}">All (${billCounts.all})</button>
+          <button class="bill-filter-pill ${pageState.billStatus === 'unpaid' ? 'is-active' : ''}" type="button" data-bill-status="unpaid" aria-pressed="${pageState.billStatus === 'unpaid'}">Unpaid (${billCounts.unpaid})</button>
+          <button class="bill-filter-pill ${pageState.billStatus === 'paid' ? 'is-active' : ''}" type="button" data-bill-status="paid" aria-pressed="${pageState.billStatus === 'paid'}">Paid (${billCounts.paid})</button>
+        </div>
+        <p id="admin-bill-count" class="bill-list-count" role="status" aria-live="polite">Showing ${Math.min(filteredAdminBillRows.length, 100)} of ${filteredAdminBillRows.length} matching bills; ${adminBillRows.length} total records.</p>
+        <div id="admin-bill-card-grid" class="bill-card-grid">${renderAdminBillCards(filteredAdminBillRows, formatMoney)}</div>
+        <p class="muted">Summary cards above use the selected dashboard month: billed and pending follow bill periods, while collected follows actual receipt dates. Carry-forward credit reduces pending balances but is never counted as cash. WhatsApp opens a draft only; receipts can be printed only from existing receipt records.</p>
       </section>
       <section class="panel data-panel"><div class="section-heading"><div><p class="eyebrow">Dated cash entries</p><h2>Receipts</h2></div><span class="muted">${receipts.length} actual receipts</span></div>
         <div class="table-wrap" role="region" tabindex="0" aria-label="Receipts table; scroll horizontally to view all columns"><table><caption class="sr-only">Actual cash receipts with date, customer, method, amount, and available actions.</caption><thead><tr><th scope="col">Date</th><th scope="col">Customer</th><th scope="col">Method</th><th scope="col">Amount</th><th scope="col">Actions</th></tr></thead><tbody>${receipts.slice(0, 100).map((receipt) => `<tr><td>${escapeHtml(receipt.received_on)}</td><td>${escapeHtml(customerName(receipt.customer_id))}</td><td>${escapeHtml(receipt.method)}</td><td>${formatMoney(receipt.amount_cents)}</td><td><button class="text-button" type="button" data-action="edit-receipt" data-id="${escapeHtml(receipt.id)}" aria-label="Edit receipt for ${escapeHtml(customerName(receipt.customer_id))}, dated ${escapeHtml(receipt.received_on)}">Edit</button><button class="text-button danger" type="button" data-action="delete-receipt" data-id="${escapeHtml(receipt.id)}" aria-label="Delete receipt for ${escapeHtml(customerName(receipt.customer_id))}, dated ${escapeHtml(receipt.received_on)}">Delete</button></td></tr>`).join('') || '<tr><td colspan="5" class="empty-cell">No receipts recorded yet.</td></tr>'}</tbody></table></div>
@@ -433,6 +518,7 @@ if (!supabase) {
     portalPanel.querySelector('#receipt-customer')?.addEventListener('change', (event) => populateReceiptBills(event.target.value));
     bindAdminForms(context);
     bindAdminActions(context);
+    bindAdminBillActions(context);
     bindCustomerListActions(context);
     populateReceiptBills(portalPanel.querySelector('#receipt-customer')?.value);
   }
@@ -639,6 +725,34 @@ if (!supabase) {
         await refreshCurrentContext('Receipt correction saved.');
       } catch (error) {
         window.alert(error.message || 'Receipt correction could not be saved.');
+      }
+    });
+  }
+
+  function bindAdminBillActions(context) {
+    if (context.kind !== 'admin') return;
+    const billRoot = portalPanel.querySelector('#admin-bills');
+    billRoot?.addEventListener('input', (event) => {
+      if (event.target.id !== 'admin-bill-search') return;
+      pageState.billSearch = event.target.value;
+      updateAdminBillResults();
+    });
+    billRoot?.addEventListener('click', (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (!target) return;
+      const filterButton = target.closest('[data-bill-status]');
+      if (filterButton) {
+        pageState.billStatus = filterButton.dataset.billStatus;
+        updateAdminBillResults();
+        return;
+      }
+      const action = target.closest('[data-action]');
+      if (!action) return;
+      if (action.dataset.action === 'collect-bill') {
+        const billRow = currentAdminBillRows().find((row) => row.bill.id === action.dataset.id);
+        openReceiptFormForBill(billRow);
+      } else if (action.dataset.action === 'print-receipt') {
+        printExistingReceipt(action.dataset.id);
       }
     });
   }
