@@ -32,11 +32,11 @@
             <button class="button primary" type="submit">Email me a secure sign-in link</button>
           </form>
           <p class="form-message" id="login-message" role="status"></p>
-          <p class="muted">Customer invitations are unavailable until the invite-customer Edge Function is separately deployed.</p>
+          <p class="muted">A Shahdara administrator can request a customer portal invitation. This page cannot confirm email delivery.</p>
         </section>
         <section class="panel portal-panel" id="portal-panel" hidden></section>
       </main>
-      <footer class="site-footer">Private customer and billing records are protected by Supabase Auth and database row-level security. The first-owner invitation is awaiting acceptance; customer invitations require the separately deployed invite-customer Edge Function.</footer>
+      <footer class="site-footer">Private customer and billing records are protected by Supabase Auth and database row-level security. The first-owner invitation is awaiting acceptance. Customer invitations are managed by the server-side invite-customer function; email delivery is not confirmed here.</footer>
     </div>
     <script type="module" src="/src/main.js"></script>
   </body>

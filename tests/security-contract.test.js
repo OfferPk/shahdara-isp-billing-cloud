@@ -92,13 +92,20 @@ test('admin cross-organization pgTAP assertion runs as authenticated', async () 
 });
 
 test('customer invitations verify the caller JWT, enforce exact origin, and check organization admin membership', async () => {
-  const edgeFunction = await readFile(resolve(root, 'supabase/functions/invite-customer/index.ts'), 'utf8');
+  const edgeFunction = await readFile(resolve(root, 'supabase/functions/invite-customer/handler.js'), 'utf8');
+  const entrypoint = await readFile(resolve(root, 'supabase/functions/invite-customer/index.ts'), 'utf8');
+  const functionConfig = await readFile(resolve(root, 'supabase/config.toml'), 'utf8');
   assert.match(edgeFunction, /requestOrigin !== appOrigin/);
+  assert.match(edgeFunction, /APP_ORIGIN/);
+  assert.match(edgeFunction, /APP_REDIRECT_URL/);
   assert.match(edgeFunction, /auth\.getUser\(bearerToken\)/);
   assert.match(edgeFunction, /organization_memberships/);
   assert.match(edgeFunction, /\['owner', 'admin'\]/);
   assert.match(edgeFunction, /customer_portal_accounts/);
   assert.match(edgeFunction, /SUPABASE_SERVICE_ROLE_KEY/);
+  assert.match(edgeFunction, /redirectTo: appRedirectUrl/);
+  assert.match(entrypoint, /Deno\.serve\(createInviteHandler/);
+  assert.match(functionConfig, /\[functions\.invite-customer\]\s+verify_jwt\s*=\s*true/i);
 });
 
 test('customer phone creation is atomic, server-authorized, and writes only to private details', async () => {
@@ -126,5 +133,5 @@ test('customer portal queries and rendering never select or expose customer phon
   assert.ok(customerSelection, 'customer portal selection is explicit');
   assert.doesNotMatch(customerSelection, /phone/i);
   assert.doesNotMatch(portalData, /customer_private_details/i);
-  assert.doesNotMatch(customerPortal, /phone/i);
+  assert.doesNotMatch(customerPortal, /phone|email|staff_notes|created_by|recorded_by/i);
 });

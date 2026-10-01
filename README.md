@@ -12,7 +12,9 @@ The isolated non-production project has the cloud schema and price-history trigg
 
 The owner must accept the invitation first, then use the invited email address on the sign-in page to request a secure email magic link. Self-service sign-up remains disabled. No customer records or other customer/business billing data have been entered. The corrective SQL review patch has already been applied; do not reapply it.
 
-Customer invitations are unavailable until the `invite-customer` Supabase Edge Function is separately deployed. This repository deployment does not deploy that function, create Auth users, send invitations, apply database changes, or change Supabase Auth settings. Do not weaken RLS or use anonymous access as a bootstrap shortcut.
+Customer invitations are handled by the separately deployed `invite-customer` Edge Function in the approved non-production project. Gateway JWT verification is enabled; the function also validates the exact browser Origin, verifies the caller, checks owner/admin membership in the requested organization, confirms the customer exists there, and refuses existing customer links. `APP_ORIGIN` and `APP_REDIRECT_URL` are server-only URL settings; the function uses Supabase's hosted server-side `SUPABASE_SERVICE_ROLE_KEY` and does not store that key in this repository, the browser, or Actions. A successful response means the Auth invitation request was accepted and the account link was created; it does not confirm email delivery. If linking cannot be confirmed, the response tells the administrator not to retry until the invitation and link are reviewed. No customer invitation email was sent while testing this release.
+
+The Pages workflow builds and deploys only the browser `dist/` artifact; it does not deploy the Edge Function, create Auth users, send invitations, or apply database changes. No schema or data migration was needed for this release. Do not weaken RLS or use anonymous access as a bootstrap shortcut.
 
 ## Local development and tests
 
@@ -27,6 +29,6 @@ npm run build
 npm run dev
 ```
 
-`.env.local` is ignored by Git. `npm test` covers synthetic ledger behavior, static security contracts, Supabase client configuration and query adapters, and the price-history trigger correction. It does not run pgTAP; the isolated-project review run is already complete. A local `supabase test db` run requires the Supabase CLI and Docker.
+`.env.local` is ignored by Git. `npm test` covers synthetic ledger behavior, invitation authorization/CORS/validation/linking behavior using mocked clients, static security contracts, Supabase client configuration and query adapters, and the price-history trigger correction. It does not run pgTAP; the isolated-project review run is already complete. A local `supabase test db` run requires the Supabase CLI and Docker.
 
 This remains a review edition, not a production-ready replacement or full offline-parity port. It has no offline sync/outbox, conflict workflow, multi-organization chooser, invitation recovery, operational monitoring, rate-limit review, or independent penetration test. Keep the original offline app authoritative until the owner has accepted the invitation and confirmed access, integration review, and a reconciliation rehearsal are complete.

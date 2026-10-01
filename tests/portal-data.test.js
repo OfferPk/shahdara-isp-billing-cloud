@@ -85,6 +85,24 @@ test('portal row reads scope customer data and preserve safe paging', async () =
   assert.ok(client.calls.find((query) => query.table === 'bills').filters.some((filter) => filter[1] === 'customer_id' && filter[2] === 'synthetic-customer'));
 });
 
+test('customer profile query selects only approved public profile fields', async () => {
+  const client = mockClient({
+    customers: { data: [{ id: 'synthetic-customer' }], error: null },
+    bills: { data: [], error: null },
+    receipts: { data: [], error: null },
+    receipt_allocations: { data: [], error: null },
+    incidents: { data: [], error: null },
+  });
+  await loadPortalRows(client, {
+    kind: 'customer', organizationId: 'synthetic-org', customerId: 'synthetic-customer',
+  });
+
+  const profileQuery = client.calls.find((query) => query.table === 'customers');
+  assert.deepEqual(profileQuery.selects, ['id, customer_number, name, plan_name, service_address, service_status, monthly_fee_cents, archived']);
+  assert.doesNotMatch(profileQuery.selects.join(' '), /phone|staff_notes|created_by|recorded_by|email/i);
+  assert.ok(profileQuery.filters.some((filter) => filter[1] === 'id' && filter[2] === 'synthetic-customer'));
+});
+
 test('query and receipt RPC errors are propagated to the UI', async () => {
   const queryError = new Error('synthetic RLS denial');
   const readClient = mockClient({ organization_memberships: { data: null, error: queryError } });
