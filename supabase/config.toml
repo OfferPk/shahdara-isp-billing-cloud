@@ -1,0 +1,15 @@
+project_id = "shahdara-cloud-review"
+
+[api]
+enabled = true
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[auth]
+enabled = true
+site_url = "http://localhost:4173"
+additional_redirect_urls = ["http://127.0.0.1:4173/**", "http://localhost:4173/**"]
+
+[functions.invite-customer]
+verify_jwt = true

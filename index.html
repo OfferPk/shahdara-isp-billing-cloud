@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#123c35" />
+    <meta name="description" content="Private Shahdara ISP cloud billing portal." />
+    <title>Shahdara Fiber Net · Cloud Portal</title>
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="site-header">
+        <a class="brand" href="./" aria-label="Shahdara Fiber Net cloud portal home">
+          <span class="brand-mark" aria-hidden="true">SF</span>
+          <span><strong>Shahdara Fiber Net</strong><small>Cloud billing portal</small></span>
+        </a>
+        <span class="environment-tag">Isolated review edition</span>
+      </header>
+      <main id="app" aria-live="polite">
+        <section class="panel config-panel" id="configuration-message" hidden>
+          <p class="eyebrow">Setup pending</p>
+          <h1>Connect an approved Supabase project</h1>
+          <p>This isolated portal has no project credentials configured. Copy <code>.env.example</code> to <code>.env.local</code> and enter only the approved project URL and publishable/anon key. No database connection is attempted until both are present.</p>
+        </section>
+        <section class="panel auth-panel" id="auth-panel" hidden>
+          <p class="eyebrow">Private sign-in</p>
+          <h1>Sign in to your account</h1>
+          <p>Use the email address invited by the ISP administrator. New self-service account creation is disabled.</p>
+          <form id="login-form" class="stack">
+            <label for="login-email">Email address</label>
+            <input id="login-email" name="email" type="email" autocomplete="email" required maxlength="254" />
+            <button class="button primary" type="submit">Email me a secure sign-in link</button>
+          </form>
+          <p class="form-message" id="login-message" role="status"></p>
+          <p class="muted">Initial administrator and organization membership setup is still pending for this non-production project. No account can access portal data until the owner provisions it.</p>
+        </section>
+        <section class="panel portal-panel" id="portal-panel" hidden></section>
+      </main>
+      <footer class="site-footer">Private customer and billing records are protected by Supabase Auth and database row-level security. This isolated non-production project has no owner account or membership provisioned yet.</footer>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+  </html>

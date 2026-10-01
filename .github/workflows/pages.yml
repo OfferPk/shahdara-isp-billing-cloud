@@ -1,0 +1,63 @@
+name: Publish cloud portal to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    env:
+      VITE_SUPABASE_URL: https://qkdsuvmlutkatcqoewkh.supabase.co
+      VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
+    steps:
+      - name: Check out cloud portal
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+      - name: Install dependencies
+        run: npm ci
+      - name: Validate public Supabase configuration
+        run: |
+          node --input-type=module <<'NODE'
+          import { getSupabasePublicConfig } from './src/supabase-client.js';
+          const config = getSupabasePublicConfig({
+            VITE_SUPABASE_URL: process.env.VITE_SUPABASE_URL,
+            VITE_SUPABASE_PUBLISHABLE_KEY: process.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+          });
+          if (!config || config.url !== process.env.VITE_SUPABASE_URL) {
+            console.error('The approved Supabase URL and a valid public publishable/anon key are required.');
+            process.exit(1);
+          }
+          NODE
+      - name: Run cloud portal tests
+        run: npm test
+      - name: Build cloud portal
+        run: npm run build
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
