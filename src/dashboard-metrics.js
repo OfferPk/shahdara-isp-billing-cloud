@@ -19,7 +19,7 @@ function escapeHtml(value) {
 
 function renderMetric({ tone, label, icon, value, detail }) {
   return `<article class="metric metric--${tone}">
-    <div class="metric__top"><span class="metric__label">${escapeHtml(label)}</span><span class="metric__icon" aria-hidden="true">${icons[icon]}</span></div>
+    <div class="metric__top"><h2 class="metric__label">${escapeHtml(label)}</h2><span class="metric__icon" aria-hidden="true">${icons[icon]}</span></div>
     <strong>${escapeHtml(value)}</strong>
     <small>${escapeHtml(detail)}</small>
   </article>`;

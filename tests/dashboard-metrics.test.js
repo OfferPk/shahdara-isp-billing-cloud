@@ -27,6 +27,7 @@ test('Admin KPI cards retain clear cash, credit, billing, and customer labels', 
   assert.match(markup, /2026-02 billed/);
   assert.match(markup, /Cash received/);
   assert.match(markup, /Outstanding/);
+  assert.match(markup, /<h2 class="metric__label">Customers<\/h2>/);
   assert.match(markup, /12 receipts by actual date/);
   assert.match(markup, /credit applied · not cash/);
   assert.match(markup, new RegExp(formatMoney(1250000).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));

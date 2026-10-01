@@ -8,6 +8,7 @@
     <title>Shahdara Fiber Net · Cloud Portal</title>
   </head>
   <body>
+    <a class="skip-link" href="#app">Skip to main content</a>
     <div class="app-shell">
       <header class="site-header">
         <a class="brand" href="./" aria-label="Shahdara Fiber Net cloud portal home">
@@ -16,7 +17,8 @@
         </a>
         <span class="environment-tag">Isolated review edition</span>
       </header>
-      <main id="app" aria-live="polite">
+      <main id="app" tabindex="-1">
+        <p id="app-announcement" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></p>
         <section class="panel config-panel" id="configuration-message" hidden>
           <p class="eyebrow">Setup pending</p>
           <h1>Connect an approved Supabase project</h1>

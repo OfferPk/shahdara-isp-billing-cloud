@@ -158,11 +158,9 @@ export function renderCustomerCards(rows, formatMoney) {
       ? 'no Admin phone is recorded'
       : (!links.whatsapp ? 'the Admin phone is not a supported Pakistan mobile' : 'the account has no unpaid balance');
     return `<article class="customer-card">
-      <button class="customer-card__open" type="button" data-action="open-customer-profile" data-customer-id="${id}" aria-label="Open profile and billing history for ${name}, account ${accountNumber}">
-        <span class="customer-card__top"><span><span class="customer-card__name">${name}</span><span class="customer-card__account">Account #${accountNumber}</span></span><span class="status-pill customer-card__service-status">${escapeHtml(serviceStatus)}</span></span>
-        <span class="customer-card__badges"><span class="status-pill customer-card__billing-status customer-card__billing-status--${escapeHtml(billing.status)}">${escapeHtml(statusLabel)}</span><span class="customer-card__due">${escapeHtml(dueLabel)}</span></span>
-        <span class="customer-card__details"><span><span class="customer-card__label">Balance</span><strong>${escapeHtml(balance)}</strong></span><span><span class="customer-card__label">Package</span><strong>${escapeHtml(plan)}</strong></span></span>
-      </button>
+      <div class="customer-card__top"><button class="customer-card__open" type="button" data-action="open-customer-profile" data-customer-id="${id}" aria-label="Open profile and billing history for ${name}, account ${accountNumber}"><span class="customer-card__name">${name}</span><span class="customer-card__account">Account #${accountNumber}</span></button><span class="status-pill customer-card__service-status">${escapeHtml(serviceStatus)}</span></div>
+      <div class="customer-card__badges"><span class="status-pill customer-card__billing-status customer-card__billing-status--${escapeHtml(billing.status)}">${escapeHtml(statusLabel)}</span><span class="customer-card__due">${escapeHtml(dueLabel)}</span></div>
+      <dl class="customer-card__details"><div><dt class="customer-card__label">Balance</dt><dd>${escapeHtml(balance)}</dd></div><div><dt class="customer-card__label">Package</dt><dd>${escapeHtml(plan)}</dd></div></dl>
       <div class="customer-card__quick-actions" role="group" aria-label="Quick actions for ${name}">
         ${links.tel
           ? `<a class="customer-action" href="${escapeHtml(links.tel)}" aria-label="Call ${name}">Call</a>`
@@ -215,7 +213,7 @@ export function renderCustomerProfile(row, { bills = [], receipts = [], allocati
       <div class="profile-field profile-field--wide"><span>Service address</span><strong>${escapeHtml(area || 'Service address not recorded')}</strong></div>
       <div class="profile-field profile-field--wide"><span>Admin-only phone</span><strong>${phoneMarkup}</strong></div>
     </div>
-    <section class="customer-profile-history"><h3>Billing history</h3><div class="table-wrap"><table><thead><tr><th>Period / due</th><th>Bill</th><th>Cash received</th><th>Credit applied</th><th>Balance</th><th>Status</th></tr></thead><tbody>${billHistory || '<tr><td colspan="6" class="empty-cell">No bills recorded yet.</td></tr>'}</tbody></table></div><p class="muted">Cash is counted only from actual receipts; allocations and carry-forward credits reduce balances but are not additional payments.</p></section>
+    <section class="customer-profile-history"><h3>Billing history</h3><div class="table-wrap" role="region" tabindex="0" aria-label="Customer billing history table; scroll horizontally to view all columns"><table><caption class="sr-only">Monthly bills and their cash receipts, credit, balance, and status.</caption><thead><tr><th scope="col">Period / due</th><th scope="col">Bill</th><th scope="col">Cash received</th><th scope="col">Credit applied</th><th scope="col">Balance</th><th scope="col">Status</th></tr></thead><tbody>${billHistory || '<tr><td colspan="6" class="empty-cell">No bills recorded yet.</td></tr>'}</tbody></table></div><p class="muted">Cash is counted only from actual receipts; allocations and carry-forward credits reduce balances but are not additional payments.</p></section>
     <section class="customer-profile-history"><h3>Receipt history</h3><ul class="customer-receipt-list">${customerReceipts || '<li class="customer-receipt-list__empty">No receipts recorded yet.</li>'}</ul></section>
   </div>`;
 }

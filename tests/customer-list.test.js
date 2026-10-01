@@ -171,6 +171,18 @@ test('customer card rendering escapes untrusted profile values and disables rece
   assert.match(markup, /data-action="mark-as-paid"[^>]*disabled/);
 });
 
+test('customer card profile button does not mask visible status, balance, and package details', () => {
+  const row = rowsForTests().find((entry) => entry.customer.id === 'synthetic-a');
+  const markup = renderCustomerCards([row], (cents) => `PKR ${cents}`);
+  const profileButton = markup.match(/<button class="customer-card__open"[\s\S]*?<\/button>/)?.[0] ?? '';
+
+  assert.match(profileButton, /Open profile and billing history for Aisha Khan, account 7/);
+  assert.doesNotMatch(profileButton, /Paid|Balance|PKR|Fiber 30/);
+  assert.match(markup, /customer-card__billing-status[^>]*>Paid<\/span>/);
+  assert.match(markup, /<dl class="customer-card__details"><div><dt class="customer-card__label">Balance<\/dt><dd>PKR 0<\/dd>/);
+  assert.match(markup, /<dt class="customer-card__label">Package<\/dt><dd>Fiber 30 snapshot<\/dd>/);
+});
+
 test('profile history keeps bill balance, cash receipts, and carry-forward credit separate', () => {
   const row = rowsForTests().find((entry) => entry.customer.id === 'synthetic-a');
   const markup = renderCustomerProfile(row, {
