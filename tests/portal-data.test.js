@@ -77,7 +77,9 @@ test('portal row reads scope customer data and preserve safe paging', async () =
     kind: 'customer', organizationId: 'synthetic-org', customerId: 'synthetic-customer',
   });
 
-  assert.deepEqual(Object.keys(rows), ['customers', 'bills', 'receipts', 'allocations', 'incidents']);
+  assert.deepEqual(Object.keys(rows), ['customers', 'bills', 'receipts', 'allocations', 'incidents', 'privateCustomerDetails']);
+  assert.deepEqual(rows.privateCustomerDetails, []);
+  assert.equal(client.calls.some((query) => query.table === 'customer_private_details'), false);
   for (const query of client.calls) {
     assert.ok(query.filters.some((filter) => filter[0] === 'eq' && filter[1] === 'organization_id' && filter[2] === 'synthetic-org'));
     assert.deepEqual(query.ranges, [[0, 999]]);
@@ -101,6 +103,23 @@ test('customer profile query selects only approved public profile fields', async
   assert.deepEqual(profileQuery.selects, ['id, customer_number, name, plan_name, service_address, service_status, monthly_fee_cents, archived']);
   assert.doesNotMatch(profileQuery.selects.join(' '), /phone|staff_notes|created_by|recorded_by|email/i);
   assert.ok(profileQuery.filters.some((filter) => filter[1] === 'id' && filter[2] === 'synthetic-customer'));
+});
+
+test('Admin phone query uses only the private phone column and is scoped to the Admin organization', async () => {
+  const client = mockClient({
+    customers: { data: [], error: null },
+    bills: { data: [], error: null },
+    receipts: { data: [], error: null },
+    receipt_allocations: { data: [], error: null },
+    incidents: { data: [], error: null },
+    customer_private_details: { data: [{ customer_id: 'synthetic-customer', phone: '03001234567' }], error: null },
+  });
+  const rows = await loadPortalRows(client, { kind: 'admin', organizationId: 'synthetic-org' });
+
+  const query = client.calls.find((entry) => entry.table === 'customer_private_details');
+  assert.deepEqual(query.selects, ['customer_id, phone']);
+  assert.ok(query.filters.some(([kind, field, value]) => kind === 'eq' && field === 'organization_id' && value === 'synthetic-org'));
+  assert.deepEqual(rows.privateCustomerDetails, [{ customer_id: 'synthetic-customer', phone: '03001234567' }]);
 });
 
 test('query and receipt RPC errors are propagated to the UI', async () => {

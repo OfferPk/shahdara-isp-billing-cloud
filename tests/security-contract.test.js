@@ -143,6 +143,7 @@ test('customer portal queries and rendering never select or expose customer phon
 
   assert.ok(customerSelection, 'customer portal selection is explicit');
   assert.doesNotMatch(customerSelection, /phone/i);
-  assert.doesNotMatch(portalData, /customer_private_details/i);
+  assert.match(portalData, /context\.kind === 'admin'[\s\S]*rowsFor\(supabase, 'customer_private_details', 'customer_id, phone'/i);
+  assert.match(portalData, /: Promise\.resolve\(\[\]\)/);
   assert.doesNotMatch(customerPortal, /phone|email|staff_notes|created_by|recorded_by/i);
 });
