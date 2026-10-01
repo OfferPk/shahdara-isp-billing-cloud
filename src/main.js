@@ -167,7 +167,10 @@ if (!supabase) {
   }
 
   function shellHeader(label) {
-    return `<div class="portal-heading"><div><p class="eyebrow">${escapeHtml(label)}</p><h1>${escapeHtml(pageState.context.organizationName ?? 'Shahdara Fiber Net')}</h1><p class="muted">Signed in as ${escapeHtml(pageState.user?.email ?? '')}</p></div><div class="header-actions">${contextSelectHtml()}<button class="button secondary small" data-action="sign-out">Sign out</button></div></div>`;
+    const accountLabel = pageState.context?.kind === 'admin'
+      ? `Signed in as ${pageState.user?.email ?? ''}`
+      : 'Linked customer account';
+    return `<div class="portal-heading"><div><p class="eyebrow">${escapeHtml(label)}</p><h1>${escapeHtml(pageState.context.organizationName ?? 'Shahdara Fiber Net')}</h1><p class="muted">${escapeHtml(accountLabel)}</p></div><div class="header-actions">${contextSelectHtml()}<button class="button secondary small" data-action="sign-out">Sign out</button></div></div>`;
   }
 
   function wirePortalBase() {
@@ -194,6 +197,8 @@ if (!supabase) {
     const customerName = (id) => rows.customers.find((customer) => customer.id === id)?.name ?? 'Customer';
     const monthOptions = customers.map((customer) => `<option value="${escapeHtml(customer.id)}">#${customer.customer_number} · ${escapeHtml(customer.name)}</option>`).join('');
     const billOptions = bills.map((bill) => `<option value="${escapeHtml(bill.id)}">${escapeHtml(customerName(bill.customer_id))} · ${escapeHtml(bill.period.slice(0, 7))} · ${formatMoney(bill.amount_due_cents)}</option>`).join('');
+    const inviteCustomers = customers.filter((customer) => !customer.archived);
+    const inviteCustomerOptions = inviteCustomers.map((customer) => `<option value="${escapeHtml(customer.id)}">#${customer.customer_number} · ${escapeHtml(customer.name)}</option>`).join('');
 
     portalPanel.innerHTML = `${shellHeader('Administrator portal')}
       <section class="metric-grid" aria-label="Monthly billing summary">
@@ -224,9 +229,14 @@ if (!supabase) {
           </form><p class="form-message" id="bill-message" role="status"></p>
           <hr><p class="muted">One bill per customer/month. Existing snapshots are returned unchanged. Price corrections are recorded and recalculate derived balances.</p>
         </section>
-        <section class="panel"><p class="eyebrow">Customer access</p><h2>Customer invitations unavailable</h2>
-          <p>Customer accounts cannot be invited yet. The invite-customer Supabase Edge Function must be deployed separately before this feature is available.</p>
-          <p class="muted">Customer-to-account links remain server-managed and cannot be written from the browser.</p>
+        <section class="panel"><p class="eyebrow">Customer access</p><h2>Invite a customer</h2>
+          <p class="muted">Choose an existing active customer and request a portal invitation. This page cannot confirm email delivery.</p>
+          <form id="invite-form" class="stack">
+            <label for="invite-customer">Existing customer</label><select id="invite-customer" name="customer_id" required ${inviteCustomers.length ? '' : 'disabled'}>${inviteCustomerOptions || '<option value="">No active customers available</option>'}</select>
+            <label for="invite-email">Email address</label><input id="invite-email" name="email" type="email" autocomplete="email" maxlength="254" required ${inviteCustomers.length ? '' : 'disabled'}>
+            <button class="button primary" type="submit" ${inviteCustomers.length ? '' : 'disabled'}>Request invitation</button>
+          </form><p class="form-message" id="invite-message" role="status" aria-live="polite">${inviteCustomers.length ? '' : 'Add an active customer before requesting an invitation.'}</p>
+          <p class="muted">Customer-to-account links remain server-managed and cannot be written from the browser. If linking needs review, do not retry until an administrator checks the account state.</p>
         </section>
         <section class="panel"><p class="eyebrow">Cash ledger</p><h2>Record actual receipt</h2>
           <form id="receipt-form" class="form-grid">
@@ -281,6 +291,17 @@ if (!supabase) {
     if (!customer || !bills.length) setMessage(portalPanel.querySelector('#receipt-message'), 'Create a bill snapshot before recording a receipt.', true);
   }
 
+  async function invitationErrorMessage(error) {
+    try {
+      const context = error?.context;
+      if (context && typeof context.clone === 'function') {
+        const payload = await context.clone().json();
+        if (typeof payload?.error === 'string' && payload.error.length <= 300) return payload.error;
+      }
+    } catch { /* Use the safe fallback for network and non-JSON errors. */ }
+    return 'The invitation result could not be confirmed. Review the customer account status before retrying.';
+  }
+
   function bindAdminForms(context) {
     portalPanel.querySelector('#customer-form')?.addEventListener('submit', async (event) => {
       event.preventDefault();
@@ -330,10 +351,14 @@ if (!supabase) {
 
     portalPanel.querySelector('#invite-form')?.addEventListener('submit', async (event) => {
       event.preventDefault();
-      const formData = new FormData(event.currentTarget);
+      const form = event.currentTarget;
+      const submitButton = form.querySelector('button[type="submit"]');
+      const formData = new FormData(form);
       const message = portalPanel.querySelector('#invite-message');
+      submitButton.disabled = true;
+      setMessage(message, 'Requesting an invitation…');
       try {
-        const { error } = await supabase.functions.invoke('invite-customer', {
+        const { data, error } = await supabase.functions.invoke('invite-customer', {
           body: {
             organization_id: context.organizationId,
             customer_id: String(formData.get('customer_id')),
@@ -341,11 +366,15 @@ if (!supabase) {
           },
         });
         if (error) throw error;
-        event.currentTarget.reset();
-        setMessage(message, 'Invitation sent. The account is linked to this customer record.');
-        await refreshCurrentContext();
+        if (data?.invited !== true || data?.linked !== true || data?.email_delivery_confirmed !== false) {
+          throw new Error('The invitation result could not be confirmed. Review the customer account status before retrying.');
+        }
+        form.reset();
+        setMessage(message, 'The invitation request was accepted and the account is linked. Email delivery is not confirmed.');
       } catch (error) {
-        setMessage(message, error.message || 'Invitation could not be sent.', true);
+        setMessage(message, await invitationErrorMessage(error), true);
+      } finally {
+        submitButton.disabled = false;
       }
     });
 
@@ -468,8 +497,12 @@ if (!supabase) {
     const balance = (bill) => bill.amount_due_cents == null ? null : Math.max(0, Number(bill.amount_due_cents) - allocationTotals(rows, bill.id));
     const incidents = [...rows.incidents].sort((a, b) => String(b.reported_at).localeCompare(String(a.reported_at)));
     portalPanel.innerHTML = `${shellHeader('Customer portal')}
-      <section class="customer-welcome panel"><div><p class="eyebrow">Your account</p><h2>${escapeHtml(customer.name)}</h2><p>Customer #${customer.customer_number} · ${escapeHtml(customer.plan_name || 'Plan not set')}</p><p class="muted">${escapeHtml(customer.service_address || 'Service address not recorded')}</p></div><span class="status-pill">${escapeHtml(customer.archived ? 'Archived' : customer.service_status)}</span></section>
-      <section class="metric-grid customer-metrics"><article class="metric"><span>Monthly fee</span><strong>${formatMoney(customer.monthly_fee_cents)}</strong><small>Current plan rate</small></article><article class="metric"><span>Total receipts</span><strong>${formatMoney(totalCash)}</strong><small>${receipts.length} actual payments</small></article><article class="metric"><span>Billing history</span><strong>${bills.length}</strong><small>Monthly snapshots</small></article></section>
+      <section class="profile-card panel" aria-label="Customer profile">
+        <div class="profile-card__identity"><p class="eyebrow">Your account</p><h2>${escapeHtml(customer.name)}</h2><p class="profile-card__number">Customer #${customer.customer_number}</p></div>
+        <div class="profile-card__details"><div class="profile-field"><span>Plan</span><strong>${escapeHtml(customer.plan_name || 'Plan not set')}</strong></div><div class="profile-field"><span>Monthly fee</span><strong>${formatMoney(customer.monthly_fee_cents)}</strong></div><div class="profile-field profile-field--wide"><span>Service address</span><strong>${escapeHtml(customer.service_address || 'Service address not recorded')}</strong></div></div>
+        <div class="profile-card__status"><span class="status-pill">${escapeHtml(customer.archived ? 'Archived' : customer.service_status)}</span><p>Service status</p></div>
+      </section>
+      <section class="metric-grid customer-metrics"><article class="metric"><span>Total receipts</span><strong>${formatMoney(totalCash)}</strong><small>${receipts.length} actual payments</small></article><article class="metric"><span>Billing history</span><strong>${bills.length}</strong><small>Monthly snapshots</small></article></section>
       <section class="panel data-panel"><div class="section-heading"><div><p class="eyebrow">Your billing history</p><h2>Bills and credits</h2></div></div><div class="table-wrap"><table><thead><tr><th>Month</th><th>Bill</th><th>Receipt cash</th><th>Credit applied</th><th>Balance</th><th>Status</th></tr></thead><tbody>${bills.map((bill) => {
         const applied = allocationTotals(rows, bill.id);
         const billBalance = balance(bill);
