@@ -273,6 +273,8 @@ td { color: #25433b; }
 @media (max-width: 760px) {
   .customer-list-heading { align-items: flex-start; flex-direction: column; }
   .customer-card-grid { grid-template-columns: 1fr; }
+  .customer-billing-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .customer-billing-filters label:first-child { grid-column: 1 / -1; }
 }
 @media (max-width: 600px) {
   .customer-summary { width: 100%; gap: 7px; }

@@ -167,3 +167,21 @@ test('customer history enhancement uses only recorded customer-visible fields an
   assert.doesNotMatch(customerFacingCode, /phone|email|staff_notes|created_by|recorded_by|private_details/i);
   assert.doesNotMatch(customerPortal, /username|due_date/i);
 });
+
+test('customer billing controls and incident timeline retain accessible states and responsive layouts', async () => {
+  const main = await readFile(resolve(root, 'src/main.js'), 'utf8');
+  const styles = await readFile(resolve(root, 'src/styles.css'), 'utf8');
+
+  assert.match(main, /role="status" aria-live="polite" aria-busy="true"/);
+  assert.match(main, /id="customer-billing-month"/);
+  assert.match(main, /id="customer-receipt-from" type="date"/);
+  assert.match(main, /id="customer-receipt-through" type="date"/);
+  assert.match(main, /id="clear-customer-billing-filters"/);
+  assert.match(main, /No bills match the selected month/);
+  assert.match(main, /No cash receipts match the selected month and receipt dates/);
+  assert.match(main, /No customer-visible service updates are recorded for this account/);
+  assert.match(styles, /@media \(max-width: 760px\) \{[\s\S]*?\.customer-billing-filters \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/);
+  assert.match(styles, /@media \(max-width: 600px\) \{[\s\S]*?\.customer-billing-filters \{ grid-template-columns: 1fr;/);
+  assert.match(styles, /\.customer-history-block/);
+  assert.match(styles, /\.incident-timeline__event/);
+});
