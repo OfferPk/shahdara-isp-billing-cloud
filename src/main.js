@@ -1,5 +1,6 @@
 import { createPortalClient } from './supabase-client.js';
-import { invokeRpc, loadContexts, loadPortalRows } from './portal-data.js';
+import { validatePakistanPhone } from './customer-input.js';
+import { createCustomer, invokeRpc, loadContexts, loadPortalRows } from './portal-data.js';
 import { amountToMinorUnits, calculateDashboard, formatMoney } from './ledger.js';
 import './styles.css';
 
@@ -210,6 +211,7 @@ if (!supabase) {
             <label>Plan / speed<input name="plan_name" maxlength="100"></label>
             <label>Monthly fee (PKR)<input name="monthly_fee" inputmode="decimal" placeholder="Leave blank if not set"></label>
             <label>Service address<input name="service_address" maxlength="300"></label>
+            <label>Phone (private)<input name="phone" type="text" inputmode="tel" autocomplete="tel" maxlength="40" placeholder="03XXXXXXXXX or +923XXXXXXXXX"></label>
             <label>Service status<select name="service_status"><option value="not-set">Not set</option><option value="active">Active</option><option value="offline">Offline</option></select></label>
             <button class="button primary" type="submit">Save customer</button>
           </form><p class="form-message" id="customer-message" role="status"></p>
@@ -288,18 +290,17 @@ if (!supabase) {
       try {
         const amountText = String(formData.get('monthly_fee') ?? '').trim();
         const fee = amountText ? amountToMinorUnits(amountText, { allowZero: true }) : null;
-        const customer = {
-          organization_id: context.organizationId,
-          id: crypto.randomUUID(),
-          customer_number: Number(formData.get('customer_number')),
+        const phone = validatePakistanPhone(String(formData.get('phone') ?? ''));
+        await createCustomer(supabase, {
+          organizationId: context.organizationId,
+          customerNumber: Number(formData.get('customer_number')),
           name: String(formData.get('name') ?? '').trim(),
-          plan_name: String(formData.get('plan_name') ?? '').trim(),
-          service_address: String(formData.get('service_address') ?? '').trim(),
-          service_status: String(formData.get('service_status') ?? 'not-set'),
-          monthly_fee_cents: fee,
-        };
-        const { error } = await supabase.from('customers').insert(customer);
-        if (error) throw error;
+          planName: String(formData.get('plan_name') ?? '').trim(),
+          monthlyFeeCents: fee,
+          serviceAddress: String(formData.get('service_address') ?? '').trim(),
+          serviceStatus: String(formData.get('service_status') ?? 'not-set'),
+          phone,
+        });
         form.reset();
         setMessage(message, 'Customer saved.');
         await refreshCurrentContext();

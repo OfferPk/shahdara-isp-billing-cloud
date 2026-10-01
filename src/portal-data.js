@@ -80,6 +80,19 @@ export async function loadPortalRows(supabase, context) {
   return { customers, bills, receipts, allocations, incidents };
 }
 
+export async function createCustomer(supabase, customer) {
+  return invokeRpc(supabase, 'create_customer', {
+    p_organization_id: customer.organizationId,
+    p_customer_number: customer.customerNumber,
+    p_name: customer.name,
+    p_plan_name: customer.planName,
+    p_monthly_fee_cents: customer.monthlyFeeCents,
+    p_service_address: customer.serviceAddress,
+    p_service_status: customer.serviceStatus,
+    p_phone: customer.phone,
+  });
+}
+
 export async function invokeRpc(supabase, functionName, args) {
   const { data, error } = await supabase.rpc(functionName, args);
   if (error) throw error;

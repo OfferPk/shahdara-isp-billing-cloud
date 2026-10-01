@@ -5,8 +5,10 @@ import { resolve } from 'node:path';
 
 const root = resolve(import.meta.dirname, '..');
 const migrationPath = resolve(root, 'supabase/migrations/20261001120000_cloud_portal.sql');
+const customerPhoneMigrationPath = resolve(root, 'supabase/migrations/20261002000000_create_customer_with_private_phone.sql');
 const frontendPaths = [
   resolve(root, 'src/main.js'),
+  resolve(root, 'src/customer-input.js'),
   resolve(root, 'src/ledger.js'),
   resolve(root, 'src/supabase-client.js'),
   resolve(root, 'src/portal-data.js'),
@@ -97,4 +99,32 @@ test('customer invitations verify the caller JWT, enforce exact origin, and chec
   assert.match(edgeFunction, /\['owner', 'admin'\]/);
   assert.match(edgeFunction, /customer_portal_accounts/);
   assert.match(edgeFunction, /SUPABASE_SERVICE_ROLE_KEY/);
+});
+
+test('customer phone creation is atomic, server-authorized, and writes only to private details', async () => {
+  const migration = await readFile(customerPhoneMigrationPath, 'utf8');
+  const schema = await readFile(migrationPath, 'utf8');
+  assert.match(schema, /create table public\.customer_private_details\s*\([\s\S]*?phone text not null/i);
+  assert.match(schema, /create policy customer_private_admin_only[\s\S]*?on public\.customer_private_details for all to authenticated[\s\S]*?using \(\(select public\.is_org_admin\(organization_id\)\)\)[\s\S]*?with check \(\(select public\.is_org_admin\(organization_id\)\)\)/i);
+  assert.match(migration, /if \(select auth\.uid\(\)\) is null or not public\.is_org_admin\(p_organization_id\)/i);
+  assert.match(migration, /create or replace function public\.create_customer[\s\S]*?security definer\s+set search_path = ''/i);
+  assert.match(migration, /insert into public\.customers\s*\([\s\S]*?\) values \([\s\S]*?returning id into v_customer_id/i);
+  assert.match(migration, /insert into public\.customer_private_details\s*\(organization_id, customer_id, phone\)\s*values \(p_organization_id, v_customer_id, v_phone\)/i);
+  assert.match(migration, /v_phone !~ '\^\(03\[0-9\]\{9\}\|\[\+\]923\[0-9\]\{9\}\)\$'/i);
+  assert.match(migration, /revoke insert \([\s\S]*?\) on public\.customers from authenticated/i);
+  assert.match(migration, /revoke all on function public\.create_customer\([\s\S]*?from public, anon, authenticated/i);
+  assert.match(migration, /grant execute on function public\.create_customer\([\s\S]*?to authenticated/i);
+  assert.match(migration, /begin;[\s\S]*commit;/i);
+});
+
+test('customer portal queries and rendering never select or expose customer phone data', async () => {
+  const portalData = await readFile(resolve(root, 'src/portal-data.js'), 'utf8');
+  const main = await readFile(resolve(root, 'src/main.js'), 'utf8');
+  const customerSelection = portalData.match(/rowsFor\(supabase, 'customers', '([^']+)'/i)?.[1] ?? '';
+  const customerPortal = main.slice(main.indexOf('function renderCustomer()'), main.indexOf('async function refreshCurrentContext()'));
+
+  assert.ok(customerSelection, 'customer portal selection is explicit');
+  assert.doesNotMatch(customerSelection, /phone/i);
+  assert.doesNotMatch(portalData, /customer_private_details/i);
+  assert.doesNotMatch(customerPortal, /phone/i);
 });
