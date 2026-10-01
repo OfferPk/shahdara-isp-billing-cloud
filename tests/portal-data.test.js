@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { invokeRpc, loadContexts, loadPortalRows } from '../src/portal-data.js';
+import { createCustomer, invokeRpc, loadContexts, loadPortalRows } from '../src/portal-data.js';
 
 function mockClient(results = {}, rpcResult = { data: null, error: null }) {
   const calls = [];
@@ -100,4 +100,33 @@ test('query and receipt RPC errors are propagated to the UI', async () => {
     rpc: 'record_cash_receipt',
     args: { p_organization_id: 'synthetic-org', p_receipt_id: 'synthetic-stable-receipt-id' },
   });
+});
+
+test('customer creation sends the private phone as text through a single RPC', async () => {
+  const client = mockClient({}, { data: 'synthetic-customer-id', error: null });
+  const customer = {
+    organizationId: 'synthetic-org',
+    customerNumber: 27,
+    name: 'Synthetic Customer',
+    planName: 'Synthetic Plan',
+    monthlyFeeCents: 12500,
+    serviceAddress: 'Synthetic address',
+    serviceStatus: 'active',
+    phone: '03001234567',
+  };
+
+  assert.equal(await createCustomer(client, customer), 'synthetic-customer-id');
+  assert.deepEqual(client.calls, [{
+    rpc: 'create_customer',
+    args: {
+      p_organization_id: 'synthetic-org',
+      p_customer_number: 27,
+      p_name: 'Synthetic Customer',
+      p_plan_name: 'Synthetic Plan',
+      p_monthly_fee_cents: 12500,
+      p_service_address: 'Synthetic address',
+      p_service_status: 'active',
+      p_phone: '03001234567',
+    },
+  }]);
 });
