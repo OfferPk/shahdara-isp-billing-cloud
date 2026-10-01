@@ -216,13 +216,16 @@ test('list controls and mobile CSS provide labelled, keyboard-operable status an
 test('Mark as Paid only opens the existing receipt form and never writes a status directly', async () => {
   const main = await readFile(new URL('../src/main.js', import.meta.url), 'utf8');
   const handler = main.slice(main.indexOf('function openReceiptFormForCustomer'), main.indexOf('function renderAdmin()'));
+  const prefill = main.slice(main.indexOf('function openReceiptFormForBill'), main.indexOf('function openReceiptFormForCustomer'));
   const actionBinder = main.slice(main.indexOf('function bindCustomerListActions'), main.indexOf('function renderCustomer()'));
-  assert.match(handler, /form\.elements\.amount\.value/);
-  assert.match(handler, /form\.elements\.received_on\.value/);
-  assert.match(handler, /form\.elements\.method\.value = ''/);
-  assert.match(handler, /Nothing has been recorded yet/);
+  assert.match(prefill, /form\.elements\.amount\.value/);
+  assert.match(prefill, /form\.elements\.received_on\.value/);
+  assert.match(prefill, /form\.elements\.method\.value = ''/);
+  assert.match(prefill, /Nothing has been recorded yet/);
   assert.match(handler, /const bill = row\?\.paymentBill \?\? row\?\.bill/);
   assert.doesNotMatch(handler, /record_cash_receipt|\.rpc\(|\.update\(/);
+  assert.doesNotMatch(prefill, /record_cash_receipt|\.rpc\(|\.update\(/);
+  assert.match(handler, /openReceiptFormForBill\(billRow\)/);
   assert.match(actionBinder, /openReceiptFormForCustomer\(row\)/);
   assert.match(main, /invokeRpc\(supabase,\s*'record_cash_receipt'/);
   assert.match(main, /data-action="open-add-customer"[\s\S]*?Add customer/);

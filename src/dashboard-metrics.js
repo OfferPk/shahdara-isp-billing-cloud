@@ -27,10 +27,9 @@ function renderMetric({ tone, label, icon, value, detail }) {
 
 export function renderDashboardMetrics({ month, totals }) {
   const metrics = [
-    { tone: 'customers', label: 'Customers', icon: 'customers', value: totals.customerCount, detail: `${totals.activeCustomers} active` },
-    { tone: 'billed', label: `${month} billed`, icon: 'billed', value: formatMoney(totals.billedCents), detail: `${totals.monthBills.length} bill snapshots` },
-    { tone: 'cash', label: 'Cash received', icon: 'cash', value: formatMoney(totals.cashReceivedCents), detail: `${totals.receiptCount} receipts by actual date` },
-    { tone: 'outstanding', label: 'Outstanding', icon: 'outstanding', value: formatMoney(totals.outstandingCents), detail: `${formatMoney(totals.creditAppliedCents)} credit applied · not cash` },
+    { tone: 'billed', label: `Total Billed · ${month}`, icon: 'billed', value: formatMoney(totals.billedCents), detail: `${totals.pricedBillCount ?? totals.monthBills.length} priced bills; ${totals.unpricedBillCount ?? 0} unpriced excluded` },
+    { tone: 'cash', label: `Collected · ${month}`, icon: 'cash', value: formatMoney(totals.cashReceivedCents), detail: `${totals.receiptCount} actual receipts by received date; no credit` },
+    { tone: 'outstanding', label: `Pending · ${month}`, icon: 'outstanding', value: formatMoney(totals.outstandingCents), detail: `Outstanding on ${month} bills; ${formatMoney(totals.creditAppliedCents)} credit applied separately` },
   ];
 
   return `<section class="metric-grid admin-metrics" aria-label="Monthly billing summary">${metrics.map(renderMetric).join('')}</section>`;
