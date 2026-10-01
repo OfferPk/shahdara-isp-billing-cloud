@@ -59,18 +59,22 @@ button:focus-visible, a:focus-visible { outline: 3px solid rgba(38,137,102,.5); 
 .header-actions { display: flex; align-items: flex-start; gap: 12px; }
 .context-picker { min-width: 210px; font-size: 11px; }
 .metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 13px; margin-bottom: 16px; }
-.metric { position: relative; isolation: isolate; display: grid; align-content: start; gap: 11px; min-height: 145px; padding: 17px 18px 16px; overflow: hidden; border: 1px solid #d9e6df; border-radius: 16px; background: linear-gradient(145deg, #fff, #f5faf7); box-shadow: 0 10px 28px rgba(24,54,45,.045); }
-.metric::before { position: absolute; inset: 0 0 auto; height: 4px; background: var(--metric-accent, #61aa88); content: ''; }
-.metric__top { display: flex; align-items: center; justify-content: space-between; gap: 9px; }
-.metric__label, .metric > span { color: #435e56; font-size: 12px; font-weight: 750; }
-.metric__icon { display: grid; flex: none; width: 36px; height: 36px; place-items: center; border: 1px solid var(--metric-border, #d9e6df); border-radius: 12px; color: var(--metric-accent, #177b59); background: var(--metric-tint, #eaf4ef); }
-.metric__icon svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.metric--customers { --metric-accent: #177b59; --metric-tint: #e8f5ee; --metric-border: #cfe6d9; background: linear-gradient(145deg, #fff, #f2faf5); }
-.metric--billed { --metric-accent: #376fc5; --metric-tint: #eaf1ff; --metric-border: #d5e1f8; background: linear-gradient(145deg, #fff, #f3f7ff); }
-.metric--cash { --metric-accent: #7854b8; --metric-tint: #f1ebff; --metric-border: #e1d7f5; background: linear-gradient(145deg, #fff, #f8f4ff); }
-.metric--outstanding { --metric-accent: #a96710; --metric-tint: #fff3df; --metric-border: #f0dfc0; background: linear-gradient(145deg, #fff, #fff9ee); }
-.metric strong { overflow-wrap: anywhere; color: var(--ink); font: 800 clamp(18px, 2vw, 25px) Manrope, sans-serif; letter-spacing: -.04em; line-height: 1.2; }
-.metric small { color: var(--muted); font-size: 11px; line-height: 1.45; }
+.metric { display: grid; gap: 8px; min-height: 128px; padding: 19px; border: 1px solid #d9e6df; border-radius: 16px; background: linear-gradient(145deg, #fff, #f5faf7); box-shadow: 0 10px 28px rgba(24,54,45,.045); }
+.metric > span { color: var(--muted); font-size: 12px; font-weight: 700; }
+.metric strong { overflow-wrap: anywhere; font: 800 clamp(18px, 2vw, 25px) Manrope, sans-serif; letter-spacing: -.04em; }
+.metric small { color: var(--muted); font-size: 11px; }
+.admin-metrics .metric { position: relative; isolation: isolate; align-content: start; gap: 11px; min-height: 145px; padding: 17px 18px 16px; overflow: hidden; }
+.admin-metrics .metric::before { position: absolute; inset: 0 0 auto; height: 4px; background: var(--metric-accent, #61aa88); content: ''; }
+.admin-metrics .metric__top { display: flex; align-items: center; justify-content: space-between; gap: 9px; }
+.admin-metrics .metric__label { color: #435e56; font-size: 12px; font-weight: 750; }
+.admin-metrics .metric__icon { display: grid; flex: none; width: 36px; height: 36px; place-items: center; border: 1px solid var(--metric-border, #d9e6df); border-radius: 12px; color: var(--metric-accent, #177b59); background: var(--metric-tint, #eaf4ef); }
+.admin-metrics .metric__icon svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.admin-metrics .metric--customers { --metric-accent: #177b59; --metric-tint: #e8f5ee; --metric-border: #cfe6d9; background: linear-gradient(145deg, #fff, #f2faf5); }
+.admin-metrics .metric--billed { --metric-accent: #376fc5; --metric-tint: #eaf1ff; --metric-border: #d5e1f8; background: linear-gradient(145deg, #fff, #f3f7ff); }
+.admin-metrics .metric--cash { --metric-accent: #7854b8; --metric-tint: #f1ebff; --metric-border: #e1d7f5; background: linear-gradient(145deg, #fff, #f8f4ff); }
+.admin-metrics .metric--outstanding { --metric-accent: #a96710; --metric-tint: #fff3df; --metric-border: #f0dfc0; background: linear-gradient(145deg, #fff, #fff9ee); }
+.admin-metrics .metric strong { color: var(--ink); line-height: 1.2; }
+.admin-metrics .metric small { line-height: 1.45; }
 .month-panel { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 16px; padding: 14px 18px; }
 .month-panel label { display: flex; flex-direction: row; align-items: center; gap: 10px; }
 .month-panel input { width: 160px; min-height: 36px; }
@@ -149,10 +153,10 @@ td { color: #25433b; }
   .portal-heading { flex-direction: column; gap: 14px; }
   .header-actions { width: 100%; align-items: center; justify-content: space-between; }
   .context-picker { min-width: 0; flex: 1; }
-  .metric { min-height: 132px; gap: 8px; padding: 14px 13px 13px; }
-  .metric__icon { width: 32px; height: 32px; border-radius: 10px; }
-  .metric__icon svg { width: 17px; height: 17px; }
-  .metric__label { font-size: 11px; }
+  .admin-metrics .metric { min-height: 132px; gap: 8px; padding: 14px 13px 13px; }
+  .admin-metrics .metric__icon { width: 32px; height: 32px; border-radius: 10px; }
+  .admin-metrics .metric__icon svg { width: 17px; height: 17px; }
+  .admin-metrics .metric__label { font-size: 11px; }
   .metric strong { font-size: 18px; }
   .form-grid { grid-template-columns: 1fr; }
   .month-panel { align-items: flex-start; flex-direction: column; }
