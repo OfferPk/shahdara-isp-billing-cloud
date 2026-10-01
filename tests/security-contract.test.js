@@ -12,6 +12,7 @@ const frontendPaths = [
   resolve(root, 'src/ledger.js'),
   resolve(root, 'src/supabase-client.js'),
   resolve(root, 'src/portal-data.js'),
+  resolve(root, 'src/customer-portal.js'),
   resolve(root, 'index.html'),
   resolve(root, '.env.example'),
 ];
@@ -146,4 +147,41 @@ test('customer portal queries and rendering never select or expose customer phon
   assert.match(portalData, /context\.kind === 'admin'[\s\S]*rowsFor\(supabase, 'customer_private_details', 'customer_id, phone'/i);
   assert.match(portalData, /: Promise\.resolve\(\[\]\)/);
   assert.doesNotMatch(customerPortal, /phone|email|staff_notes|created_by|recorded_by/i);
+});
+
+test('customer history enhancement uses only recorded customer-visible fields and preserves ledger definitions', async () => {
+  const portalData = await readFile(resolve(root, 'src/portal-data.js'), 'utf8');
+  const main = await readFile(resolve(root, 'src/main.js'), 'utf8');
+  const customerPortalModule = await readFile(resolve(root, 'src/customer-portal.js'), 'utf8');
+  const customerPortal = main.slice(main.indexOf('function renderCustomerBillingResults()'), main.indexOf('async function refreshCurrentContext()'));
+  const customerFacingCode = `${customerPortal}\n${customerPortalModule}`;
+
+  assert.match(portalData, /'bills', 'id, customer_id, period, amount_due_cents, due_date, plan_snapshot'/);
+  assert.match(portalData, /'receipts', 'id, customer_id, origin_bill_id, received_on, amount_cents, method'/);
+  assert.match(portalData, /'receipt_allocations', 'receipt_id, bill_id, customer_id, amount_cents, allocation_kind'/);
+  assert.match(portalData, /'incidents', 'id, customer_id, customer_visible_summary, status, reported_at, offline_at, restored_at'/);
+  assert.match(customerPortal, /customerReceipts\.reduce/);
+  assert.match(customerPortal, /summary\.receiptCashCents/);
+  assert.match(customerPortal, /summary\.creditAppliedCents/);
+  assert.match(customerPortal, /customer_visible_summary/);
+  assert.doesNotMatch(customerFacingCode, /phone|email|staff_notes|created_by|recorded_by|private_details/i);
+  assert.doesNotMatch(customerPortal, /username|due_date/i);
+});
+
+test('customer billing controls and incident timeline retain accessible states and responsive layouts', async () => {
+  const main = await readFile(resolve(root, 'src/main.js'), 'utf8');
+  const styles = await readFile(resolve(root, 'src/styles.css'), 'utf8');
+
+  assert.match(main, /role="status" aria-live="polite" aria-busy="true"/);
+  assert.match(main, /id="customer-billing-month"/);
+  assert.match(main, /id="customer-receipt-from" type="date"/);
+  assert.match(main, /id="customer-receipt-through" type="date"/);
+  assert.match(main, /id="clear-customer-billing-filters"/);
+  assert.match(main, /No bills match the selected month/);
+  assert.match(main, /No cash receipts match the selected month and receipt dates/);
+  assert.match(main, /No customer-visible service updates are recorded for this account/);
+  assert.match(styles, /@media \(max-width: 760px\) \{[\s\S]*?\.customer-billing-filters \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/);
+  assert.match(styles, /@media \(max-width: 600px\) \{[\s\S]*?\.customer-billing-filters \{ grid-template-columns: 1fr;/);
+  assert.match(styles, /\.customer-history-block/);
+  assert.match(styles, /\.incident-timeline__event/);
 });
