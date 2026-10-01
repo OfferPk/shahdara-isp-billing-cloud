@@ -65,7 +65,10 @@ export async function loadPortalRows(supabase, context) {
   const byOrganization = (query) => query.eq('organization_id', context.organizationId);
   const customerOnly = (query) => byOrganization(query).eq('customer_id', context.customerId);
   const customerTableOnly = (query) => byOrganization(query).eq('id', context.customerId);
-  const [customers, bills, receipts, allocations, incidents] = await Promise.all([
+  const privateCustomerDetailsQuery = context.kind === 'admin'
+    ? rowsFor(supabase, 'customer_private_details', 'customer_id, phone', byOrganization, { column: 'customer_id' })
+    : Promise.resolve([]);
+  const [customers, bills, receipts, allocations, incidents, privateCustomerDetails] = await Promise.all([
     rowsFor(supabase, 'customers', 'id, customer_number, name, plan_name, service_address, service_status, monthly_fee_cents, archived',
       context.kind === 'admin' ? byOrganization : customerTableOnly, { column: 'customer_number' }),
     rowsFor(supabase, 'bills', 'id, customer_id, period, amount_due_cents, due_date, plan_snapshot',
@@ -76,8 +79,9 @@ export async function loadPortalRows(supabase, context) {
       context.kind === 'admin' ? byOrganization : customerOnly, { column: 'created_at', ascending: true }),
     rowsFor(supabase, 'incidents', 'id, customer_id, customer_visible_summary, status, reported_at, offline_at, restored_at',
       context.kind === 'admin' ? byOrganization : customerOnly, { column: 'reported_at', ascending: false }),
+    privateCustomerDetailsQuery,
   ]);
-  return { customers, bills, receipts, allocations, incidents };
+  return { customers, bills, receipts, allocations, incidents, privateCustomerDetails };
 }
 
 export async function createCustomer(supabase, customer) {

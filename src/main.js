@@ -3,6 +3,14 @@ import { validatePakistanPhone } from './customer-input.js';
 import { createCustomer, invokeRpc, loadContexts, loadPortalRows } from './portal-data.js';
 import { amountToMinorUnits, calculateDashboard, formatMoney } from './ledger.js';
 import { renderDashboardMetrics } from './dashboard-metrics.js';
+import {
+  buildCustomerListRows,
+  filterCustomerRows,
+  getCustomerAreaOptions,
+  renderCustomerCards,
+  renderCustomerProfile,
+  summarizeCustomerRows,
+} from './customer-list.js';
 import './styles.css';
 
 const app = document.querySelector('#app');
@@ -24,6 +32,10 @@ if (!supabase) {
     rows: null,
     selectedMonth: localMonth(),
     loadingUserId: null,
+    customerListSearch: '',
+    customerListStatus: 'all',
+    customerListArea: '',
+    customerAreaOpen: false,
   };
   let pendingReceiptAttempt = null;
 
@@ -92,6 +104,12 @@ if (!supabase) {
   }
 
   async function selectContext(context) {
+    if (pageState.context?.organizationId !== context.organizationId || pageState.context?.kind !== context.kind) {
+      pageState.customerListSearch = '';
+      pageState.customerListStatus = 'all';
+      pageState.customerListArea = '';
+      pageState.customerAreaOpen = false;
+    }
     pageState.context = context;
     showPortalLoading();
     try {
@@ -182,6 +200,87 @@ if (!supabase) {
     });
   }
 
+  function currentCustomerListRows() {
+    const rows = pageState.rows;
+    if (!rows || pageState.context?.kind !== 'admin') return [];
+    return buildCustomerListRows({
+      customers: rows.customers,
+      bills: rows.bills,
+      allocations: rows.allocations,
+      privateDetails: rows.privateCustomerDetails,
+      currentMonth: localMonth(),
+    });
+  }
+
+  function updateCustomerListResults() {
+    const listRows = currentCustomerListRows();
+    const filteredRows = filterCustomerRows(listRows, {
+      search: pageState.customerListSearch,
+      status: pageState.customerListStatus,
+      area: pageState.customerListArea,
+    });
+    const grid = portalPanel.querySelector('#customer-card-grid');
+    const count = portalPanel.querySelector('#customer-list-count');
+    if (grid) {
+      grid.innerHTML = listRows.length
+        ? renderCustomerCards(filteredRows, formatMoney)
+        : '<p class="customer-list-empty" role="status">No customer records yet.</p>';
+    }
+    if (count) count.textContent = `Showing ${filteredRows.length} of ${listRows.length} customers.`;
+    for (const button of portalPanel.querySelectorAll('[data-billing-filter]')) {
+      const selected = button.dataset.billingFilter === pageState.customerListStatus;
+      button.setAttribute('aria-pressed', String(selected));
+      button.classList.toggle('is-active', selected);
+    }
+    const areaToggle = portalPanel.querySelector('[data-action="toggle-area-filter"]');
+    const areaSelect = portalPanel.querySelector('#customer-area-filter');
+    if (areaToggle) {
+      areaToggle.setAttribute('aria-expanded', String(pageState.customerAreaOpen));
+      areaToggle.setAttribute('aria-pressed', String(Boolean(pageState.customerListArea)));
+      areaToggle.classList.toggle('is-active', Boolean(pageState.customerListArea));
+    }
+    if (areaSelect) {
+      areaSelect.hidden = !pageState.customerAreaOpen;
+      areaSelect.value = pageState.customerListArea;
+    }
+  }
+
+  function openCustomerProfile(customerId) {
+    const row = currentCustomerListRows().find((entry) => entry.customer.id === customerId);
+    const dialog = portalPanel.querySelector('#customer-profile-dialog');
+    const content = portalPanel.querySelector('#customer-profile-content');
+    if (!row || !dialog || !content) return;
+    content.innerHTML = renderCustomerProfile(row, {
+      bills: pageState.rows.bills,
+      receipts: pageState.rows.receipts,
+      allocations: pageState.rows.allocations,
+      formatMoney,
+    });
+    content.querySelector('[data-action="close-customer-profile"]')?.addEventListener('click', () => dialog.close());
+    dialog.showModal();
+    content.querySelector('[data-action="close-customer-profile"]')?.focus();
+  }
+
+  function openReceiptFormForCustomer(row) {
+    const bill = row?.paymentBill ?? row?.bill;
+    if (!bill || row.billing.status !== 'unpaid' || row.billing.balanceCents == null || row.billing.balanceCents <= 0) return;
+    const form = portalPanel.querySelector('#receipt-form');
+    const customerSelect = portalPanel.querySelector('#receipt-customer');
+    const billSelect = portalPanel.querySelector('#receipt-bill');
+    if (!form || !customerSelect || !billSelect) return;
+    customerSelect.value = row.customer.id;
+    populateReceiptBills(row.customer.id);
+    billSelect.value = bill.id;
+    if (billSelect.value !== bill.id) return;
+    form.elements.received_on.value = localDate();
+    form.elements.amount.value = (row.billing.balanceCents / 100).toFixed(2);
+    form.elements.method.value = '';
+    setMessage(portalPanel.querySelector('#receipt-message'), 'Review the actual received date and payment method, then submit the receipt. Nothing has been recorded yet.');
+    const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    form.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'center' });
+    form.elements.received_on.focus({ preventScroll: true });
+  }
+
   function renderAdmin() {
     const context = pageState.context;
     const rows = pageState.rows;
@@ -195,6 +294,21 @@ if (!supabase) {
     const customers = [...rows.customers].sort((a, b) => a.customer_number - b.customer_number);
     const bills = [...rows.bills].sort((a, b) => String(b.period).localeCompare(String(a.period)));
     const receipts = [...rows.receipts].sort((a, b) => String(b.received_on).localeCompare(String(a.received_on)));
+    const customerListRows = buildCustomerListRows({
+      customers,
+      bills: rows.bills,
+      allocations: rows.allocations,
+      privateDetails: rows.privateCustomerDetails,
+      currentMonth: localMonth(),
+    });
+    const customerSummary = summarizeCustomerRows(customerListRows);
+    const filteredCustomerRows = filterCustomerRows(customerListRows, {
+      search: pageState.customerListSearch,
+      status: pageState.customerListStatus,
+      area: pageState.customerListArea,
+    });
+    const customerAreaOptions = getCustomerAreaOptions(customerListRows)
+      .map((option) => `<option value="${escapeHtml(option.value)}">${escapeHtml(option.label)}</option>`).join('');
     const customerName = (id) => rows.customers.find((customer) => customer.id === id)?.name ?? 'Customer';
     const monthOptions = customers.map((customer) => `<option value="${escapeHtml(customer.id)}">#${customer.customer_number} · ${escapeHtml(customer.name)}</option>`).join('');
     const billOptions = bills.map((bill) => `<option value="${escapeHtml(bill.id)}">${escapeHtml(customerName(bill.customer_id))} · ${escapeHtml(bill.period.slice(0, 7))} · ${formatMoney(bill.amount_due_cents)}</option>`).join('');
@@ -240,14 +354,28 @@ if (!supabase) {
             <label>Bill<select name="bill_id" id="receipt-bill" required>${billOptions}</select></label>
             <label>Received on<input name="received_on" type="date" value="${localDate()}" required></label>
             <label>Amount received (PKR)<input name="amount" inputmode="decimal" required></label>
-            <label>Method<select name="method"><option>Cash</option><option>Easypaisa</option><option>JazzCash</option><option>Bank transfer</option><option>Other</option></select></label>
+            <label>Method<select name="method" required><option value="" selected disabled>Select a method</option><option>Cash</option><option>Easypaisa</option><option>JazzCash</option><option>Bank transfer</option><option>Other</option></select></label>
             <button class="button primary" type="submit">Record receipt</button>
           </form><p class="form-message" id="receipt-message" role="status"></p>
         </section>
       </div>
-      <section class="panel data-panel"><div class="section-heading"><div><p class="eyebrow">Current customer list</p><h2>Customers</h2></div><span class="muted">${customers.length} records</span></div>
-        <div class="table-wrap"><table><thead><tr><th>No.</th><th>Name</th><th>Plan</th><th>Monthly fee</th><th>Status</th></tr></thead><tbody>${customers.map((customer) => `<tr><td>${customer.customer_number}</td><td>${escapeHtml(customer.name)}</td><td>${escapeHtml(customer.plan_name || '—')}</td><td>${formatMoney(customer.monthly_fee_cents)}</td><td>${escapeHtml(customer.archived ? 'Archived' : customer.service_status)}</td></tr>`).join('') || '<tr><td colspan="5" class="empty-cell">No customer records yet.</td></tr>'}</tbody></table></div>
+      <section id="customer-list" class="panel data-panel customer-list-panel" aria-labelledby="customer-list-title">
+        <div class="customer-list-heading"><div><p class="eyebrow">Customer directory</p><h2 id="customer-list-title">Customers</h2></div>
+          <div class="customer-summary" aria-label="Customer count, active count, and unpaid count"><span><strong>${customerSummary.total}</strong><small>Total</small></span><span><strong>${customerSummary.active}</strong><small>Active</small></span><span><strong>${customerSummary.unpaid}</strong><small>Unpaid</small></span></div>
+        </div>
+        <div class="customer-list-search"><label class="sr-only" for="customer-search">Search customers by name, phone, or Account number</label><input id="customer-search" type="search" autocomplete="off" value="${escapeHtml(pageState.customerListSearch)}" placeholder="Search name, phone, or Account #"><p class="muted">This cloud edition has no username field; use the customer number as Account #. Area choices use the saved service address.</p></div>
+        <div class="customer-list-filters" role="group" aria-label="Filter customers by payment status or area">
+          <button class="customer-filter-pill ${pageState.customerListStatus === 'all' ? 'is-active' : ''}" type="button" data-billing-filter="all" aria-pressed="${pageState.customerListStatus === 'all'}">All</button>
+          <button class="customer-filter-pill ${pageState.customerListStatus === 'paid' ? 'is-active' : ''}" type="button" data-billing-filter="paid" aria-pressed="${pageState.customerListStatus === 'paid'}">Paid</button>
+          <button class="customer-filter-pill ${pageState.customerListStatus === 'unpaid' ? 'is-active' : ''}" type="button" data-billing-filter="unpaid" aria-pressed="${pageState.customerListStatus === 'unpaid'}">Unpaid</button>
+          <button class="customer-filter-pill ${pageState.customerListArea ? 'is-active' : ''}" type="button" data-action="toggle-area-filter" aria-expanded="${pageState.customerAreaOpen}" aria-pressed="${Boolean(pageState.customerListArea)}">Area</button>
+          <label class="sr-only" for="customer-area-filter">Filter by saved service address</label><select id="customer-area-filter" aria-label="Filter by saved service address" ${pageState.customerAreaOpen ? '' : 'hidden'}><option value="" disabled ${pageState.customerListArea ? '' : 'selected'}>Choose an area / address</option>${customerAreaOptions}</select>
+        </div>
+        <p id="customer-list-count" class="customer-list-count" role="status" aria-live="polite">Showing ${filteredCustomerRows.length} of ${customerSummary.total} customers.</p>
+        <div id="customer-card-grid" class="customer-card-grid">${customerSummary.total ? renderCustomerCards(filteredCustomerRows, formatMoney) : '<p class="customer-list-empty" role="status">No customer records yet.</p>'}</div>
+        <dialog id="customer-profile-dialog" class="edit-dialog customer-profile-dialog" aria-labelledby="customer-profile-title"><div id="customer-profile-content"></div></dialog>
       </section>
+      <button class="customer-fab" type="button" data-action="open-add-customer" aria-label="Add customer" title="Add customer"><span aria-hidden="true">+</span></button>
       <section class="panel data-panel"><div class="section-heading"><div><p class="eyebrow">Monthly snapshots</p><h2>Bills</h2></div><span class="muted">${bills.length} records</span></div>
         <div class="table-wrap"><table><thead><tr><th>Month</th><th>Customer</th><th>Bill</th><th>Receipts</th><th>Credit applied</th><th>Balance</th><th>Status</th><th></th></tr></thead><tbody>${bills.slice(0, 100).map((bill) => {
           const applied = allocationTotals(rows, bill.id);
@@ -274,6 +402,7 @@ if (!supabase) {
     portalPanel.querySelector('#receipt-customer')?.addEventListener('change', (event) => populateReceiptBills(event.target.value));
     bindAdminForms(context);
     bindAdminActions(context);
+    bindCustomerListActions(context);
     populateReceiptBills(portalPanel.querySelector('#receipt-customer')?.value);
   }
 
@@ -405,6 +534,7 @@ if (!supabase) {
         });
         clearReceiptAttempt();
         form.elements.amount.value = '';
+        form.elements.method.value = '';
         setMessage(message, 'Receipt recorded. Carry-forward credit is shown separately, not as another payment.');
         await refreshCurrentContext();
       } catch (error) {
@@ -479,6 +609,56 @@ if (!supabase) {
       } catch (error) {
         window.alert(error.message || 'Receipt correction could not be saved.');
       }
+    });
+  }
+
+  function bindCustomerListActions(context) {
+    if (context.kind !== 'admin') return;
+    const listRoot = portalPanel.querySelector('#customer-list');
+    listRoot?.addEventListener('input', (event) => {
+      if (event.target.id !== 'customer-search') return;
+      pageState.customerListSearch = event.target.value;
+      updateCustomerListResults();
+    });
+    listRoot?.addEventListener('change', (event) => {
+      if (event.target.id !== 'customer-area-filter') return;
+      pageState.customerListArea = event.target.value;
+      pageState.customerListStatus = 'all';
+      updateCustomerListResults();
+    });
+    listRoot?.addEventListener('click', (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (!target) return;
+      const filterButton = target.closest('[data-billing-filter]');
+      if (filterButton) {
+        pageState.customerListStatus = filterButton.dataset.billingFilter;
+        pageState.customerListArea = '';
+        pageState.customerAreaOpen = false;
+        updateCustomerListResults();
+        return;
+      }
+      const action = target.closest('[data-action]');
+      if (!action) return;
+      if (action.dataset.action === 'toggle-area-filter') {
+        pageState.customerListStatus = 'all';
+        pageState.customerAreaOpen = !pageState.customerAreaOpen;
+        updateCustomerListResults();
+        if (pageState.customerAreaOpen) portalPanel.querySelector('#customer-area-filter')?.focus();
+      } else if (action.dataset.action === 'open-customer-profile') {
+        openCustomerProfile(action.dataset.customerId);
+      } else if (action.dataset.action === 'close-customer-profile') {
+        portalPanel.querySelector('#customer-profile-dialog')?.close();
+      } else if (action.dataset.action === 'mark-as-paid') {
+        const row = currentCustomerListRows().find((entry) => entry.customer.id === action.dataset.customerId);
+        openReceiptFormForCustomer(row);
+      }
+    });
+    portalPanel.querySelector('[data-action="open-add-customer"]')?.addEventListener('click', () => {
+      const form = portalPanel.querySelector('#customer-form');
+      if (!form) return;
+      const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+      form.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'center' });
+      form.elements.customer_number?.focus({ preventScroll: true });
     });
   }
 
