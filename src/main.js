@@ -11,6 +11,13 @@ import {
   renderCustomerProfile,
   summarizeCustomerRows,
 } from './customer-list.js';
+import {
+  buildIncidentTimeline,
+  filterCustomerBillingData,
+  formatBillingMonth,
+  getCustomerBillingMonths,
+  summarizeCustomerBill,
+} from './customer-portal.js';
 import './styles.css';
 
 const app = document.querySelector('#app');
@@ -36,6 +43,9 @@ if (!supabase) {
     customerListStatus: 'all',
     customerListArea: '',
     customerAreaOpen: false,
+    customerBillingMonth: '',
+    customerReceiptFrom: '',
+    customerReceiptThrough: '',
   };
   let pendingReceiptAttempt = null;
 
@@ -100,7 +110,7 @@ if (!supabase) {
     configMessage.hidden = true;
     authPanel.hidden = true;
     portalPanel.hidden = false;
-    portalPanel.innerHTML = '<div class="panel loading-panel"><span class="spinner" aria-hidden="true"></span><p>Loading records allowed for this account…</p></div>';
+    portalPanel.innerHTML = '<div class="panel loading-panel" role="status" aria-live="polite" aria-busy="true"><span class="spinner" aria-hidden="true"></span><p>Loading records allowed for this account…</p></div>';
   }
 
   async function selectContext(context) {
@@ -109,6 +119,13 @@ if (!supabase) {
       pageState.customerListStatus = 'all';
       pageState.customerListArea = '';
       pageState.customerAreaOpen = false;
+    }
+    if (pageState.context?.organizationId !== context.organizationId
+      || pageState.context?.kind !== context.kind
+      || pageState.context?.customerId !== context.customerId) {
+      pageState.customerBillingMonth = '';
+      pageState.customerReceiptFrom = '';
+      pageState.customerReceiptThrough = '';
     }
     pageState.context = context;
     showPortalLoading();
@@ -662,6 +679,69 @@ if (!supabase) {
     });
   }
 
+  function renderCustomerBillingResults() {
+    const results = portalPanel.querySelector('#customer-billing-results');
+    if (!results || !pageState.context || !pageState.rows) return;
+    const rows = pageState.rows;
+    const customerId = pageState.context.customerId;
+    const view = filterCustomerBillingData({
+      customerId,
+      bills: rows.bills,
+      receipts: rows.receipts,
+      allocations: rows.allocations,
+      month: pageState.customerBillingMonth,
+      fromDate: pageState.customerReceiptFrom,
+      throughDate: pageState.customerReceiptThrough,
+    });
+    const periodByBillId = new Map(rows.bills
+      .filter((bill) => bill.customer_id === customerId)
+      .map((bill) => [bill.id, bill.period]));
+    const billRows = view.bills.map((bill) => {
+      const summary = summarizeCustomerBill(bill, rows.receipts, view.allocations);
+      const statusLabel = {
+        'not-priced': 'Not priced',
+        paid: 'Paid',
+        partial: 'Partially paid',
+        unpaid: 'Unpaid',
+      }[summary.status];
+      const planLabel = String(bill.plan_snapshot ?? '').trim()
+        ? `Plan snapshot: ${escapeHtml(bill.plan_snapshot)}`
+        : 'Plan snapshot not recorded';
+      const priceNote = summary.status === 'not-priced'
+        ? '<small class="customer-history-note">Price not recorded; no balance is calculated.</small>'
+        : '';
+      return `<tr><th scope="row"><strong>${escapeHtml(formatBillingMonth(String(bill.period ?? '').slice(0, 7)))}</strong><small>${planLabel}</small></th><td>${formatMoney(bill.amount_due_cents)}${priceNote}</td><td>${formatMoney(summary.receiptCashCents)}</td><td>${formatMoney(summary.creditAppliedCents)}</td><td>${formatMoney(summary.balanceCents)}</td><td><span class="status-pill status-pill--${summary.status}">${statusLabel}</span></td></tr>`;
+    }).join('');
+    const receiptRows = view.receipts.map((receipt) => {
+      const originPeriod = periodByBillId.get(receipt.origin_bill_id);
+      const originMonth = originPeriod
+        ? formatBillingMonth(String(originPeriod).slice(0, 7))
+        : 'Bill month not available';
+      return `<tr><td><time datetime="${escapeHtml(receipt.received_on)}">${escapeHtml(receipt.received_on)}</time></td><td>${escapeHtml(receipt.method || 'Method not recorded')}</td><td>${escapeHtml(originMonth)}</td><td>${formatMoney(receipt.amount_cents)}</td></tr>`;
+    }).join('');
+    const countMessage = view.invalidDateRange
+      ? 'Choose a receipt start date on or before the end date. Receipt entries are hidden until the range is corrected.'
+      : `Showing ${view.bills.length} of ${view.totalBills} bills and ${view.receipts.length} of ${view.totalReceipts} actual receipts.`;
+    const billEmpty = view.totalBills === 0
+      ? 'No bill snapshots have been recorded for this account.'
+      : 'No bills match the selected month.';
+    const receiptEmpty = view.totalReceipts === 0
+      ? 'No cash receipts are recorded for this account.'
+      : view.invalidDateRange
+        ? 'Receipt entries are hidden until the date range is corrected.'
+        : 'No cash receipts match the selected month and receipt dates.';
+
+    results.innerHTML = `<p class="customer-history-count" role="status" aria-live="polite">${countMessage}</p>
+      <section class="customer-history-block" aria-labelledby="customer-bills-title"><div class="section-heading"><div><p class="eyebrow">Monthly snapshots</p><h3 id="customer-bills-title">Bills</h3></div></div>
+        <div class="table-wrap"><table><thead><tr><th scope="col">Bill month / plan</th><th scope="col">Bill amount</th><th scope="col">Cash receipts linked to bill</th><th scope="col">Credit applied</th><th scope="col">Balance</th><th scope="col">Status</th></tr></thead><tbody>${billRows || `<tr><td colspan="6" class="empty-cell">${billEmpty}</td></tr>`}</tbody></table></div>
+        <p class="muted">Bill balances use the complete allocation history. Actual receipts are counted once; carry-forward credit is separate. A bill without a recorded price has no calculated balance.</p>
+      </section>
+      <section class="customer-history-block" aria-labelledby="customer-receipts-title"><div class="section-heading"><div><p class="eyebrow">Actual cash entries</p><h3 id="customer-receipts-title">Receipts</h3></div><span class="muted">${view.receipts.length} shown</span></div>
+        <div class="table-wrap"><table><thead><tr><th scope="col">Received on</th><th scope="col">Method</th><th scope="col">Origin bill month</th><th scope="col">Amount received</th></tr></thead><tbody>${receiptRows || `<tr><td colspan="4" class="empty-cell">${receiptEmpty}</td></tr>`}</tbody></table></div>
+        <p class="muted">Receipt date filters apply only to this actual-cash list; they do not change bill balances or credit totals.</p>
+      </section>`;
+  }
+
   function renderCustomer() {
     const rows = pageState.rows;
     const customer = rows.customers[0];
@@ -670,29 +750,58 @@ if (!supabase) {
       wirePortalBase();
       return;
     }
-    const bills = [...rows.bills].sort((a, b) => String(b.period).localeCompare(String(a.period)));
-    const receipts = [...rows.receipts].sort((a, b) => String(b.received_on).localeCompare(String(a.received_on)));
-    const totalCash = receipts.reduce((sum, receipt) => sum + Number(receipt.amount_cents || 0), 0);
-    const balance = (bill) => bill.amount_due_cents == null ? null : Math.max(0, Number(bill.amount_due_cents) - allocationTotals(rows, bill.id));
-    const incidents = [...rows.incidents].sort((a, b) => String(b.reported_at).localeCompare(String(a.reported_at)));
+    const customerBills = rows.bills.filter((bill) => bill.customer_id === customer.id)
+      .sort((a, b) => String(b.period).localeCompare(String(a.period)));
+    const customerReceipts = rows.receipts.filter((receipt) => receipt.customer_id === customer.id)
+      .sort((a, b) => String(b.received_on).localeCompare(String(a.received_on)));
+    const totalCash = customerReceipts.reduce((sum, receipt) => sum + Number(receipt.amount_cents || 0), 0);
+    const billingMonths = getCustomerBillingMonths({ customerId: customer.id, bills: customerBills, receipts: customerReceipts });
+    if (!billingMonths.includes(pageState.customerBillingMonth)) pageState.customerBillingMonth = '';
+    const monthOptions = billingMonths.map((month) => `<option value="${escapeHtml(month)}" ${month === pageState.customerBillingMonth ? 'selected' : ''}>${escapeHtml(formatBillingMonth(month))}</option>`).join('');
+    const incidents = rows.incidents.filter((incident) => incident.customer_id === customer.id)
+      .sort((a, b) => String(b.reported_at).localeCompare(String(a.reported_at)));
     portalPanel.innerHTML = `${shellHeader('Customer portal')}
       <section class="profile-card panel" aria-label="Customer profile">
         <div class="profile-card__identity"><p class="eyebrow">Your account</p><h2>${escapeHtml(customer.name)}</h2><p class="profile-card__number">Customer #${customer.customer_number}</p></div>
         <div class="profile-card__details"><div class="profile-field"><span>Plan</span><strong>${escapeHtml(customer.plan_name || 'Plan not set')}</strong></div><div class="profile-field"><span>Monthly fee</span><strong>${formatMoney(customer.monthly_fee_cents)}</strong></div><div class="profile-field profile-field--wide"><span>Service address</span><strong>${escapeHtml(customer.service_address || 'Service address not recorded')}</strong></div></div>
         <div class="profile-card__status"><span class="status-pill">${escapeHtml(customer.archived ? 'Archived' : customer.service_status)}</span><p>Service status</p></div>
       </section>
-      <section class="metric-grid customer-metrics"><article class="metric"><span>Total receipts</span><strong>${formatMoney(totalCash)}</strong><small>${receipts.length} actual payments</small></article><article class="metric"><span>Billing history</span><strong>${bills.length}</strong><small>Monthly snapshots</small></article></section>
-      <section class="panel data-panel"><div class="section-heading"><div><p class="eyebrow">Your billing history</p><h2>Bills and credits</h2></div></div><div class="table-wrap"><table><thead><tr><th>Month</th><th>Bill</th><th>Receipt cash</th><th>Credit applied</th><th>Balance</th><th>Status</th></tr></thead><tbody>${bills.map((bill) => {
-        const applied = allocationTotals(rows, bill.id);
-        const billBalance = balance(bill);
-        const credit = rows.allocations.filter((row) => row.bill_id === bill.id && row.allocation_kind === 'carry-forward').reduce((sum, row) => sum + Number(row.amount_cents || 0), 0);
-        const actualReceipts = receiptTotalForBill(rows, bill.id);
-        const status = billBalance == null ? 'Not set' : billBalance === 0 ? 'Paid' : applied > 0 ? 'Partial' : 'Pending';
-        return `<tr><td>${escapeHtml(bill.period.slice(0, 7))}</td><td>${formatMoney(bill.amount_due_cents)}</td><td>${formatMoney(actualReceipts)}</td><td>${formatMoney(credit)}</td><td>${formatMoney(billBalance)}</td><td><span class="status-pill">${status}</span></td></tr>`;
-      }).join('') || '<tr><td colspan="6" class="empty-cell">No bills are available yet.</td></tr>'}</tbody></table></div><p class="muted">Receipt cash is shown once on its original receipt. Credit applied to later bills is separate and is not another payment.</p></section>
-      <section class="panel data-panel"><div class="section-heading"><div><p class="eyebrow">Dated receipts</p><h2>Payment history</h2></div></div><div class="table-wrap"><table><thead><tr><th>Received on</th><th>Method</th><th>Amount</th></tr></thead><tbody>${receipts.map((receipt) => `<tr><td>${escapeHtml(receipt.received_on)}</td><td>${escapeHtml(receipt.method)}</td><td>${formatMoney(receipt.amount_cents)}</td></tr>`).join('') || '<tr><td colspan="3" class="empty-cell">No receipts are available yet.</td></tr>'}</tbody></table></div></section>
-      <section class="panel data-panel"><div class="section-heading"><div><p class="eyebrow">Service updates</p><h2>Incidents</h2></div></div><div class="incident-list">${incidents.map((incident) => `<article class="incident-item"><div><strong>${escapeHtml(String(incident.reported_at).slice(0, 10))}</strong><span class="status-pill">${escapeHtml(incident.status)}</span></div><p>${escapeHtml(incident.customer_visible_summary)}</p>${incident.restored_at ? `<small class="muted">Restored ${escapeHtml(String(incident.restored_at).slice(0, 10))}</small>` : ''}</article>`).join('') || '<p class="empty-cell">No customer-visible service updates.</p>'}</div></section>`;
+      <section class="metric-grid customer-metrics"><article class="metric"><span>Total receipts</span><strong>${formatMoney(totalCash)}</strong><small>${customerReceipts.length} actual payments</small></article><article class="metric"><span>Billing history</span><strong>${customerBills.length}</strong><small>Monthly snapshots</small></article></section>
+      <section class="panel data-panel customer-billing-panel" aria-labelledby="customer-billing-title"><div class="section-heading"><div><p class="eyebrow">Your billing history</p><h2 id="customer-billing-title">Bills and receipts</h2></div></div>
+        <div id="customer-billing-filters" class="customer-billing-filters" aria-describedby="customer-billing-filter-help">
+          <label for="customer-billing-month">Billing / receipt month<select id="customer-billing-month"><option value="">All months</option>${monthOptions}</select></label>
+          <label for="customer-receipt-from">Receipt dates from<input id="customer-receipt-from" type="date" value="${escapeHtml(pageState.customerReceiptFrom)}"></label>
+          <label for="customer-receipt-through">Receipt dates through<input id="customer-receipt-through" type="date" value="${escapeHtml(pageState.customerReceiptThrough)}"></label>
+          <button id="clear-customer-billing-filters" class="button secondary small" type="button">Clear filters</button>
+        </div>
+        <p id="customer-billing-filter-help" class="muted">Month filters both bill period and receipt date. Start/end dates narrow only the actual receipt list.</p>
+        <div id="customer-billing-results"></div>
+      </section>
+      <section class="panel data-panel customer-incidents-panel" aria-labelledby="customer-incidents-title"><div class="section-heading"><div><p class="eyebrow">Service updates</p><h2 id="customer-incidents-title">Incident timeline</h2></div><span class="muted">${incidents.length} updates</span></div>
+        <div class="incident-list">${incidents.map((incident) => {
+          const timeline = buildIncidentTimeline(incident);
+          const statusClass = timeline.status === 'unknown' ? 'unknown' : timeline.status;
+          const eventRows = timeline.events.map((item) => `<li class="incident-timeline__event"><span class="incident-timeline__dot" aria-hidden="true"></span><span class="incident-timeline__label">${escapeHtml(item.label)}</span><time datetime="${escapeHtml(item.datetime)}">${escapeHtml(item.displayTime)}</time></li>`).join('');
+          return `<article class="incident-item incident-item--${statusClass}"><header class="incident-item__header"><div><p class="eyebrow">Service update</p><h3>Incident timeline</h3></div><span class="status-pill incident-status--${statusClass}">${escapeHtml(timeline.statusLabel)}</span></header><p class="incident-item__summary">${escapeHtml(incident.customer_visible_summary)}</p><ol class="incident-timeline" aria-label="Recorded service milestones">${eventRows || '<li class="incident-timeline__empty">No milestone times are available.</li>'}</ol><p class="incident-recovery">${escapeHtml(timeline.restorationMessage)}</p></article>`;
+        }).join('') || '<p class="incident-empty" role="status">No customer-visible service updates are recorded for this account.</p>'}</div>
+      </section>`;
     wirePortalBase();
+    renderCustomerBillingResults();
+    portalPanel.querySelector('#customer-billing-filters')?.addEventListener('change', (event) => {
+      if (event.target.id === 'customer-billing-month') pageState.customerBillingMonth = event.target.value;
+      if (event.target.id === 'customer-receipt-from') pageState.customerReceiptFrom = event.target.value;
+      if (event.target.id === 'customer-receipt-through') pageState.customerReceiptThrough = event.target.value;
+      renderCustomerBillingResults();
+    });
+    portalPanel.querySelector('#clear-customer-billing-filters')?.addEventListener('click', () => {
+      pageState.customerBillingMonth = '';
+      pageState.customerReceiptFrom = '';
+      pageState.customerReceiptThrough = '';
+      portalPanel.querySelector('#customer-billing-month').value = '';
+      portalPanel.querySelector('#customer-receipt-from').value = '';
+      portalPanel.querySelector('#customer-receipt-through').value = '';
+      renderCustomerBillingResults();
+    });
   }
 
   async function refreshCurrentContext() {

@@ -105,6 +105,34 @@ test('customer profile query selects only approved public profile fields', async
   assert.ok(profileQuery.filters.some((filter) => filter[1] === 'id' && filter[2] === 'synthetic-customer'));
 });
 
+test('customer billing and incident reads are limited to approved fields and the linked account', async () => {
+  const client = mockClient({
+    customers: { data: [], error: null },
+    bills: { data: [], error: null },
+    receipts: { data: [], error: null },
+    receipt_allocations: { data: [], error: null },
+    incidents: { data: [], error: null },
+  });
+  await loadPortalRows(client, {
+    kind: 'customer', organizationId: 'synthetic-org', customerId: 'synthetic-customer',
+  });
+  const expectedColumns = {
+    bills: 'id, customer_id, period, amount_due_cents, due_date, plan_snapshot',
+    receipts: 'id, customer_id, origin_bill_id, received_on, amount_cents, method',
+    receipt_allocations: 'receipt_id, bill_id, customer_id, amount_cents, allocation_kind',
+    incidents: 'id, customer_id, customer_visible_summary, status, reported_at, offline_at, restored_at',
+  };
+
+  for (const [table, columns] of Object.entries(expectedColumns)) {
+    const query = client.calls.find((entry) => entry.table === table);
+    assert.deepEqual(query.selects, [columns], `${table} selected columns`);
+    assert.ok(query.filters.some(([kind, field, value]) => kind === 'eq' && field === 'organization_id' && value === 'synthetic-org'));
+    assert.ok(query.filters.some(([kind, field, value]) => kind === 'eq' && field === 'customer_id' && value === 'synthetic-customer'));
+    assert.doesNotMatch(query.selects.join(' '), /phone|staff_notes|created_by|recorded_by|creator|email/i);
+  }
+  assert.equal(client.calls.some((query) => query.table === 'incident_private_details'), false);
+});
+
 test('Admin phone query uses only the private phone column and is scoped to the Admin organization', async () => {
   const client = mockClient({
     customers: { data: [], error: null },
