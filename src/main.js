@@ -226,13 +226,13 @@ if (!supabase) {
           <hr><p class="muted">One bill per customer/month. Existing snapshots are returned unchanged. Price corrections are recorded and recalculate derived balances.</p>
         </section>
         <section class="panel"><p class="eyebrow">Customer access</p><h2>Invite a customer</h2>
-          <p class="muted">Choose an existing active customer and request a portal invitation. This page cannot confirm email delivery.</p>
+          <p class="muted">Choose an existing active customer and request a portal invitation. This page cannot confirm email delivery. Repeating the same customer and email safely recovers an earlier request without sending a second invitation.</p>
           <form id="invite-form" class="stack">
             <label for="invite-customer">Existing customer</label><select id="invite-customer" name="customer_id" required ${inviteCustomers.length ? '' : 'disabled'}>${inviteCustomerOptions || '<option value="">No active customers available</option>'}</select>
             <label for="invite-email">Email address</label><input id="invite-email" name="email" type="email" autocomplete="email" maxlength="254" required ${inviteCustomers.length ? '' : 'disabled'}>
             <button class="button primary" type="submit" ${inviteCustomers.length ? '' : 'disabled'}>Request invitation</button>
           </form><p class="form-message" id="invite-message" role="status" aria-live="polite">${inviteCustomers.length ? '' : 'Add an active customer before requesting an invitation.'}</p>
-          <p class="muted">Customer-to-account links remain server-managed and cannot be written from the browser. If linking needs review, do not retry until an administrator checks the account state.</p>
+          <p class="muted">Customer-to-account links remain server-managed and cannot be written from the browser. If a result is uncertain, use the same customer and email to recover; unresolved account states stop for administrator review.</p>
         </section>
         <section class="panel"><p class="eyebrow">Cash ledger</p><h2>Record actual receipt</h2>
           <form id="receipt-form" class="form-grid">
@@ -295,7 +295,7 @@ if (!supabase) {
         if (typeof payload?.error === 'string' && payload.error.length <= 300) return payload.error;
       }
     } catch { /* Use the safe fallback for network and non-JSON errors. */ }
-    return 'The invitation result could not be confirmed. Review the customer account status before retrying.';
+    return 'The invitation result could not be confirmed. Submit the same customer and email again to recover safely; no second invitation will be sent.';
   }
 
   function bindAdminForms(context) {
@@ -362,11 +362,14 @@ if (!supabase) {
           },
         });
         if (error) throw error;
-        if (data?.invited !== true || data?.linked !== true || data?.email_delivery_confirmed !== false) {
-          throw new Error('The invitation result could not be confirmed. Review the customer account status before retrying.');
+        if (data?.linked !== true || data?.email_delivery_confirmed !== false
+            || (data?.invited !== true && data?.recovered !== true)) {
+          throw new Error('The invitation result could not be confirmed. Submit the same customer and email again to recover safely; no second invitation will be sent.');
         }
         form.reset();
-        setMessage(message, 'The invitation request was accepted and the account is linked. Email delivery is not confirmed.');
+        setMessage(message, data.recovered === true
+          ? 'The existing invitation state was recovered and linked. No second invitation was sent; email delivery remains unconfirmed.'
+          : 'The invitation request was accepted and the account is linked. Email delivery is not confirmed.');
       } catch (error) {
         setMessage(message, await invitationErrorMessage(error), true);
       } finally {
