@@ -2,6 +2,7 @@ import { createPortalClient } from './supabase-client.js';
 import { validatePakistanPhone } from './customer-input.js';
 import { createCustomer, invokeRpc, loadContexts, loadPortalRows } from './portal-data.js';
 import { amountToMinorUnits, calculateDashboard, formatMoney } from './ledger.js';
+import { renderDashboardMetrics } from './dashboard-metrics.js';
 import './styles.css';
 
 const app = document.querySelector('#app');
@@ -201,12 +202,7 @@ if (!supabase) {
     const inviteCustomerOptions = inviteCustomers.map((customer) => `<option value="${escapeHtml(customer.id)}">#${customer.customer_number} · ${escapeHtml(customer.name)}</option>`).join('');
 
     portalPanel.innerHTML = `${shellHeader('Administrator portal')}
-      <section class="metric-grid" aria-label="Monthly billing summary">
-        <article class="metric"><span>Customers</span><strong>${totals.customerCount}</strong><small>${totals.activeCustomers} active</small></article>
-        <article class="metric"><span>${escapeHtml(pageState.selectedMonth)} billed</span><strong>${formatMoney(totals.billedCents)}</strong><small>${totals.monthBills.length} bill snapshots</small></article>
-        <article class="metric"><span>Cash received</span><strong>${formatMoney(totals.cashReceivedCents)}</strong><small>${totals.receiptCount} receipts by actual date</small></article>
-        <article class="metric"><span>Outstanding</span><strong>${formatMoney(totals.outstandingCents)}</strong><small>${formatMoney(totals.creditAppliedCents)} credit applied (not cash)</small></article>
-      </section>
+      ${renderDashboardMetrics({ month: pageState.selectedMonth, totals })}
       <section class="panel month-panel"><label for="dashboard-month">Dashboard month</label><input type="month" id="dashboard-month" value="${escapeHtml(pageState.selectedMonth)}"><p class="muted">Cash totals follow receipt dates. Credit allocation is shown separately and is never counted as another payment.</p></section>
       <div class="admin-grid">
         <section class="panel"><p class="eyebrow">Customer records</p><h2>Add customer</h2>
