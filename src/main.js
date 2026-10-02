@@ -1,6 +1,7 @@
 import { createPortalClient } from './supabase-client.js';
 import { validatePakistanPhone } from './customer-input.js';
 import { createCustomer, invokeRpc, loadContexts, loadPortalRows } from './portal-data.js';
+import { getBillingCycleQuickDate, isValidBillingMonth, localDateString, localMonthString } from './bill-dates.js';
 import { amountToMinorUnits, calculateDashboard, formatMoney } from './ledger.js';
 import { renderDashboardMetrics } from './dashboard-metrics.js';
 import {
@@ -45,6 +46,9 @@ if (!supabase) {
     context: null,
     rows: null,
     selectedMonth: localMonth(),
+    billCycleMonth: localMonth(),
+    billIssueDate: localDate(),
+    billDueDate: '',
     loadingUserId: null,
     customerListSearch: '',
     customerListStatus: 'all',
@@ -88,11 +92,11 @@ if (!supabase) {
   }
 
   function localMonth(date = new Date()) {
-    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+    return localMonthString(date);
   }
 
   function localDate(date = new Date()) {
-    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    return localDateString(date);
   }
 
   function escapeHtml(value) {
@@ -448,7 +452,16 @@ if (!supabase) {
         <section class="panel"><p class="eyebrow">Monthly billing</p><h2>Create bill snapshot</h2>
           <form id="bill-form" class="stack">
             <label for="bill-customer">Customer</label><select id="bill-customer" name="customer_id" required>${monthOptions}</select>
-            <label for="bill-month">Billing month</label><input id="bill-month" name="period" type="month" value="${escapeHtml(pageState.selectedMonth)}" required>
+            <label for="bill-month">Billing Cycle Month</label><input id="bill-month" name="period" type="month" value="${escapeHtml(pageState.billCycleMonth)}" required>
+            <label for="bill-issued-on">Issue Date</label><input id="bill-issued-on" name="issued_on" type="date" value="${escapeHtml(pageState.billIssueDate)}">
+            <label for="bill-due-date">Exact Due Date</label><input id="bill-due-date" name="due_date" type="date" value="${escapeHtml(pageState.billDueDate)}">
+            <div class="due-date-presets" role="group" aria-label="Choose an exact due date quickly">
+              <button class="due-date-preset" type="button" data-due-date-preset="today" aria-controls="bill-due-date">Today</button>
+              <button class="due-date-preset" type="button" data-due-date-preset="fifth" aria-controls="bill-due-date">5th of Month</button>
+              <button class="due-date-preset" type="button" data-due-date-preset="tenth" aria-controls="bill-due-date">10th of Month</button>
+              <button class="due-date-preset" type="button" data-due-date-preset="end" aria-controls="bill-due-date">End of Month</button>
+            </div>
+            <p class="muted">The issue date starts at today on this device. Due dates are never assumed; month-based choices follow the selected billing cycle.</p>
             <button class="button primary" type="submit">Create monthly bill</button>
           </form><p class="form-message" id="bill-message" role="status"></p>
           <hr><p class="muted">One bill per customer/month. Existing snapshots are returned unchanged. Price corrections are recorded and recalculate derived balances.</p>
@@ -511,10 +524,22 @@ if (!supabase) {
       <dialog id="receipt-dialog" class="edit-dialog"><form id="receipt-edit-form" method="dialog"><div class="section-heading"><div><p class="eyebrow">Correction</p><h2>Edit receipt</h2></div><button class="icon-button" type="button" data-action="close-dialog" aria-label="Close">×</button></div><input type="hidden" name="receipt_id"><label>Original bill<select name="bill_id" required></select></label><label>Received on<input name="received_on" type="date" required></label><label>Actual amount (PKR)<input name="amount" inputmode="decimal" required></label><label>Method<input name="method" maxlength="40" required></label><div class="form-actions"><button class="button secondary" type="button" data-action="close-dialog">Cancel</button><button class="button primary" type="submit">Save correction</button></div></form></dialog>`;
 
     wirePortalBase();
+    portalPanel.insertAdjacentHTML('beforeend', `<dialog id="bill-edit-dialog" class="edit-dialog" aria-labelledby="bill-edit-title"><form id="bill-edit-form" class="stack" method="dialog"><div class="section-heading"><div><p class="eyebrow">Explicit correction</p><h2 id="bill-edit-title">Correct bill</h2></div><button class="icon-button" type="button" data-action="close-bill-dialog" aria-label="Close">×</button></div><input type="hidden" name="bill_id"><label for="bill-edit-amount">Bill amount (PKR)<input id="bill-edit-amount" name="amount" inputmode="decimal" placeholder="Leave blank if not priced"></label><label for="bill-edit-issued-on">Issue Date<input id="bill-edit-issued-on" name="issued_on" type="date"></label><label for="bill-edit-due-date">Exact Due Date<input id="bill-edit-due-date" name="due_date" type="date"></label><p class="muted">Dates stay blank when they were not explicitly recorded. Saving updates this bill only.</p><div class="form-actions"><button class="button secondary" type="button" data-action="close-bill-dialog">Cancel</button><button class="button primary" type="submit">Save bill correction</button></div></form></dialog>`);
     portalPanel.querySelector('#dashboard-month')?.addEventListener('change', (event) => {
       pageState.selectedMonth = event.target.value || localMonth();
       renderPortal();
     });
+    const billForm = portalPanel.querySelector('#bill-form');
+    billForm?.elements.period.addEventListener('change', (event) => { pageState.billCycleMonth = event.target.value; });
+    billForm?.elements.issued_on.addEventListener('change', (event) => { pageState.billIssueDate = event.target.value; });
+    billForm?.elements.due_date.addEventListener('change', (event) => { pageState.billDueDate = event.target.value; });
+    billForm?.querySelectorAll('[data-due-date-preset]').forEach((button) => button.addEventListener('click', () => {
+      const dueDate = getBillingCycleQuickDate(billForm.elements.period.value, button.dataset.dueDatePreset);
+      if (!dueDate) return;
+      billForm.elements.due_date.value = dueDate;
+      pageState.billDueDate = dueDate;
+      setMessage(portalPanel.querySelector('#bill-message'), `Due date set to ${dueDate}.`);
+    }));
     portalPanel.querySelector('#receipt-customer')?.addEventListener('change', (event) => populateReceiptBills(event.target.value));
     bindAdminForms(context);
     bindAdminActions(context);
@@ -578,13 +603,20 @@ if (!supabase) {
       const message = portalPanel.querySelector('#bill-message');
       try {
         const period = String(formData.get('period') ?? '');
-        if (!/^\d{4}-\d{2}$/.test(period)) throw new Error('Choose a valid billing month.');
+        if (!isValidBillingMonth(period)) throw new Error('Choose a valid billing cycle month.');
+        const customerId = String(formData.get('customer_id'));
+        const existingBill = pageState.rows.bills.find((bill) =>
+          bill.customer_id === customerId && String(bill.period).slice(0, 7) === period);
         await invokeRpc(supabase, 'create_monthly_bill', {
           p_organization_id: context.organizationId,
-          p_customer_id: String(formData.get('customer_id')),
+          p_customer_id: customerId,
           p_period: `${period}-01`,
+          p_issued_on: String(formData.get('issued_on') ?? '') || null,
+          p_due_date: String(formData.get('due_date') ?? '') || null,
         });
-        setMessage(message, 'Bill snapshot saved. Existing monthly snapshots are not overwritten.');
+        setMessage(message, existingBill
+          ? 'Existing monthly snapshot kept unchanged. Use Correct bill to explicitly change its amount or dates.'
+          : 'Bill snapshot created. No due date was assumed.');
         await refreshCurrentContext('Bill snapshot saved.');
       } catch (error) {
         setMessage(message, error.message || 'Bill could not be created.', true);
@@ -661,21 +693,37 @@ if (!supabase) {
   }
 
   function bindAdminActions(context) {
-    portalPanel.querySelectorAll('[data-action="edit-bill"]').forEach((button) => button.addEventListener('click', async () => {
-      const bill = pageState.rows.bills.find((row) => row.id === button.dataset.id);
-      if (!bill) return;
-      const current = bill.amount_due_cents == null ? '' : (Number(bill.amount_due_cents) / 100).toFixed(2);
-      const value = window.prompt(`Bill amount in PKR for ${bill.period.slice(0, 7)} (leave blank for Not set):`, current);
-      if (value === null) return;
+    const billEditDialog = portalPanel.querySelector('#bill-edit-dialog');
+    const billEditForm = portalPanel.querySelector('#bill-edit-form');
+    portalPanel.querySelectorAll('[data-action="close-bill-dialog"]').forEach((button) => button.addEventListener('click', () => billEditDialog?.close()));
+    billEditForm?.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const formData = new FormData(event.currentTarget);
       try {
-        const amount = value.trim() === '' ? null : amountToMinorUnits(value, { allowZero: true });
-        const { error } = await supabase.from('bills').update({ amount_due_cents: amount })
-          .eq('organization_id', context.organizationId).eq('id', bill.id);
-        if (error) throw error;
+        const amountText = String(formData.get('amount') ?? '').trim();
+        await invokeRpc(supabase, 'correct_monthly_bill', {
+          p_organization_id: context.organizationId,
+          p_bill_id: String(formData.get('bill_id')),
+          p_amount_due_cents: amountText ? amountToMinorUnits(amountText, { allowZero: true }) : null,
+          p_issued_on: String(formData.get('issued_on') ?? '') || null,
+          p_due_date: String(formData.get('due_date') ?? '') || null,
+        });
+        billEditDialog?.close();
         await refreshCurrentContext('Bill correction saved.');
       } catch (error) {
         window.alert(error.message || 'Bill could not be corrected.');
       }
+    });
+
+    portalPanel.querySelectorAll('[data-action="edit-bill"]').forEach((button) => button.addEventListener('click', () => {
+      const bill = pageState.rows.bills.find((row) => row.id === button.dataset.id);
+      if (!bill || !billEditForm || !billEditDialog) return;
+      billEditForm.elements.bill_id.value = bill.id;
+      billEditForm.elements.amount.value = bill.amount_due_cents == null ? '' : (Number(bill.amount_due_cents) / 100).toFixed(2);
+      billEditForm.elements.issued_on.value = bill.issued_on ?? '';
+      billEditForm.elements.due_date.value = bill.due_date ?? '';
+      billEditDialog.showModal();
+      billEditForm.elements.issued_on.focus();
     }));
 
     portalPanel.querySelectorAll('[data-action="edit-receipt"]').forEach((button) => button.addEventListener('click', () => {

@@ -68,10 +68,13 @@ export async function loadPortalRows(supabase, context) {
   const privateCustomerDetailsQuery = context.kind === 'admin'
     ? rowsFor(supabase, 'customer_private_details', 'customer_id, phone', byOrganization, { column: 'customer_id' })
     : Promise.resolve([]);
+  const billColumns = context.kind === 'admin'
+    ? 'id, customer_id, period, amount_due_cents, issued_on, due_date, plan_snapshot'
+    : 'id, customer_id, period, amount_due_cents, plan_snapshot';
   const [customers, bills, receipts, allocations, incidents, privateCustomerDetails] = await Promise.all([
     rowsFor(supabase, 'customers', 'id, customer_number, name, plan_name, service_address, service_status, monthly_fee_cents, archived',
       context.kind === 'admin' ? byOrganization : customerTableOnly, { column: 'customer_number' }),
-    rowsFor(supabase, 'bills', 'id, customer_id, period, amount_due_cents, due_date, plan_snapshot',
+    rowsFor(supabase, 'bills', billColumns,
       context.kind === 'admin' ? byOrganization : customerOnly, { column: 'period', ascending: false }),
     rowsFor(supabase, 'receipts', 'id, customer_id, origin_bill_id, received_on, amount_cents, method',
       context.kind === 'admin' ? byOrganization : customerOnly, { column: 'received_on', ascending: false }),

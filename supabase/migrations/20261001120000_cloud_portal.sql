@@ -97,6 +97,7 @@ create table public.bills (
   customer_id text not null,
   period date not null check (extract(day from period) = 1),
   amount_due_cents bigint check (amount_due_cents is null or amount_due_cents >= 0),
+  issued_on date,
   due_date date,
   plan_snapshot text not null default '' check (length(plan_snapshot) <= 100),
   created_at timestamptz not null default now(),
@@ -668,7 +669,9 @@ create or replace function public.create_monthly_bill(
   p_organization_id uuid,
   p_customer_id text,
   p_period date,
-  p_bill_id text default null
+  p_bill_id text default null,
+  p_issued_on date default null,
+  p_due_date date default null
 )
 returns text
 language plpgsql
@@ -707,6 +710,7 @@ begin
   where b.organization_id = p_organization_id
     and b.customer_id = p_customer_id and b.period = p_period;
   if found then
+    -- A replay returns the existing snapshot without changing price or dates.
     return v_bill_id;
   end if;
 
@@ -724,12 +728,43 @@ begin
   v_bill_id := coalesce(p_bill_id, gen_random_uuid()::text);
   insert into public.bills (
     organization_id, id, customer_id, period, amount_due_cents,
-    due_date, plan_snapshot
+    issued_on, due_date, plan_snapshot
   ) values (
     p_organization_id, v_bill_id, p_customer_id, p_period, v_amount,
-    (p_period + interval '4 days')::date, coalesce(v_plan, '')
+    p_issued_on, p_due_date, coalesce(v_plan, '')
   );
   return v_bill_id;
+end;
+$$;
+
+create or replace function public.correct_monthly_bill(
+  p_organization_id uuid,
+  p_bill_id text,
+  p_amount_due_cents bigint,
+  p_issued_on date,
+  p_due_date date
+)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if (select auth.uid()) is null or not public.is_org_admin(p_organization_id) then
+    raise exception 'Administrator access required' using errcode = '42501';
+  end if;
+  if p_bill_id is null or length(p_bill_id) = 0 or length(p_bill_id) > 200 then
+    raise exception 'Invalid bill ID' using errcode = '22023';
+  end if;
+
+  update public.bills
+  set amount_due_cents = p_amount_due_cents,
+      issued_on = p_issued_on,
+      due_date = p_due_date
+  where organization_id = p_organization_id and id = p_bill_id;
+  if not found then
+    raise exception 'Bill not found' using errcode = 'P0002';
+  end if;
 end;
 $$;
 
@@ -880,15 +915,18 @@ begin
 end;
 $$;
 
-revoke all on function public.create_monthly_bill(uuid, text, date, text)
-  from public, anon;
+revoke all on function public.create_monthly_bill(uuid, text, date, text, date, date)
+  from public, anon, authenticated;
+revoke all on function public.correct_monthly_bill(uuid, text, bigint, date, date)
+  from public, anon, authenticated;
 revoke all on function public.record_cash_receipt(uuid, text, text, text, date, bigint, text)
   from public, anon;
 revoke all on function public.correct_cash_receipt(uuid, text, text, date, bigint, text)
   from public, anon;
 revoke all on function public.delete_cash_receipt(uuid, text)
   from public, anon;
-grant execute on function public.create_monthly_bill(uuid, text, date, text) to authenticated;
+grant execute on function public.create_monthly_bill(uuid, text, date, text, date, date) to authenticated;
+grant execute on function public.correct_monthly_bill(uuid, text, bigint, date, date) to authenticated;
 grant execute on function public.record_cash_receipt(uuid, text, text, text, date, bigint, text) to authenticated;
 grant execute on function public.correct_cash_receipt(uuid, text, text, date, bigint, text) to authenticated;
 grant execute on function public.delete_cash_receipt(uuid, text) to authenticated;

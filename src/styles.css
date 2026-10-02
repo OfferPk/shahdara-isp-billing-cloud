@@ -307,6 +307,10 @@ td { color: #25433b; }
 
 /* Admin Bills screen: month-defined KPIs, searchable smart cards, and touch-sized actions. */
 .admin-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.due-date-presets { display: flex; flex-wrap: wrap; gap: 8px; }
+.due-date-preset { min-height: 44px; padding: 8px 12px; border: 1px solid #cfe0d6; border-radius: 999px; color: #195f47; background: #f4faf6; font-size: 12px; font-weight: 750; }
+.due-date-preset:hover { border-color: #9bc9ae; background: #eaf5ee; }
+.due-date-preset:focus-visible { outline: 3px solid #102e27; outline-offset: 3px; box-shadow: 0 0 0 6px #fff; }
 .bill-list-search { display: grid; gap: 6px; margin: 0 0 12px; }
 .bill-list-search input { min-height: 48px; border-radius: 13px; }
 .bill-list-search p { margin: 0; }

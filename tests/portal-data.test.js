@@ -117,7 +117,7 @@ test('customer billing and incident reads are limited to approved fields and the
     kind: 'customer', organizationId: 'synthetic-org', customerId: 'synthetic-customer',
   });
   const expectedColumns = {
-    bills: 'id, customer_id, period, amount_due_cents, due_date, plan_snapshot',
+    bills: 'id, customer_id, period, amount_due_cents, plan_snapshot',
     receipts: 'id, customer_id, origin_bill_id, received_on, amount_cents, method',
     receipt_allocations: 'receipt_id, bill_id, customer_id, amount_cents, allocation_kind',
     incidents: 'id, customer_id, customer_visible_summary, status, reported_at, offline_at, restored_at',
@@ -148,6 +148,9 @@ test('Admin phone query uses only the private phone column and is scoped to the 
   assert.deepEqual(query.selects, ['customer_id, phone']);
   assert.ok(query.filters.some(([kind, field, value]) => kind === 'eq' && field === 'organization_id' && value === 'synthetic-org'));
   assert.deepEqual(rows.privateCustomerDetails, [{ customer_id: 'synthetic-customer', phone: '03001234567' }]);
+  const billQuery = client.calls.find((entry) => entry.table === 'bills');
+  assert.deepEqual(billQuery.selects, ['id, customer_id, period, amount_due_cents, issued_on, due_date, plan_snapshot']);
+  assert.ok(billQuery.filters.some(([kind, field, value]) => kind === 'eq' && field === 'organization_id' && value === 'synthetic-org'));
 });
 
 test('query and receipt RPC errors are propagated to the UI', async () => {

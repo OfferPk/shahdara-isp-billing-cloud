@@ -1,7 +1,7 @@
 -- Synthetic-only database tests. Run with `supabase test db` against a local,
 -- disposable Supabase stack; never run these fixtures against production.
 begin;
-select plan(17);
+select plan(26);
 
 insert into auth.users (id, aud, role, email, encrypted_password, email_confirmed_at,
                         raw_app_meta_data, raw_user_meta_data, created_at, updated_at)
@@ -14,7 +14,8 @@ insert into public.organizations (id, name) values
   ('20000000-0000-4000-8000-000000000001', 'Synthetic ISP A'),
   ('20000000-0000-4000-8000-000000000002', 'Synthetic ISP B');
 insert into public.organization_memberships (organization_id, user_id, role) values
-  ('20000000-0000-4000-8000-000000000001', '10000000-0000-4000-8000-000000000001', 'admin');
+  ('20000000-0000-4000-8000-000000000001', '10000000-0000-4000-8000-000000000001', 'admin'),
+  ('20000000-0000-4000-8000-000000000002', '10000000-0000-4000-8000-000000000003', 'admin');
 insert into public.customers (organization_id, id, customer_number, name, plan_name, monthly_fee_cents, service_status) values
   ('20000000-0000-4000-8000-000000000001', 'synthetic-customer-a', 1, 'Synthetic Customer A', 'Starter', 10000, 'active'),
   ('20000000-0000-4000-8000-000000000001', 'synthetic-customer-b', 2, 'Synthetic Customer B', 'Starter', 10000, 'active'),
@@ -26,6 +27,12 @@ insert into public.customer_portal_accounts (organization_id, customer_id, user_
 insert into public.bills (organization_id, id, customer_id, period, amount_due_cents, due_date) values
   ('20000000-0000-4000-8000-000000000001', 'synthetic-bill-jan', 'synthetic-customer-a', '2026-01-01', 10000, '2026-01-05'),
   ('20000000-0000-4000-8000-000000000001', 'synthetic-bill-feb', 'synthetic-customer-a', '2026-02-01', 10000, '2026-02-05');
+select is((select issued_on from public.bills where id = 'synthetic-bill-jan'), null::date,
+  'existing bill issue dates remain null rather than inferred from created_at');
+select throws_ok(
+  $$select public.create_monthly_bill('20000000-0000-4000-8000-000000000001', 'synthetic-customer-a', '2026-03-01', 'unauthenticated-bill', '2026-03-02', '2026-03-10')$$,
+  '42501', null, 'bill creation requires an authenticated same-organization Admin'
+);
 
 select ok(not has_table_privilege('anon', 'public.customers', 'select'), 'anon has no customer select grant');
 select ok(not has_table_privilege('authenticated', 'public.receipts', 'insert,update,delete'), 'browser clients have no direct receipt write grants');
@@ -48,7 +55,35 @@ select set_config('request.jwt.claim.sub', '10000000-0000-4000-8000-000000000001
 select is(current_user::text, 'authenticated', 'administrator RLS checks execute as authenticated');
 select is((select count(*)::integer from public.customers where organization_id = '20000000-0000-4000-8000-000000000001'), 2, 'admin sees customers in the authorized organization');
 select is((select count(*)::integer from public.customers where organization_id = '20000000-0000-4000-8000-000000000002'), 0, 'admin cannot cross into another organization');
+select is(public.create_monthly_bill('20000000-0000-4000-8000-000000000001', 'synthetic-customer-a', '2026-03-01', 'synthetic-bill-mar', '2026-03-02', '2026-03-10'), 'synthetic-bill-mar'::text,
+  'same-organization Admin creates a bill with explicit issue and due dates');
+select is(public.create_monthly_bill('20000000-0000-4000-8000-000000000001', 'synthetic-customer-a', '2026-03-01', 'ignored-retry-id', '2026-03-04', '2026-03-30'), 'synthetic-bill-mar'::text,
+  'repeating a monthly bill request returns the existing bill ID');
+select is((select jsonb_build_array(amount_due_cents, issued_on, due_date) from public.bills where id = 'synthetic-bill-mar'),
+  jsonb_build_array(10000, '2026-03-02'::date, '2026-03-10'::date),
+  'existing monthly snapshots remain unchanged when replayed with different dates');
+select public.correct_monthly_bill('20000000-0000-4000-8000-000000000001', 'synthetic-bill-mar', 12000, '2026-03-03', '2026-03-31');
+select is((select jsonb_build_array(amount_due_cents, issued_on, due_date) from public.bills where id = 'synthetic-bill-mar'),
+  jsonb_build_array(12000, '2026-03-03'::date, '2026-03-31'::date),
+  'same-organization Admin correction writes amount and both dates atomically');
 reset role;
+set local role authenticated;
+select set_config('request.jwt.claim.sub', '10000000-0000-4000-8000-000000000003', true);
+select throws_ok(
+  $$select public.correct_monthly_bill('20000000-0000-4000-8000-000000000001', 'synthetic-bill-mar', 9000, '2026-03-04', '2026-03-20')$$,
+  '42501', null, 'admin cannot correct a bill across organizations'
+);
+reset role;
+set local role authenticated;
+select set_config('request.jwt.claim.sub', '10000000-0000-4000-8000-000000000002', true);
+select throws_ok(
+  $$select public.correct_monthly_bill('20000000-0000-4000-8000-000000000001', 'synthetic-bill-mar', 9000, '2026-03-04', '2026-03-20')$$,
+  '42501', null, 'customer cannot correct bill amounts or dates'
+);
+reset role;
+select is((select jsonb_build_array(amount_due_cents, issued_on, due_date) from public.bills where id = 'synthetic-bill-mar'),
+  jsonb_build_array(12000, '2026-03-03'::date, '2026-03-31'::date),
+  'rejected cross-organization and customer corrections leave the bill unchanged');
 update public.customers set monthly_fee_cents = 12500, plan_name = 'Plus'
 where organization_id = '20000000-0000-4000-8000-000000000001' and id = 'synthetic-customer-a';
 select is((select monthly_fee_cents from public.price_history
