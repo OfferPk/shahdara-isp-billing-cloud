@@ -138,7 +138,7 @@ function credentialsHarness(options = {}) {
 }
 
 function passwordChangeHarness(options = {}) {
-  const calls = { keys: [], options: [], rpcs: [], updates: [] };
+  const calls = { keys: [], options: [], rpcs: [], updates: [], logs: [] };
   const env = makeEnv();
   const createClient = (_url, key, clientOptions = {}) => {
     calls.keys.push(key);
@@ -153,6 +153,7 @@ function passwordChangeHarness(options = {}) {
         },
         async updateUser(input) {
           calls.updates.push(input);
+          if (options.updateThrows) throw options.updateThrows;
           return { data: options.updateError ? null : { user: { id: userId } }, error: options.updateError ?? null };
         },
       } };
@@ -165,7 +166,14 @@ function passwordChangeHarness(options = {}) {
       throw new Error(`Unexpected RPC ${name}`);
     } };
   };
-  return { handler: createChangeCustomerPasswordHandler({ env, createClient }), calls };
+  return {
+    handler: createChangeCustomerPasswordHandler({
+      env,
+      createClient,
+      logger: { warn: (entry) => calls.logs.push(entry) },
+    }),
+    calls,
+  };
 }
 
 async function responseJson(response) {
@@ -344,13 +352,59 @@ test('password change uses the authenticated-user Auth API and only marks state 
   assert.equal(harness.calls.options.find(({ key }) => key === 'synthetic-publishable-key').options.global.headers.Authorization, 'Bearer synthetic-customer-jwt');
 });
 
-test('password change failure releases the state lease and does not call completion', async () => {
-  const harness = passwordChangeHarness({ updateError: new Error('synthetic password policy failure') });
+test('password change logs only an allow-listed Auth code, keeps the generic response, releases lease, and skips completion', async () => {
+  const harness = passwordChangeHarness({
+    updateError: Object.assign(new Error('synthetic raw auth message with credential and JWT'), {
+      code: 'weak_password',
+      access_token: 'synthetic-customer-jwt',
+      user_id: userId,
+    }),
+  });
   const response = await harness.handler(request('change-customer-password', {
     body: { new_password: 'Synthetic-permanent-Password-2026!' },
     authorization: 'Bearer synthetic-customer-jwt',
   }));
   assert.equal(response.status, 400);
+  assert.deepEqual(await responseJson(response), {
+    error: 'Password could not be changed. Check the account password policy and try again, or contact an administrator.',
+  });
+  assert.equal(harness.calls.logs.length, 1);
+  assert.deepEqual(JSON.parse(harness.calls.logs[0]), {
+    event: 'customer_password_change_auth_update_failed',
+    auth_error_code: 'weak_password',
+  });
+  assert.doesNotMatch(harness.calls.logs[0], /synthetic|credential|JWT|user_id|access_token/i);
+  assert.deepEqual(harness.calls.rpcs.map(({ name }) => name), [
+    'begin_customer_portal_password_change', 'abort_customer_portal_password_change',
+  ]);
+});
+
+test('password change does not log unrecognized Auth codes or raw error data', async () => {
+  for (const updateError of [
+    Object.assign(new Error('synthetic untrusted message'), { code: `sensitive-${userId}` }),
+    new Error('synthetic error without a code'),
+  ]) {
+    const harness = passwordChangeHarness({ updateError });
+    const response = await harness.handler(request('change-customer-password', {
+      body: { new_password: 'Synthetic-permanent-Password-2026!' },
+      authorization: 'Bearer synthetic-customer-jwt',
+    }));
+    assert.equal(response.status, 400);
+    assert.deepEqual(harness.calls.logs, []);
+    assert.deepEqual(harness.calls.rpcs.map(({ name }) => name), [
+      'begin_customer_portal_password_change', 'abort_customer_portal_password_change',
+    ]);
+  }
+});
+
+test('password change releases lease and skips completion when Auth update throws', async () => {
+  const harness = passwordChangeHarness({ updateThrows: new Error('synthetic transport failure') });
+  const response = await harness.handler(request('change-customer-password', {
+    body: { new_password: 'Synthetic-permanent-Password-2026!' },
+    authorization: 'Bearer synthetic-customer-jwt',
+  }));
+  assert.equal(response.status, 503);
+  assert.deepEqual(harness.calls.logs, []);
   assert.deepEqual(harness.calls.rpcs.map(({ name }) => name), [
     'begin_customer_portal_password_change', 'abort_customer_portal_password_change',
   ]);
