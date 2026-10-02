@@ -1,3 +1,5 @@
+import { getOverdueDays, normalizeIsoDate } from './bill-dates.js';
+
 const digitsOnly = (value) => String(value ?? '').replace(/\D/g, '');
 const normalizeText = (value) => String(value ?? '').trim().toLocaleLowerCase('en-PK');
 
@@ -8,10 +10,7 @@ function escapeHtml(value) {
 }
 
 function validIsoDate(value) {
-  const date = String(value ?? '').slice(0, 10);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return '';
-  const parsed = new Date(`${date}T00:00:00.000Z`);
-  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === date ? date : '';
+  return normalizeIsoDate(value);
 }
 
 function sumCents(rows) {
@@ -35,8 +34,10 @@ export function buildAdminBillRows({
       && Number.isFinite(Number(bill.amount_due_cents));
     const appliedCents = sumCents(billAllocations);
     const balanceCents = isPriced ? Math.max(0, Number(bill.amount_due_cents) - appliedCents) : null;
+    const issuedOn = validIsoDate(bill.issued_on);
     const dueDate = validIsoDate(bill.due_date);
-    const isOverdue = Boolean(dueDate && todayKey && dueDate < todayKey && balanceCents > 0);
+    const overdueDays = balanceCents > 0 ? getOverdueDays(dueDate, todayKey) : 0;
+    const isOverdue = overdueDays > 0;
     const status = !isPriced ? 'not-priced' : balanceCents === 0 ? 'paid' : 'unpaid';
     const period = String(bill.period ?? '').slice(0, 7);
     const phone = phoneByCustomer.get(bill.customer_id) ?? '';
@@ -53,8 +54,10 @@ export function buildAdminBillRows({
       balanceCents,
       creditAppliedCents: sumCents(billAllocations.filter((allocation) => allocation.allocation_kind === 'carry-forward')),
       cashReceiptCents: sumCents(billReceipts),
+      issuedOn,
       dueDate,
-      dueLabel: dueDate ? `Due date: ${dueDate}` : `Billing period: ${period || 'not recorded'} (no due date recorded)`,
+      overdueDays,
+      dueLabel: dueDate ? `Due date: ${dueDate}` : 'Due date not recorded',
       status,
       isOverdue,
       receipts: [...billReceipts].sort((left, right) => String(right.received_on).localeCompare(String(left.received_on))),
@@ -98,7 +101,7 @@ export function buildWhatsappReminderHref(row, formatMoney) {
   if (row?.status !== 'unpaid' || row.balanceCents == null || row.balanceCents <= 0) return '';
   const number = whatsappDigits(row.phone);
   if (!number) return '';
-  const dateText = row.dueDate ? ` Due date: ${row.dueDate}.` : ` Billing period: ${row.period || 'not recorded'}.`;
+  const dateText = row.dueDate ? ` Due date: ${row.dueDate}.` : '';
   const message = `Assalam-o-Alaikum ${row.customerName}. Shahdara Fiber Net ki ${row.period || 'recorded period'} ki bill ke hawale se yaad-dihani: outstanding balance ${formatMoney(row.balanceCents)} hai.${dateText} Agar aap payment kar chuke hain to meherbani karke is paigham ko nazar-andaz karein aur humein tasdeeq ke liye rabta karein. Shukriya.`;
   return `https://wa.me/${number}?text=${encodeURIComponent(message)}`;
 }
@@ -109,7 +112,7 @@ export function renderAdminBillCards(rows, formatMoney) {
     const billId = escapeHtml(row.bill.id);
     const customerName = escapeHtml(row.customerName);
     const period = escapeHtml(row.period || 'Period not recorded');
-    const badge = row.isOverdue ? 'Overdue · Unpaid' : row.status === 'paid' ? 'Paid' : row.status === 'unpaid' ? 'Unpaid' : 'Not priced';
+    const badge = row.isOverdue ? `Overdue by ${row.overdueDays} days` : row.status === 'paid' ? 'Paid' : row.status === 'unpaid' ? 'Unpaid' : 'Not priced';
     const badgeClass = row.isOverdue ? 'status-pill--overdue' : row.status === 'paid' ? 'status-pill--paid' : row.status === 'unpaid' ? 'status-pill--unpaid' : 'status-pill--not-priced';
     const reminderHref = buildWhatsappReminderHref(row, formatMoney);
     const packageName = escapeHtml(row.packageName);
@@ -131,9 +134,8 @@ export function renderAdminBillCards(rows, formatMoney) {
       }).join('')}</ul>`
       : '<p class="bill-card__no-receipts">No actual receipt is recorded against this bill.</p>';
     return `<article class="bill-card">
-      <div class="bill-card__top"><div><p class="bill-card__period">Billing period · ${period}</p><h3>${customerName}</h3>${row.customerNumber !== null ? `<p class="bill-card__account">Account #${escapeHtml(row.customerNumber)}</p>` : ''}</div><span class="status-pill ${badgeClass}">${badge}</span></div>
-      <p class="bill-card__due">${escapeHtml(row.dueLabel)}</p>
-      <dl class="bill-card__facts"><div><dt>Bill amount</dt><dd>${escapeHtml(formatMoney(row.amountDueCents))}</dd></div><div><dt>Outstanding</dt><dd>${escapeHtml(formatMoney(row.balanceCents))}</dd></div><div><dt>Package</dt><dd>${packageName}</dd></div><div><dt>Admin phone</dt><dd>${phone}</dd></div><div><dt>Actual receipts linked</dt><dd>${escapeHtml(formatMoney(row.cashReceiptCents))}</dd></div><div><dt>Carry-forward credit</dt><dd>${escapeHtml(formatMoney(row.creditAppliedCents))}</dd></div></dl>
+      <div class="bill-card__top"><div><p class="bill-card__period">Billing Month · ${period}</p><h3>${customerName}</h3>${row.customerNumber !== null ? `<p class="bill-card__account">Account #${escapeHtml(row.customerNumber)}</p>` : ''}</div><span class="status-pill ${badgeClass}">${badge}</span></div>
+      <dl class="bill-card__facts"><div><dt>Issue Date</dt><dd>${escapeHtml(row.issuedOn || 'Issue date not recorded')}</dd></div><div><dt>Due Date</dt><dd>${escapeHtml(row.dueDate || 'Due date not recorded')}</dd></div><div><dt>Bill amount</dt><dd>${escapeHtml(formatMoney(row.amountDueCents))}</dd></div><div><dt>Outstanding</dt><dd>${escapeHtml(formatMoney(row.balanceCents))}</dd></div><div><dt>Package</dt><dd>${packageName}</dd></div><div><dt>Admin phone</dt><dd>${phone}</dd></div><div><dt>Actual receipts linked</dt><dd>${escapeHtml(formatMoney(row.cashReceiptCents))}</dd></div><div><dt>Carry-forward credit</dt><dd>${escapeHtml(formatMoney(row.creditAppliedCents))}</dd></div></dl>
       <div class="bill-card__actions" role="group" aria-label="Bill actions for ${customerName}">${collect}${reminder}${correct}</div>
       <div class="bill-card__receipts"><h4>Actual receipt records</h4>${receipts}</div>
     </article>`;

@@ -37,7 +37,7 @@ test('portal route and data refreshes provide a focus destination and announce c
   assert.match(main, /<h1 tabindex="-1">/);
   assert.match(main, /if \(contextChanged\) portalPanel\.querySelector\('h1'\)\?\.focus\(\)/);
   assert.match(main, /portalPanel\.querySelector\('h1'\)\?\.focus\(\);\s*announceApp\(announcement\)/);
-  for (const phrase of ['Customer saved.', 'Bill snapshot saved.', 'Receipt recorded.', 'Receipt correction saved.', 'Receipt deleted.']) {
+  for (const phrase of ['Customer saved.', 'Bill snapshot created.', 'Receipt recorded.', 'Receipt correction saved.', 'Receipt deleted.']) {
     assert.ok(main.includes(phrase), `completion announcement includes ${phrase}`);
   }
 });
@@ -84,4 +84,16 @@ test('keyboard focus, reduced motion and small-phone layout remain explicit', ()
   assert.match(styles, /@media \(max-width: 600px\) \{\s+\.customer-billing-filters \{ grid-template-columns: 1fr; \}\s+\.customer-billing-filters label:first-child/);
   assert.match(styles, /\.customer-action \{ display: inline-flex; min-height: 40px;/);
   assert.match(styles, /\.customer-filter-pill \{ min-height: 44px;/);
+});
+
+test('billing date pickers are labeled, use native inputs, and provide accessible touch-sized presets', () => {
+  assert.match(main, /Billing Cycle Month/);
+  assert.match(main, /id="bill-issued-on" name="issued_on" type="date"/);
+  assert.match(main, /id="bill-due-date" name="due_date" type="date"/);
+  assert.match(main, /id="bill-edit-issued-on" name="issued_on" type="date"/);
+  assert.match(main, /id="bill-edit-due-date" name="due_date" type="date"/);
+  for (const preset of ['today', 'fifth', 'tenth', 'end']) assert.match(main, new RegExp(`data-due-date-preset="${preset}"`));
+  assert.match(main, /role="group" aria-label="Choose an exact due date quickly"/);
+  assert.match(styles, /\.due-date-preset \{ min-height: 44px;/);
+  assert.match(styles, /\.due-date-preset:focus-visible/);
 });

@@ -5,6 +5,7 @@ import { resolve } from 'node:path';
 
 const root = resolve(import.meta.dirname, '..');
 const migrationPath = resolve(root, 'supabase/migrations/20261001120000_cloud_portal.sql');
+const billDateMigrationPath = resolve(root, 'supabase/migrations/20261002033000_bill_issue_due_dates.sql');
 const customerPhoneMigrationPath = resolve(root, 'supabase/migrations/20261002000000_create_customer_with_private_phone.sql');
 const frontendPaths = [
   resolve(root, 'src/main.js'),
@@ -18,6 +19,7 @@ const frontendPaths = [
 ];
 
 const migration = await readFile(migrationPath, 'utf8');
+const billDateMigration = await readFile(billDateMigrationPath, 'utf8');
 
 test('every public data table has RLS enabled and broad anon/authenticated grants revoked', () => {
   const expectedTables = [
@@ -156,7 +158,9 @@ test('customer history enhancement uses only recorded customer-visible fields an
   const customerPortal = main.slice(main.indexOf('function renderCustomerBillingResults()'), main.indexOf('async function refreshCurrentContext('));
   const customerFacingCode = `${customerPortal}\n${customerPortalModule}`;
 
-  assert.match(portalData, /'bills', 'id, customer_id, period, amount_due_cents, due_date, plan_snapshot'/);
+  assert.match(portalData, /const billColumns = context\.kind === 'admin'[\s\S]*?issued_on, due_date, plan_snapshot/);
+  assert.match(portalData, /: 'id, customer_id, period, amount_due_cents, plan_snapshot'/);
+  assert.match(portalData, /rowsFor\(supabase, 'bills', billColumns/);
   assert.match(portalData, /'receipts', 'id, customer_id, origin_bill_id, received_on, amount_cents, method'/);
   assert.match(portalData, /'receipt_allocations', 'receipt_id, bill_id, customer_id, amount_cents, allocation_kind'/);
   assert.match(portalData, /'incidents', 'id, customer_id, customer_visible_summary, status, reported_at, offline_at, restored_at'/);
@@ -166,6 +170,29 @@ test('customer history enhancement uses only recorded customer-visible fields an
   assert.match(customerPortal, /customer_visible_summary/);
   assert.doesNotMatch(customerFacingCode, /phone|email|staff_notes|created_by|recorded_by|private_details/i);
   assert.doesNotMatch(customerPortal, /username|due_date/i);
+});
+
+test('bill dates are nullable, never inferred, and changed only by same-org Admin RPCs', async () => {
+  const createStart = billDateMigration.indexOf('create or replace function public.create_monthly_bill');
+  const correctStart = billDateMigration.indexOf('create or replace function public.correct_monthly_bill');
+  const grantsStart = billDateMigration.indexOf('revoke all on function public.create_monthly_bill');
+  const createFunction = billDateMigration.slice(createStart, correctStart);
+  const correctFunction = billDateMigration.slice(correctStart, grantsStart);
+  const pgTap = await readFile(resolve(root, 'supabase/tests/cloud_portal_rls.test.sql'), 'utf8');
+
+  assert.match(billDateMigration, /alter table public\.bills\s+add column if not exists issued_on date/i);
+  assert.doesNotMatch(billDateMigration, /issued_on\s*=\s*created_at/i);
+  assert.match(createFunction, /auth\.uid\(\)[\s\S]*?public\.is_org_admin\(p_organization_id\)/i);
+  assert.match(createFunction, /if found then\s+return v_bill_id;/i);
+  assert.match(createFunction, /issued_on, due_date, plan_snapshot[\s\S]*?p_issued_on, p_due_date/i);
+  assert.doesNotMatch(createFunction, /p_period\s*\+\s*interval/i);
+  assert.match(correctFunction, /auth\.uid\(\)[\s\S]*?public\.is_org_admin\(p_organization_id\)/i);
+  assert.match(correctFunction, /set amount_due_cents = p_amount_due_cents,[\s\S]*issued_on = p_issued_on,[\s\S]*due_date = p_due_date/i);
+  assert.match(billDateMigration, /revoke all on function public\.correct_monthly_bill[\s\S]*from public, anon, authenticated/i);
+  assert.match(billDateMigration, /grant execute on function public\.correct_monthly_bill[\s\S]*to authenticated/i);
+  assert.doesNotMatch(billDateMigration, /grant update\s*\([^)]*(?:issued_on|due_date)/i);
+  assert.match(pgTap, /create_monthly_bill[\s\S]*existing monthly snapshots remain unchanged/i);
+  assert.match(pgTap, /correct_monthly_bill[\s\S]*admin cannot correct a bill across organizations/i);
 });
 
 test('customer billing controls and incident timeline retain accessible states and responsive layouts', async () => {

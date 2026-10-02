@@ -23,9 +23,10 @@ function syntheticRows() {
     privateDetails: [
       { customer_id: 'customer-overdue', phone: '0300 1234567' },
       { customer_id: 'customer-paid', phone: '+923111234567' },
+      { customer_id: 'customer-no-date', phone: '03005551234' },
     ],
     bills: [
-      { id: 'bill-overdue', customer_id: 'customer-overdue', period: '2026-01-01', amount_due_cents: 10000, due_date: '2026-01-15', plan_snapshot: 'Fiber 50' },
+      { id: 'bill-overdue', customer_id: 'customer-overdue', period: '2026-01-01', amount_due_cents: 10000, issued_on: '2026-01-02', due_date: '2026-01-15', plan_snapshot: 'Fiber 50' },
       { id: 'bill-paid', customer_id: 'customer-paid', period: '2026-02-01', amount_due_cents: 6000, due_date: '2026-02-10', plan_snapshot: 'Fiber 30' },
       { id: 'bill-no-date', customer_id: 'customer-no-date', period: '2026-03-01', amount_due_cents: 5000, due_date: null, plan_snapshot: '' },
       { id: 'bill-unpriced', customer_id: 'customer-unpriced', period: '2026-04-01', amount_due_cents: null, due_date: null, plan_snapshot: 'Starter' },
@@ -42,7 +43,7 @@ function syntheticRows() {
   });
 }
 
-test('Admin bill rows use actual due dates, full allocations, and preserve unpriced status', () => {
+test('Admin bill rows use only recorded dates, calculate overdue days, and preserve unpriced status', () => {
   const rows = syntheticRows();
   const overdue = rows.find((row) => row.bill.id === 'bill-overdue');
   const paid = rows.find((row) => row.bill.id === 'bill-paid');
@@ -51,6 +52,8 @@ test('Admin bill rows use actual due dates, full allocations, and preserve unpri
 
   assert.equal(overdue.status, 'unpaid');
   assert.equal(overdue.isOverdue, true);
+  assert.equal(overdue.overdueDays, 85);
+  assert.equal(overdue.issuedOn, '2026-01-02');
   assert.equal(overdue.dueLabel, 'Due date: 2026-01-15');
   assert.equal(overdue.balanceCents, 7000);
   assert.equal(overdue.cashReceiptCents, 2000);
@@ -58,12 +61,15 @@ test('Admin bill rows use actual due dates, full allocations, and preserve unpri
   assert.equal(overdue.packageName, 'Fiber 50');
   assert.equal(paid.status, 'paid');
   assert.equal(paid.isOverdue, false, 'a past due date does not override a zero balance');
+  assert.equal(paid.overdueDays, 0);
   assert.equal(noDate.status, 'unpaid');
   assert.equal(noDate.isOverdue, false, 'no due date means no overdue claim');
-  assert.match(noDate.dueLabel, /Billing period: 2026-03 \(no due date recorded\)/);
+  assert.equal(noDate.dueLabel, 'Due date not recorded');
+  assert.equal(noDate.issuedOn, '');
   assert.equal(unpriced.status, 'not-priced');
   assert.equal(unpriced.balanceCents, null);
-  assert.equal(unpriced.dueLabel, 'Billing period: 2026-04 (no due date recorded)');
+  assert.equal(unpriced.dueLabel, 'Due date not recorded');
+  assert.equal(unpriced.overdueDays, 0);
 });
 
 test('Admin bill search supports customer name and Admin-only phone, and status counts include overdue as unpaid', () => {
@@ -84,6 +90,8 @@ test('WhatsApp creates only a user-opened prefilled Roman Urdu draft for a price
   assert.match(draft, /Assalam-o-Alaikum Amina & Sons/);
   assert.match(draft, /outstanding balance/);
   assert.match(draft, /Due date: 2026-01-15/);
+  const noDateDraft = decodeURIComponent(buildWhatsappReminderHref(rows.find((row) => row.bill.id === 'bill-no-date'), formatMoney).split('?text=')[1]);
+  assert.doesNotMatch(noDateDraft, /Due date:/);
   assert.equal(buildWhatsappReminderHref(rows.find((row) => row.bill.id === 'bill-paid'), formatMoney), '');
   assert.equal(buildWhatsappReminderHref(rows.find((row) => row.bill.id === 'bill-unpriced'), formatMoney), '');
 });
@@ -92,12 +100,21 @@ test('bill cards expose Collect only as a prefill, and PDF actions only for actu
   const rows = syntheticRows();
   const markup = renderAdminBillCards(rows, formatMoney);
   assert.match(markup, /Amina &amp; Sons/);
+  assert.match(markup, /Billing Month · 2026-01/);
+  assert.match(markup, /Issue Date/);
+  assert.match(markup, /2026-01-02/);
+  assert.match(markup, /Due Date/);
+  assert.match(markup, /Overdue by 85 days/);
   assert.match(markup, /data-action="collect-bill" data-id="bill-overdue"/);
   assert.match(markup, /data-action="edit-bill" data-id="bill-overdue"/);
   assert.match(markup, /Print \/ Save PDF/);
   assert.match(markup, /data-action="print-receipt" data-id="receipt-overdue"/);
   assert.match(markup, /target="_blank" rel="noopener noreferrer"/);
   assert.match(markup, /No actual receipt is recorded against this bill/);
+  const noDateMarkup = renderAdminBillCards([rows.find((row) => row.bill.id === 'bill-no-date')], formatMoney);
+  assert.match(noDateMarkup, /Issue date not recorded/);
+  assert.match(noDateMarkup, /Due date not recorded/);
+  assert.doesNotMatch(noDateMarkup, /Overdue by/);
   assert.match(renderAdminBillCards([rows.find((row) => row.bill.id === 'bill-unpriced')], formatMoney), /class="bill-action bill-action--collect" type="button" disabled/);
   assert.doesNotMatch(renderAdminBillCards([rows.find((row) => row.bill.id === 'bill-no-date')], formatMoney), /data-action="print-receipt"/);
   assert.doesNotMatch(markup, /<script|<img/);
