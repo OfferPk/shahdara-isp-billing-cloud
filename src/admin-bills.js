@@ -106,38 +106,38 @@ export function buildWhatsappReminderHref(row, formatMoney) {
   return `https://wa.me/${number}?text=${encodeURIComponent(message)}`;
 }
 
-export function renderAdminBillCards(rows, formatMoney) {
-  if (!rows.length) return '<p class="bill-card-empty" role="status">No bills match this search and status filter.</p>';
+export function renderAdminBillCards(rows, formatMoney, t = (value) => value) {
+  if (!rows.length) return `<p class="bill-card-empty" role="status">${t('No bills match this search and status filter.')}</p>`;
   return rows.slice(0, 100).map((row) => {
     const billId = escapeHtml(row.bill.id);
     const customerName = escapeHtml(row.customerName);
-    const period = escapeHtml(row.period || 'Period not recorded');
-    const badge = row.isOverdue ? `Overdue by ${row.overdueDays} days` : row.status === 'paid' ? 'Paid' : row.status === 'unpaid' ? 'Unpaid' : 'Not priced';
+    const period = escapeHtml(row.period || t('Period not recorded'));
+    const badge = row.isOverdue ? `${t('Overdue by')} ${row.overdueDays} ${t('days')}` : row.status === 'paid' ? t('Paid') : row.status === 'unpaid' ? t('Unpaid') : t('Not priced');
     const badgeClass = row.isOverdue ? 'status-pill--overdue' : row.status === 'paid' ? 'status-pill--paid' : row.status === 'unpaid' ? 'status-pill--unpaid' : 'status-pill--not-priced';
     const reminderHref = buildWhatsappReminderHref(row, formatMoney);
     const packageName = escapeHtml(row.packageName);
-    const phone = row.phone ? escapeHtml(row.phone) : 'Not recorded';
+    const phone = row.phone ? escapeHtml(row.phone) : escapeHtml(t('Not recorded'));
     const collect = row.status === 'unpaid' && row.balanceCents > 0
-      ? `<button class="bill-action bill-action--collect" type="button" data-action="collect-bill" data-id="${billId}" aria-label="Collect for ${customerName}, ${period}; opens the receipt form without recording payment">Collect</button>`
-      : `<button class="bill-action bill-action--collect" type="button" disabled title="${row.status === 'not-priced' ? 'Record a bill price before pre-filling an outstanding amount.' : 'No outstanding balance is recorded.'}">Collect</button>`;
+      ? `<button class="bill-action bill-action--collect" type="button" data-action="collect-bill" data-id="${billId}" aria-label="${escapeHtml(t('Collect for'))} ${customerName}, ${period}; ${escapeHtml(t('opens the receipt form without recording payment'))}">${escapeHtml(t('Collect'))}</button>`
+      : `<button class="bill-action bill-action--collect" type="button" disabled title="${escapeHtml(t(row.status === 'not-priced' ? 'Record a bill price before pre-filling an outstanding amount.' : 'No outstanding balance is recorded.'))}">${escapeHtml(t('Collect'))}</button>`;
     const reminder = reminderHref
-      ? `<a class="bill-action bill-action--whatsapp" href="${escapeHtml(reminderHref)}" target="_blank" rel="noopener noreferrer" aria-label="Open a prefilled WhatsApp reminder for ${customerName}">WhatsApp reminder</a>`
-      : `<button class="bill-action" type="button" disabled title="A valid Admin phone and an outstanding priced bill are required.">WhatsApp reminder</button>`;
-    const correct = `<button class="bill-action" type="button" data-action="edit-bill" data-id="${billId}" aria-label="Correct bill for ${customerName}, ${period}">Correct bill</button>`;
+      ? `<a class="bill-action bill-action--whatsapp" href="${escapeHtml(reminderHref)}" target="_blank" rel="noopener noreferrer" aria-label="${escapeHtml(t('Open a prefilled WhatsApp reminder for'))} ${customerName}">${escapeHtml(t('WhatsApp reminder'))}</a>`
+      : `<button class="bill-action" type="button" disabled title="${escapeHtml(t('A valid Admin phone and an outstanding priced bill are required.'))}">${escapeHtml(t('WhatsApp reminder'))}</button>`;
+    const correct = `<button class="bill-action" type="button" data-action="edit-bill" data-id="${billId}" aria-label="${escapeHtml(t('Correct bill for'))} ${customerName}, ${period}">${escapeHtml(t('Correct bill'))}</button>`;
     const receipts = row.receipts.length
       ? `<ul class="bill-receipt-list">${row.receipts.map((receipt) => {
         const receiptId = escapeHtml(receipt.id);
         const receivedOn = escapeHtml(receipt.received_on);
-        const method = escapeHtml(receipt.method || 'Method not recorded');
+        const method = escapeHtml(receipt.method || t('Method not recorded'));
         const amount = escapeHtml(formatMoney(receipt.amount_cents));
-        return `<li><span>${receivedOn} · ${method} · ${amount}</span><button class="bill-receipt-print" type="button" data-action="print-receipt" data-id="${receiptId}" aria-label="Print or save PDF of the actual receipt for ${customerName}, ${receivedOn}, ${amount}">Print / Save PDF</button></li>`;
+        return `<li><span>${receivedOn} · ${method} · ${amount}</span><button class="bill-receipt-print" type="button" data-action="print-receipt" data-id="${receiptId}" aria-label="${escapeHtml(t('Print or save PDF of the actual receipt for'))} ${customerName}, ${receivedOn}, ${amount}">${escapeHtml(t('Print / Save PDF'))}</button></li>`;
       }).join('')}</ul>`
-      : '<p class="bill-card__no-receipts">No actual receipt is recorded against this bill.</p>';
+      : `<p class="bill-card__no-receipts">${escapeHtml(t('No actual receipt is recorded against this bill.'))}</p>`;
     return `<article class="bill-card">
-      <div class="bill-card__top"><div><p class="bill-card__period">Billing Month · ${period}</p><h3>${customerName}</h3>${row.customerNumber !== null ? `<p class="bill-card__account">Account #${escapeHtml(row.customerNumber)}</p>` : ''}</div><span class="status-pill ${badgeClass}">${badge}</span></div>
-      <dl class="bill-card__facts"><div><dt>Issue Date</dt><dd>${escapeHtml(row.issuedOn || 'Issue date not recorded')}</dd></div><div><dt>Due Date</dt><dd>${escapeHtml(row.dueDate || 'Due date not recorded')}</dd></div><div><dt>Bill amount</dt><dd>${escapeHtml(formatMoney(row.amountDueCents))}</dd></div><div><dt>Outstanding</dt><dd>${escapeHtml(formatMoney(row.balanceCents))}</dd></div><div><dt>Package</dt><dd>${packageName}</dd></div><div><dt>Admin phone</dt><dd>${phone}</dd></div><div><dt>Actual receipts linked</dt><dd>${escapeHtml(formatMoney(row.cashReceiptCents))}</dd></div><div><dt>Carry-forward credit</dt><dd>${escapeHtml(formatMoney(row.creditAppliedCents))}</dd></div></dl>
-      <div class="bill-card__actions" role="group" aria-label="Bill actions for ${customerName}">${collect}${reminder}${correct}</div>
-      <div class="bill-card__receipts"><h4>Actual receipt records</h4>${receipts}</div>
+      <div class="bill-card__top"><div><p class="bill-card__period">${escapeHtml(t('Billing Month'))} · ${period}</p><h3>${customerName}</h3>${row.customerNumber !== null ? `<p class="bill-card__account">${escapeHtml(t('Account'))} #${escapeHtml(row.customerNumber)}</p>` : ''}</div><span class="status-pill ${badgeClass}">${escapeHtml(badge)}</span></div>
+      <dl class="bill-card__facts"><div><dt>${escapeHtml(t('Issue Date'))}</dt><dd>${escapeHtml(row.issuedOn || t('Issue date not recorded'))}</dd></div><div><dt>${escapeHtml(t('Due Date'))}</dt><dd>${escapeHtml(row.dueDate || t('Due date not recorded'))}</dd></div><div><dt>${escapeHtml(t('Bill amount'))}</dt><dd>${escapeHtml(formatMoney(row.amountDueCents))}</dd></div><div><dt>${escapeHtml(t('Outstanding'))}</dt><dd>${escapeHtml(formatMoney(row.balanceCents))}</dd></div><div><dt>${escapeHtml(t('Package'))}</dt><dd>${packageName}</dd></div><div><dt>${escapeHtml(t('Admin phone'))}</dt><dd>${phone}</dd></div><div><dt>${escapeHtml(t('Actual receipts linked'))}</dt><dd>${escapeHtml(formatMoney(row.cashReceiptCents))}</dd></div><div><dt>${escapeHtml(t('Carry-forward credit'))}</dt><dd>${escapeHtml(formatMoney(row.creditAppliedCents))}</dd></div></dl>
+      <div class="bill-card__actions" role="group" aria-label="${escapeHtml(t('Bill actions for'))} ${customerName}">${collect}${reminder}${correct}</div>
+      <div class="bill-card__receipts"><h4>${escapeHtml(t('Actual receipt records'))}</h4>${receipts}</div>
     </article>`;
   }).join('');
 }

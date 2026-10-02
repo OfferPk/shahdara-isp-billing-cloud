@@ -113,17 +113,17 @@ export function summarizeCustomerRows(rows) {
   };
 }
 
-function billingStatusLabel(status) {
-  if (status === 'paid') return 'Paid';
-  if (status === 'unpaid') return 'Unpaid';
-  if (status === 'not-set') return 'Not billed';
-  return 'No bill yet';
+function billingStatusLabel(status, t = (value) => value) {
+  if (status === 'paid') return t('Paid');
+  if (status === 'unpaid') return t('Unpaid');
+  if (status === 'not-set') return t('Not billed');
+  return t('No bill yet');
 }
 
-export function customerDueLabel(bill) {
-  if (!bill) return 'No bill yet';
-  if (bill.due_date) return `Due ${String(bill.due_date).slice(0, 10)}`;
-  return `Billing period ${periodOf(bill) || 'not recorded'}`;
+export function customerDueLabel(bill, t = (value) => value) {
+  if (!bill) return t('No bill yet');
+  if (bill.due_date) return `${t('Due')} ${String(bill.due_date).slice(0, 10)}`;
+  return `${t('Billing period')} ${periodOf(bill) || t('not recorded')}`;
 }
 
 function phoneLinks(phone) {
@@ -136,17 +136,17 @@ function phoneLinks(phone) {
   return { tel: telDigits ? `tel:${telDigits}` : '', whatsapp: whatsappDigits };
 }
 
-export function renderCustomerCards(rows, formatMoney) {
-  if (!rows.length) return '<p class="customer-list-empty" role="status">No customers match these filters.</p>';
+export function renderCustomerCards(rows, formatMoney, t = (value) => value) {
+  if (!rows.length) return `<p class="customer-list-empty" role="status">${t('No customers match these filters.')}</p>`;
   return rows.map(({ customer, phone, bill, dueBill, paymentBill, billing }) => {
     const id = escapeHtml(customer.id);
     const name = escapeHtml(customer.name);
     const accountNumber = escapeHtml(customer.customer_number);
-    const serviceStatus = customer.archived ? 'Archived' : (customer.service_status || 'Not set');
-    const plan = bill?.plan_snapshot || customer.plan_name || 'Package not set';
+    const serviceStatus = customer.archived ? t('Archived') : ({ active: t('Active'), offline: t('Offline'), 'not-set': t('Not set') }[customer.service_status] ?? customer.service_status ?? t('Not set'));
+    const plan = bill?.plan_snapshot || customer.plan_name || t('Package not set');
     const balance = formatMoney(billing.balanceCents);
-    const dueLabel = customerDueLabel(dueBill ?? bill);
-    const statusLabel = billingStatusLabel(billing.status);
+    const dueLabel = customerDueLabel(dueBill ?? bill, t);
+    const statusLabel = billingStatusLabel(billing.status, t);
     const links = phoneLinks(phone);
     const hasUnpaidBill = billing.status === 'unpaid' && billing.balanceCents > 0 && Boolean(paymentBill);
     const oldestOpenPeriod = periodOf(dueBill ?? bill);
@@ -155,20 +155,20 @@ export function renderCustomerCards(rows, formatMoney) {
       ? `https://wa.me/${links.whatsapp}?text=${encodeURIComponent(reminder)}`
       : '';
     const whatsappUnavailableReason = !phone
-      ? 'no Admin phone is recorded'
-      : (!links.whatsapp ? 'the Admin phone is not a supported Pakistan mobile' : 'the account has no unpaid balance');
+      ? t('no Admin phone is recorded')
+      : (!links.whatsapp ? t('the Admin phone is not a supported Pakistan mobile') : t('the account has no unpaid balance'));
     return `<article class="customer-card">
-      <div class="customer-card__top"><button class="customer-card__open" type="button" data-action="open-customer-profile" data-customer-id="${id}" aria-label="Open profile and billing history for ${name}, account ${accountNumber}"><span class="customer-card__name">${name}</span><span class="customer-card__account">Account #${accountNumber}</span></button><span class="status-pill customer-card__service-status">${escapeHtml(serviceStatus)}</span></div>
+      <div class="customer-card__top"><button class="customer-card__open" type="button" data-action="open-customer-profile" data-customer-id="${id}" aria-label="${escapeHtml(t('Open profile and billing history for'))} ${name}, ${escapeHtml(t('account'))} ${accountNumber}"><span class="customer-card__name">${name}</span><span class="customer-card__account">${escapeHtml(t('Account'))} #${accountNumber}</span></button><span class="status-pill customer-card__service-status">${escapeHtml(serviceStatus)}</span></div>
       <div class="customer-card__badges"><span class="status-pill customer-card__billing-status customer-card__billing-status--${escapeHtml(billing.status)}">${escapeHtml(statusLabel)}</span><span class="customer-card__due">${escapeHtml(dueLabel)}</span></div>
-      <dl class="customer-card__details"><div><dt class="customer-card__label">Balance</dt><dd>${escapeHtml(balance)}</dd></div><div><dt class="customer-card__label">Package</dt><dd>${escapeHtml(plan)}</dd></div></dl>
-      <div class="customer-card__quick-actions" role="group" aria-label="Quick actions for ${name}">
+      <dl class="customer-card__details"><div><dt class="customer-card__label">${escapeHtml(t('Balance'))}</dt><dd>${escapeHtml(balance)}</dd></div><div><dt class="customer-card__label">${escapeHtml(t('Package'))}</dt><dd>${escapeHtml(plan)}</dd></div></dl>
+      <div class="customer-card__quick-actions" role="group" aria-label="${escapeHtml(t('Quick actions for'))} ${name}">
         ${links.tel
-          ? `<a class="customer-action" href="${escapeHtml(links.tel)}" aria-label="Call ${name}">Call</a>`
-          : '<button class="customer-action" type="button" disabled aria-label="Call unavailable; no Admin phone is recorded">Call</button>'}
+          ? `<a class="customer-action" href="${escapeHtml(links.tel)}" aria-label="${escapeHtml(t('Call'))} ${name}">${escapeHtml(t('Call'))}</a>`
+          : `<button class="customer-action" type="button" disabled aria-label="${escapeHtml(t('Call unavailable; no Admin phone is recorded'))}">${escapeHtml(t('Call'))}</button>`}
         ${whatsappHref
-          ? `<a class="customer-action customer-action--whatsapp" href="${escapeHtml(whatsappHref)}" target="_blank" rel="noopener noreferrer" aria-label="Open a prefilled WhatsApp reminder for ${name}">WhatsApp reminder</a>`
-          : `<button class="customer-action" type="button" disabled aria-label="WhatsApp reminder unavailable; ${escapeHtml(whatsappUnavailableReason)}">WhatsApp reminder</button>`}
-        <button class="customer-action customer-action--paid" type="button" data-action="mark-as-paid" data-customer-id="${id}" aria-label="Mark as Paid: open the receipt form for ${name}" title="Opens the real receipt form. Nothing is recorded until you review and submit it." ${hasUnpaidBill ? '' : 'disabled'}>Mark as Paid</button>
+          ? `<a class="customer-action customer-action--whatsapp" href="${escapeHtml(whatsappHref)}" target="_blank" rel="noopener noreferrer" aria-label="${escapeHtml(t('Open a prefilled WhatsApp reminder for'))} ${name}">${escapeHtml(t('WhatsApp reminder'))}</a>`
+          : `<button class="customer-action" type="button" disabled aria-label="${escapeHtml(t('WhatsApp reminder unavailable;'))} ${escapeHtml(whatsappUnavailableReason)}">${escapeHtml(t('WhatsApp reminder'))}</button>`}
+        <button class="customer-action customer-action--paid" type="button" data-action="mark-as-paid" data-customer-id="${id}" aria-label="${escapeHtml(t('Mark as Paid: open the receipt form for'))} ${name}" title="${escapeHtml(t('Opens the real receipt form. Nothing is recorded until you review and submit it.'))}" ${hasUnpaidBill ? '' : 'disabled'}>${escapeHtml(t('Mark as Paid'))}</button>
       </div>
     </article>`;
   }).join('');
@@ -178,12 +178,12 @@ function billStatus(bill, allocations) {
   return customerBillState(bill, allocations).status;
 }
 
-export function renderCustomerProfile(row, { bills = [], receipts = [], allocations = [], formatMoney }) {
+export function renderCustomerProfile(row, { bills = [], receipts = [], allocations = [], formatMoney, t = (value) => value }) {
   const { customer, phone, area, billing } = row;
   const name = escapeHtml(customer.name);
   const phoneMarkup = phoneLinks(phone).tel
     ? `<a href="${escapeHtml(phoneLinks(phone).tel)}">${escapeHtml(phone)}</a>`
-    : '<span>Not recorded</span>';
+    : `<span>${escapeHtml(t('Not recorded'))}</span>`;
   const billHistory = bills
     .filter((bill) => bill.customer_id === customer.id)
     .sort((left, right) => String(right.period).localeCompare(String(left.period)))
@@ -194,26 +194,26 @@ export function renderCustomerProfile(row, { bills = [], receipts = [], allocati
       const credit = allocations.filter((allocation) => allocation.bill_id === bill.id
           && allocation.customer_id === customer.id && allocation.allocation_kind === 'carry-forward')
         .reduce((total, allocation) => total + Number(allocation.amount_cents || 0), 0);
-      return `<tr><td>${escapeHtml(periodOf(bill))}${bill.due_date ? `<small>Due ${escapeHtml(String(bill.due_date).slice(0, 10))}</small>` : ''}</td><td>${escapeHtml(formatMoney(bill.amount_due_cents))}</td><td>${escapeHtml(formatMoney(cash))}</td><td>${escapeHtml(formatMoney(credit))}</td><td>${escapeHtml(formatMoney(state.balanceCents))}</td><td><span class="status-pill">${escapeHtml(billingStatusLabel(state.status))}</span></td></tr>`;
+      return `<tr><td>${escapeHtml(periodOf(bill))}${bill.due_date ? `<small>${escapeHtml(t('Due'))} ${escapeHtml(String(bill.due_date).slice(0, 10))}</small>` : ''}</td><td>${escapeHtml(formatMoney(bill.amount_due_cents))}</td><td>${escapeHtml(formatMoney(cash))}</td><td>${escapeHtml(formatMoney(credit))}</td><td>${escapeHtml(formatMoney(state.balanceCents))}</td><td><span class="status-pill">${escapeHtml(billingStatusLabel(state.status, t))}</span></td></tr>`;
     }).join('');
   const customerReceipts = receipts.filter((receipt) => receipt.customer_id === customer.id)
     .sort((left, right) => String(right.received_on).localeCompare(String(left.received_on)))
     .map((receipt) => `<li><time datetime="${escapeHtml(receipt.received_on)}">${escapeHtml(receipt.received_on)}</time><span>${escapeHtml(receipt.method)}</span><strong>${escapeHtml(formatMoney(receipt.amount_cents))}</strong></li>`)
     .join('');
-  const statusLabel = billingStatusLabel(billing.status);
-  const dueLabel = customerDueLabel(row.dueBill ?? row.bill);
-  const packageLabel = row.bill?.plan_snapshot || customer.plan_name || 'Package not set';
+  const statusLabel = billingStatusLabel(billing.status, t);
+  const dueLabel = customerDueLabel(row.dueBill ?? row.bill, t);
+  const packageLabel = row.bill?.plan_snapshot || customer.plan_name || t('Package not set');
   return `<div class="customer-profile-content">
-    <div class="section-heading"><div><p class="eyebrow">Customer profile</p><h2 id="customer-profile-title">${name}</h2><p class="muted">Account #${escapeHtml(customer.customer_number)}</p></div><button class="icon-button" type="button" data-action="close-customer-profile" aria-label="Close customer profile">×</button></div>
+    <div class="section-heading"><div><p class="eyebrow">${escapeHtml(t('Customer profile'))}</p><h2 id="customer-profile-title">${name}</h2><p class="muted">${escapeHtml(t('Account'))} #${escapeHtml(customer.customer_number)}</p></div><button class="icon-button" type="button" data-action="close-customer-profile" aria-label="${escapeHtml(t('Close customer profile'))}">×</button></div>
     <div class="customer-profile-grid">
-      <div class="profile-field"><span>Service status</span><strong>${escapeHtml(customer.archived ? 'Archived' : (customer.service_status || 'Not set'))}</strong></div>
-      <div class="profile-field"><span>Billing status</span><strong>${escapeHtml(statusLabel)} · ${escapeHtml(dueLabel)}</strong></div>
-      <div class="profile-field"><span>Current balance</span><strong>${escapeHtml(formatMoney(billing.balanceCents))}</strong></div>
-      <div class="profile-field"><span>Package</span><strong>${escapeHtml(packageLabel)}</strong></div>
-      <div class="profile-field profile-field--wide"><span>Service address</span><strong>${escapeHtml(area || 'Service address not recorded')}</strong></div>
-      <div class="profile-field profile-field--wide"><span>Admin-only phone</span><strong>${phoneMarkup}</strong></div>
+      <div class="profile-field"><span>${escapeHtml(t('Service status'))}</span><strong>${escapeHtml(customer.archived ? t('Archived') : ({ active: t('Active'), offline: t('Offline'), 'not-set': t('Not set') }[customer.service_status] ?? customer.service_status ?? t('Not set')))}</strong></div>
+      <div class="profile-field"><span>${escapeHtml(t('Billing status'))}</span><strong>${escapeHtml(statusLabel)} · ${escapeHtml(dueLabel)}</strong></div>
+      <div class="profile-field"><span>${escapeHtml(t('Current balance'))}</span><strong>${escapeHtml(formatMoney(billing.balanceCents))}</strong></div>
+      <div class="profile-field"><span>${escapeHtml(t('Package'))}</span><strong>${escapeHtml(packageLabel)}</strong></div>
+      <div class="profile-field profile-field--wide"><span>${escapeHtml(t('Service address'))}</span><strong>${escapeHtml(area || t('Service address not recorded'))}</strong></div>
+      <div class="profile-field profile-field--wide"><span>${escapeHtml(t('Admin-only phone'))}</span><strong>${phoneMarkup}</strong></div>
     </div>
-    <section class="customer-profile-history"><h3>Billing history</h3><div class="table-wrap" role="region" tabindex="0" aria-label="Customer billing history table; scroll horizontally to view all columns"><table><caption class="sr-only">Monthly bills and their cash receipts, credit, balance, and status.</caption><thead><tr><th scope="col">Period / due</th><th scope="col">Bill</th><th scope="col">Cash received</th><th scope="col">Credit applied</th><th scope="col">Balance</th><th scope="col">Status</th></tr></thead><tbody>${billHistory || '<tr><td colspan="6" class="empty-cell">No bills recorded yet.</td></tr>'}</tbody></table></div><p class="muted">Cash is counted only from actual receipts; allocations and carry-forward credits reduce balances but are not additional payments.</p></section>
-    <section class="customer-profile-history"><h3>Receipt history</h3><ul class="customer-receipt-list">${customerReceipts || '<li class="customer-receipt-list__empty">No receipts recorded yet.</li>'}</ul></section>
+    <section class="customer-profile-history"><h3>${escapeHtml(t('Billing history'))}</h3><div class="table-wrap" role="region" tabindex="0" aria-label="${escapeHtml(t('Customer billing history table; scroll horizontally to view all columns'))}"><table><caption class="sr-only">${escapeHtml(t('Monthly bills and their cash receipts, credit, balance, and status.'))}</caption><thead><tr><th scope="col">${escapeHtml(t('Period / due'))}</th><th scope="col">${escapeHtml(t('Bill'))}</th><th scope="col">${escapeHtml(t('Cash received'))}</th><th scope="col">${escapeHtml(t('Credit applied'))}</th><th scope="col">${escapeHtml(t('Balance'))}</th><th scope="col">${escapeHtml(t('Status'))}</th></tr></thead><tbody>${billHistory || `<tr><td colspan="6" class="empty-cell">${escapeHtml(t('No bills recorded yet.'))}</td></tr>`}</tbody></table></div><p class="muted">${escapeHtml(t('Cash is counted only from actual receipts; allocations and carry-forward credits reduce balances but are not additional payments.'))}</p></section>
+    <section class="customer-profile-history"><h3>${escapeHtml(t('Receipt history'))}</h3><ul class="customer-receipt-list">${customerReceipts || `<li class="customer-receipt-list__empty">${escapeHtml(t('No receipts recorded yet.'))}</li>`}</ul></section>
   </div>`;
 }

@@ -204,7 +204,7 @@ test('list controls and mobile CSS provide labelled, keyboard-operable status an
   const main = await readFile(new URL('../src/main.js', import.meta.url), 'utf8');
   const styles = await readFile(new URL('../src/styles.css', import.meta.url), 'utf8');
   assert.match(main, /id="customer-search" type="search"/);
-  assert.match(main, /role="group" aria-label="Filter customers by payment status or area"/);
+  assert.match(main, /role="group" aria-label="\$\{escapeHtml\(t\('Filter customers by payment status or area'\)\)\}"/);
   assert.match(main, /aria-pressed="\$\{pageState\.customerListStatus === 'paid'\}"/);
   assert.match(main, /id="customer-list-count" class="customer-list-count" role="status" aria-live="polite"/);
   assert.match(main, /<dialog id="customer-profile-dialog"/);

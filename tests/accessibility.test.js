@@ -43,7 +43,7 @@ test('portal route and data refreshes provide a focus destination and announce c
 });
 
 test('all wide billing tables are named, keyboard-scrollable regions with captions and column headers', () => {
-  const tableRegions = (source) => [...source.matchAll(/class="table-wrap" role="region" tabindex="0" aria-label="[^"]+"/g)].length;
+  const tableRegions = (source) => [...source.matchAll(/class="table-wrap" role="region" tabindex="0" aria-label=/g)].length;
   assert.equal(tableRegions(main), 3, 'remaining Admin and Customer portal tables have named keyboard-scroll regions');
   assert.equal(tableRegions(customerList), 1, 'Admin customer-profile billing table has a named keyboard-scroll region');
   for (const [name, source] of [['portal', main], ['customer profile', customerList]]) {
@@ -54,10 +54,11 @@ test('all wide billing tables are named, keyboard-scrollable regions with captio
       assert.match(table, /<th scope="col">/);
     }
   }
-  assert.match(adminBills, /aria-label="Correct bill for \$\{customerName\}/);
-  assert.match(main, /aria-label="Edit receipt for \$\{escapeHtml\(customerName\(receipt\.customer_id\)\)\}/);
-  assert.match(main, /aria-label="Filter bills by payment status"/);
-  assert.match(main, /aria-live="polite">Showing \$\{Math\.min\(filteredAdminBillRows\.length, 100\)\}/);
+  assert.match(adminBills, /aria-label="\$\{escapeHtml\(t\('Correct bill for'\)\)\} \$\{customerName\}/);
+  assert.match(main, /aria-label="\$\{escapeHtml\(t\('Edit receipt for'\)\)\} \$\{escapeHtml\(customerName\(receipt\.customer_id\)\)\}/);
+  assert.match(main, /aria-label="\$\{escapeHtml\(t\('Filter bills by payment status'\)\)\}"/);
+  assert.match(main, /id="admin-bill-count" class="bill-list-count" role="status" aria-live="polite"/);
+  assert.match(main, /formatUiMessage\('Showing \{shown\} of \{matching\} matching bills; \{total\} total records\.'/);
 });
 
 test('KPI detail text maintains WCAG AA contrast on the colorful Admin card tints', () => {
@@ -73,7 +74,10 @@ test('KPI detail text maintains WCAG AA contrast on the colorful Admin card tint
 });
 
 test('keyboard focus, reduced motion and small-phone layout remain explicit', () => {
-  assert.match(index, /class="skip-link" href="#app">Skip to main content/);
+  assert.match(index, /class="skip-link" href="#app" data-i18n="Skip to main content">Skip to main content/);
+  assert.match(index, /id="language-toggle" class="language-toggle" role="group" aria-label="Language"/);
+  assert.match(index, /data-language="ur-Latn" aria-label="Roman Urdu" aria-pressed="false"/);
+  assert.match(main, /button\.setAttribute\('aria-pressed', String\(selected\)\)/);
   assert.match(styles, /\.skip-link:focus \{ transform: translateY\(0\); \}/);
   assert.match(styles, /button:focus-visible, a:focus-visible \{ outline: 3px solid #102e27/);
   assert.match(styles, /\.table-wrap:focus-visible \{ outline: 3px solid #102e27/);
@@ -93,7 +97,7 @@ test('billing date pickers are labeled, use native inputs, and provide accessibl
   assert.match(main, /id="bill-edit-issued-on" name="issued_on" type="date"/);
   assert.match(main, /id="bill-edit-due-date" name="due_date" type="date"/);
   for (const preset of ['today', 'fifth', 'tenth', 'end']) assert.match(main, new RegExp(`data-due-date-preset="${preset}"`));
-  assert.match(main, /role="group" aria-label="Choose an exact due date quickly"/);
+  assert.match(main, /role="group" aria-label="\$\{escapeHtml\(t\('Choose an exact due date quickly'\)\)\}"/);
   assert.match(styles, /\.due-date-preset \{ min-height: 44px;/);
   assert.match(styles, /\.due-date-preset:focus-visible/);
 });
@@ -108,7 +112,7 @@ test('Admin incident reporting and updates use labeled fields, explicit statuses
     'Staff-only note (optional)',
   ]) assert.ok(main.includes(label), `Admin incident form includes ${label}`);
   assert.match(main, /id="incident-create-summary" name="customer_visible_summary" maxlength="1000"/);
-  assert.match(main, /id="incident-create-status" name="status" required><option value="open" selected>Open<\/option><option value="resolved">Resolved<\/option>/);
+  assert.match(main, /id="incident-create-status" name="status" required><option value="open" selected>\$\{escapeHtml\(t\('Open'\)\)\}<\/option><option value="resolved">\$\{escapeHtml\(t\('Resolved'\)\)\}<\/option>/);
   assert.match(main, /name="restored_at" type="datetime-local" step="1"/);
   assert.match(main, /Date-times use this device's local time zone/);
   assert.match(main, /Private to same-organization Admins; stored separately and never copied into the customer-visible summary/);

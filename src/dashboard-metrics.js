@@ -25,12 +25,12 @@ function renderMetric({ tone, label, icon, value, detail }) {
   </article>`;
 }
 
-export function renderDashboardMetrics({ month, totals }) {
+export function renderDashboardMetrics({ month, totals, t = (value) => value }) {
   const metrics = [
-    { tone: 'billed', label: `Total Billed · ${month}`, icon: 'billed', value: formatMoney(totals.billedCents), detail: `${totals.pricedBillCount ?? totals.monthBills.length} priced bills; ${totals.unpricedBillCount ?? 0} unpriced excluded` },
-    { tone: 'cash', label: `Collected · ${month}`, icon: 'cash', value: formatMoney(totals.cashReceivedCents), detail: `${totals.receiptCount} actual receipts by received date; no credit` },
-    { tone: 'outstanding', label: `Pending · ${month}`, icon: 'outstanding', value: formatMoney(totals.outstandingCents), detail: `Outstanding on ${month} bills; ${formatMoney(totals.creditAppliedCents)} credit applied separately` },
+    { tone: 'billed', label: `${t('Total Billed')} · ${month}`, icon: 'billed', value: formatMoney(totals.billedCents), detail: `${totals.pricedBillCount ?? totals.monthBills.length} ${t('priced bills')}; ${totals.unpricedBillCount ?? 0} ${t('unpriced excluded')}` },
+    { tone: 'cash', label: `${t('Collected')} · ${month}`, icon: 'cash', value: formatMoney(totals.cashReceivedCents), detail: `${totals.receiptCount} ${t('actual receipts by received date; no credit')}` },
+    { tone: 'outstanding', label: `${t('Pending')} · ${month}`, icon: 'outstanding', value: formatMoney(totals.outstandingCents), detail: `${t('Outstanding on')} ${month} ${t('bills')}; ${formatMoney(totals.creditAppliedCents)} ${t('credit applied separately')}` },
   ];
 
-  return `<section class="metric-grid admin-metrics" aria-label="Monthly billing summary">${metrics.map(renderMetric).join('')}</section>`;
+  return `<section id="admin-overview" class="metric-grid admin-metrics" aria-label="${escapeHtml(t('Monthly billing summary'))}">${metrics.map(renderMetric).join('')}</section>`;
 }
