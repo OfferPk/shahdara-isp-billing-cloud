@@ -5,6 +5,30 @@ import {
   readJson,
 } from '../_shared/customer-auth.js';
 
+const ALLOWED_AUTH_UPDATE_ERROR_CODES = new Set([
+  'over_request_rate_limit',
+  'reauthentication_needed',
+  'reauthentication_not_valid',
+  'same_password',
+  'session_not_found',
+  'unexpected_failure',
+  'validation_failed',
+  'weak_password',
+]);
+
+function logAuthUpdateFailure(error, logger) {
+  try {
+    const code = error?.code;
+    if (typeof code !== 'string' || !ALLOWED_AUTH_UPDATE_ERROR_CODES.has(code)) return;
+    logger.warn(JSON.stringify({
+      event: 'customer_password_change_auth_update_failed',
+      auth_error_code: code,
+    }));
+  } catch {
+    // Diagnostics must never change the Auth response or lease cleanup behavior.
+  }
+}
+
 function clientsFor(env, createClient, token) {
   const url = env.get('SUPABASE_URL');
   const publicKey = env.get('SUPABASE_PUBLISHABLE_KEY') ?? env.get('SUPABASE_ANON_KEY');
@@ -30,7 +54,7 @@ async function releaseChangeLease(serverClient, userId) {
   }
 }
 
-export function createChangeCustomerPasswordHandler({ env, createClient }) {
+export function createChangeCustomerPasswordHandler({ env, createClient, logger = console }) {
   return async (request) => {
     const origin = exactOrigin(request, env);
     if (!origin) return jsonResponse(403, { error: 'Request is not allowed.' });
@@ -79,6 +103,7 @@ export function createChangeCustomerPasswordHandler({ env, createClient }) {
       const { error: updateError } = await clients.userClient.auth.updateUser({ password: newPassword });
       if (updateError) {
         await releaseChangeLease(clients.serverClient, userId);
+        logAuthUpdateFailure(updateError, logger);
         return jsonResponse(400, { error: 'Password could not be changed. Check the account password policy and try again, or contact an administrator.' }, origin);
       }
 
