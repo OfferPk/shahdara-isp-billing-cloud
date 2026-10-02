@@ -468,3 +468,57 @@ td { color: #25433b; }
   .provider-card__logo { width: 58px; height: 58px; }
   .provider-card__contact { grid-column: auto; grid-template-columns: 1fr; }
 }
+/* PPPoE usage card: read-only rolling counters and monthly quota snapshot. */
+.usage-panel { overflow: hidden; }
+.usage-panel .section-heading { align-items: flex-start; }
+.usage-status--stale { color: #80520d; background: #fff3df; }
+.usage-status--fresh { color: #235c47; background: #e9f4ed; }
+.usage-month { margin: 4px 0 16px; padding: 16px; border: 1px solid #d8e8df; border-radius: 14px; background: linear-gradient(145deg, #f8fcf9, #eef7f1); }
+.usage-month__top { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.usage-month__top > div { display: grid; gap: 5px; }
+.usage-month__top span { color: var(--muted); font-size: 11px; font-weight: 750; }
+.usage-month__top strong { color: var(--ink); font-size: clamp(17px, 2vw, 24px); overflow-wrap: anywhere; }
+.usage-month progress { width: 100%; height: 13px; margin: 13px 0 4px; accent-color: var(--green); }
+.usage-month > p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+.usage-window-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.usage-window { min-width: 0; padding: 13px; border: 1px solid #e0ebe5; border-radius: 13px; background: #fff; }
+.usage-window h3 { margin-bottom: 8px; color: #52685f; font-size: 11px; letter-spacing: .02em; line-height: 1.4; }
+.usage-window strong { display: block; color: var(--ink); font-size: 18px; overflow-wrap: anywhere; }
+.usage-window p { margin: 6px 0 0; color: var(--muted); font-size: 10px; line-height: 1.5; }
+.usage-freshness, .usage-disclaimer { margin: 12px 0 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
+.usage-disclaimer { padding-top: 10px; border-top: 1px solid #e4ece7; }
+.pppoe-admin-panel > .muted { margin: 0 0 13px; }
+.pppoe-mapping-form { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 11px; margin: 14px 0; padding: 15px; border: 1px solid #e0ebe5; border-radius: 14px; background: #f8fbf9; }
+.pppoe-mapping-form .button { align-self: end; min-height: 44px; }
+.pppoe-mapping-list { margin-top: 12px; }
+.pppoe-mapping-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.pppoe-mapping-card { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 14px; padding: 14px; border: 1px solid #e1eae5; border-radius: 13px; background: linear-gradient(145deg, #fff, #f9fcfa); }
+.pppoe-mapping-card h3 { font-size: 15px; overflow-wrap: anywhere; }
+.pppoe-mapping-card p { margin: 6px 0 0; color: #455f56; font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+.pppoe-mapping-card .eyebrow { margin-bottom: 5px; }
+.pppoe-mapping-card code { overflow-wrap: anywhere; }
+.pppoe-mapping-card .button { flex: none; }
+.pppoe-admin-help { margin: 11px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.pppoe-token-box { display: grid; gap: 8px; margin: 14px 0; padding: 14px; border: 1px solid #d8e5dd; border-radius: 12px; background: #f2f8f4; }
+.pppoe-token-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.pppoe-token-box .muted { margin: 0; }
+@media (max-width: 900px) {
+  .usage-window-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .pppoe-mapping-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 600px) {
+  .usage-month__top { grid-template-columns: 1fr; }
+  .usage-window-grid, .pppoe-mapping-form, .pppoe-mapping-grid { grid-template-columns: 1fr; }
+  .pppoe-mapping-card { align-items: stretch; flex-direction: column; }
+  .pppoe-mapping-card .button { width: 100%; }
+}
+
+.pppoe-usage-report { margin-top: 18px; padding-top: 15px; border-top: 1px solid #e2ebe6; }
+.pppoe-usage-report > h3 { margin: 0 0 10px; color: var(--ink); font-size: 15px; }
+.pppoe-usage-report__body .table-wrap { max-width: 100%; overflow-x: auto; border: 1px solid #e0e9e4; border-radius: 12px; }
+.pppoe-usage-table { min-width: 1120px; width: 100%; border-collapse: collapse; background: #fff; font-size: 11px; }
+.pppoe-usage-table th, .pppoe-usage-table td { padding: 9px 10px; border-bottom: 1px solid #e9efeb; text-align: left; vertical-align: top; white-space: nowrap; }
+.pppoe-usage-table thead th { position: sticky; top: 0; background: #f4f8f5; color: #40574d; font-size: 10px; }
+.pppoe-usage-table tbody th { min-width: 170px; white-space: normal; }
+.pppoe-usage-table tbody th small, .pppoe-usage-table td small { display: block; margin-top: 5px; color: var(--muted); font-size: 10px; font-weight: 500; }
+.pppoe-usage-report__body > .muted { margin: 8px 0 0; font-size: 11px; }

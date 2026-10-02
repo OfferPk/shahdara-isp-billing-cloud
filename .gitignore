@@ -2,3 +2,6 @@ node_modules/
 dist/
 .env.local
 .env.*.local
+__pycache__/
+*.py[cod]
+collector/tests/.manus-*.tmp

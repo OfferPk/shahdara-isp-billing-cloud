@@ -1,0 +1,34 @@
+# PPPoE monthly and rolling data-usage MVP
+
+This feature is for the separate, non-production cloud edition only. It uses direct **read-only** RouterOS PPP active-session polling through a small site-side collector; it does not use RADIUS. It has no code for RouterOS user creation, blocking, renewal, package changes or any other RouterOS write command. It does not connect to a live router or the original offline application.
+
+## Storage and authorization
+
+- `pppoe_usage_logs` stores raw cumulative `bytes_in`, `bytes_out`, `sampled_at`, and the server-mapped PPPoE/site/session identity. It is RLS-enabled and has no `anon`/`authenticated` grants or policies.
+- `pppoe_usage_session_state`, mappings, site metadata, nonces and accepted-batch ledger are server-only.
+- `pppoe_usage_customer_deltas` contains only per-snapshot customer-aggregated, validated nonnegative deltas; it contains no router/site ID, username, raw counter or session identity. Its RLS permits only the linked customer or a same-organization Admin to read it. Browser writes are revoked.
+- `pppoe_usage_customer_months` stores only monthly quota/speed snapshots and collector freshness, also read-scoped by RLS to the same customer or same-organization Admin.
+- The SQL functions and views explicitly use invoker security for customer-visible reads. The four rolling views are `pppoe_usage_last_1_hour`, `pppoe_usage_last_2_hours`, `pppoe_usage_last_24_hours`, and `pppoe_usage_last_30_days`. They call a half-open-window helper and sum **delta** rows with `sampled_at >= start AND sampled_at < end`; cumulative `pppoe_usage_logs.bytes_*` are never summed into a window. `pppoe_usage_current_month` uses the Asia/Karachi calendar month and the same validated deltas.
+- Database ingest is one atomic RPC. It validates site state, payload, mapping, exact signed-body hash, request nonce and snapshot ID; maps usernames only on the server; ignores unmapped sessions; and prevents duplicates/replays. Counter decreases, session-uptime reset, username changes, and reconnects begin a new segment whose delta starts at the new cumulative value. Out-of-order samples are logged with zero delta and do not roll back high-water state.
+- Collector freshness is stale when no source is configured/seen or the oldest configured source contact is over 15 minutes old. Customer UI explicitly warns that polling can miss traffic between samples. Rolling “Last 24 hours” is named as a rolling interval, not a calendar day.
+
+## Staging project and deployment
+
+Target project ref: `qkdsuvmlutkatcqoewkh` (approved non-production staging only). The latest staging ledger records Branding as version `20261002162113`, while current cloud main contains `supabase/migrations/20261002180000_organization_branding.sql`. That mismatch is not reconciled: the PPPoE migration has **not** been applied, no Edge Functions have been deployed, and no secrets have been provisioned. The local feature migration is ordered after current main as `supabase/migrations/20261002183000_pppoe_usage.sql`. Do not deploy until the owner/maintainer reconciles the migration ledger and confirms the exact next version. Never target the production project, public router, original offline app, or customer data.
+
+Recommended staged rollout:
+
+1. First reconcile the local/remote Branding migration-version mismatch. Do not use `supabase db push` to apply unseen migrations. After reconciliation, apply only the additive PPPoE migration to the verified staging ref and run the synthetic database tests in a rollback-only transaction.
+2. Deploy `pppoe-usage-ingest` with JWT verification disabled because its transport is per-site HMAC, not user JWT; it still requires the Supabase publishable API key, site-derived HMAC, fresh timestamp, nonce and body digest. Deploy `pppoe-usage-admin` with JWT verification enabled.
+3. Set server-side Supabase Edge Function secrets, not browser/Actions secrets: `APP_ORIGIN=https://offerpk.github.io` (if not already set) and a cryptographically random 32-byte hex `PPPOE_USAGE_MASTER_KEY`. The Admin endpoint derives one token per registered site and returns it only after verifying an owner/Admin JWT for the matching organization. Never commit or print this master key.
+4. Admin creates a site/mapping using an existing active customer, PPPoE username, decimal-GB monthly quota and upload/download plan speed. Defaults in the UI are examples (100 GB, 5 Mbps down/up), not assertions about any customer contract. The current-cycle quota follows the Asia/Karachi calendar month. Updating it changes the current month’s plan snapshot; historical bills are not edited.
+5. Prepare and test the collector on the trusted site LAN using the procedure in [`collector/README.md`](collector/README.md). No RouterOS credential or model/version was requested or used here. Validate the deployed router’s actual HTTPS certificate, REST field names, byte direction and read-only account before any future live pilot.
+6. The Pages workflow builds the browser UI only; it does not apply migrations, deploy Edge Functions, provision RouterOS, create Auth users, send emails, or add customer data.
+
+The customer card and Admin dispute-review table use the same RLS-protected monthly and rolling database views, so used/remaining totals, freshness and last-contact time match. The Admin table additionally displays PPPoE usernames; customer views do not. Usage is independent of bill, receipt and allocation computations. Existing balance, receipt, cash and credit semantics remain unchanged. Data-usage numbers are not an invoice or usage-enforcement mechanism.
+
+## Tests
+
+`npm test` runs Node UI, Edge handler, security-contract, ledger and existing tests plus the collector’s Python unittest suite. `npm run build` verifies Vite bundling. PostgreSQL pgTAP coverage is in `supabase/tests/pppoe_usage.test.sql`; it was syntax-parsed but not executed because the staging/local migration-version mismatch remains unresolved. Run it on a local disposable Supabase stack or, after reconciliation, as an explicitly isolated synthetic staging transaction only. Do not use real customer data in tests.
+
+A router model/version compatibility check and any live site deployment remain pending by design. This branch does not implement the separate privileged subscriber-management control plane.
