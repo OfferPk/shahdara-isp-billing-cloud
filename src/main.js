@@ -505,8 +505,10 @@ if (!supabase) {
   function renderAdmin() {
     const context = pageState.context;
     const rows = pageState.rows;
+    const dashboardToday = localDate();
     const totals = calculateDashboard({
       month: pageState.selectedMonth,
+      today: dashboardToday,
       customers: rows.customers,
       bills: rows.bills,
       receipts: rows.receipts,
@@ -557,7 +559,7 @@ if (!supabase) {
 
     portalPanel.innerHTML = `${shellHeader(t('Administrator portal'))}
       ${renderPortalNavigation('admin')}
-      ${renderDashboardMetrics({ month: pageState.selectedMonth, totals, t })}
+      ${renderDashboardMetrics({ month: pageState.selectedMonth, today: dashboardToday, totals, t })}
       <section class="panel month-panel"><label for="dashboard-month">${escapeHtml(t('Dashboard month'))}</label><input type="month" id="dashboard-month" value="${escapeHtml(pageState.selectedMonth)}"><p class="muted">${escapeHtml(t('Cash totals follow receipt dates. Credit allocation is shown separately and is never counted as another payment.'))}</p></section>
       <div class="admin-grid">
         <section class="panel"><p class="eyebrow">${escapeHtml(t('Customer records'))}</p><h2>${escapeHtml(t('Add customer'))}</h2>

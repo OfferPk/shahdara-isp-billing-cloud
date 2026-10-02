@@ -1,3 +1,5 @@
+import { normalizeIsoDate } from './bill-dates.js';
+
 export function amountToMinorUnits(value, { allowZero = false } = {}) {
   const text = String(value ?? '').trim();
   if (!/^(?:\d+)(?:\.\d{1,2})?$/.test(text)) {
@@ -35,10 +37,13 @@ function uniqueRows(rows, keyFor) {
 
 /**
  * Summarize one organization/month. Receipts alone contribute to collected cash;
- * bill allocations reduce balances but never create a second receipt.
+ * bill allocations reduce balances but never create a second receipt. Overdue
+ * totals span all loaded bill periods and require an explicit past due date.
  */
-export function calculateDashboard({ month, customers = [], bills = [], receipts = [], allocations = [] }) {
+export function calculateDashboard({ month, today, customers = [], bills = [], receipts = [], allocations = [] }) {
   if (!/^\d{4}-\d{2}$/.test(month ?? '')) throw new Error('Choose a valid billing month.');
+  const todayKey = normalizeIsoDate(today);
+  if (!todayKey) throw new Error('Choose a valid local date.');
 
   const safeCustomers = uniqueRows(customers, (row) => row.id);
   const safeBills = uniqueRows(bills, (row) => `${row.organization_id ?? ''}:${row.id}`);
@@ -48,6 +53,7 @@ export function calculateDashboard({ month, customers = [], bills = [], receipts
   const customerNames = new Map(safeCustomers.map((row) => [row.id, row.name]));
   const monthBills = safeBills.filter((row) => String(row.period ?? '').slice(0, 7) === month);
   const monthBillIds = new Set(monthBills.map((row) => `${row.organization_id ?? ''}:${row.id}`));
+  const monthBillCustomerIds = new Set(monthBills.map((row) => row.customer_id).filter(Boolean));
   const appliedByBill = new Map();
   let creditAppliedCents = 0;
 
@@ -62,17 +68,26 @@ export function calculateDashboard({ month, customers = [], bills = [], receipts
   const pricedBills = monthBills.filter((row) => row.amount_due_cents !== null && row.amount_due_cents !== undefined);
   const unpricedBillCount = monthBills.length - pricedBills.length;
   const billedCents = pricedBills.reduce((sum, row) => sum + Number(row.amount_due_cents || 0), 0);
-  const outstandingCents = pricedBills.reduce((sum, row) => {
-    const key = `${row.organization_id ?? ''}:${row.id}`;
-    const amount = Number(row.amount_due_cents || 0);
-    return sum + Math.max(0, amount - (appliedByBill.get(key) ?? 0));
-  }, 0);
+  const outstandingForBill = (bill) => {
+    const key = `${bill.organization_id ?? ''}:${bill.id}`;
+    const amount = Number(bill.amount_due_cents || 0);
+    return Math.max(0, amount - (appliedByBill.get(key) ?? 0));
+  };
+  const outstandingCents = pricedBills.reduce((sum, bill) => sum + outstandingForBill(bill), 0);
+  const overdueBills = safeBills.filter((bill) => {
+    if (bill.amount_due_cents === null || bill.amount_due_cents === undefined) return false;
+    const dueDate = normalizeIsoDate(bill.due_date);
+    return Boolean(dueDate && dueDate < todayKey && outstandingForBill(bill) > 0);
+  });
+  const overdueCents = overdueBills.reduce((sum, bill) => sum + outstandingForBill(bill), 0);
+  const overdueAccountCount = new Set(overdueBills.map((bill) => bill.customer_id).filter(Boolean)).size;
+  const activeCustomers = safeCustomers.filter((row) => !row.archived && row.service_status === 'active');
   const cashReceivedCents = safeReceipts
     .filter((row) => String(row.received_on ?? '').slice(0, 7) === month)
     .reduce((sum, row) => sum + Number(row.amount_cents || 0), 0);
 
   return {
-    activeCustomers: safeCustomers.filter((row) => !row.archived && row.service_status === 'active').length,
+    activeCustomers: activeCustomers.length,
     customerCount: safeCustomers.length,
     billedCents,
     pricedBillCount: pricedBills.length,
@@ -80,6 +95,10 @@ export function calculateDashboard({ month, customers = [], bills = [], receipts
     cashReceivedCents,
     outstandingCents,
     creditAppliedCents,
+    overdueCents,
+    overdueBillCount: overdueBills.length,
+    overdueAccountCount,
+    missingActiveBillSnapshotCount: activeCustomers.filter((customer) => !monthBillCustomerIds.has(customer.id)).length,
     receiptCount: safeReceipts.filter((row) => String(row.received_on ?? '').slice(0, 7) === month).length,
     monthBills,
     customerNames,
