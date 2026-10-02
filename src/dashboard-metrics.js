@@ -1,4 +1,5 @@
 import { formatMoney } from './ledger.js';
+import { createDashboardDrilldown } from './dashboard-drilldown.js';
 
 const icons = {
   billed: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 3.5h7l4 4V20H7z"/><path d="M14 3.5v4h4M10 12h5M10 16h5"/></svg>',
@@ -19,12 +20,17 @@ function escapeHtml(value) {
   })[character]);
 }
 
-function renderMetric({ tone, label, icon, value, detail }) {
-  return `<article class="metric metric--${tone}">
+function renderMetric({ tone, label, icon, value, detail, drilldown }) {
+  const element = drilldown ? 'a' : 'article';
+  const attributes = drilldown
+    ? ` href="${escapeHtml(drilldown.hash)}" aria-label="${escapeHtml(drilldown.accessibleLabel)}" data-dashboard-drilldown="${escapeHtml(drilldown.card)}"`
+    : '';
+  return `<${element} class="metric metric--${tone}${drilldown ? ' metric--interactive' : ''}"${attributes}>
     <div class="metric__top"><h2 class="metric__label">${escapeHtml(label)}</h2><span class="metric__icon" aria-hidden="true">${icons[icon]}</span></div>
     <strong>${escapeHtml(value)}</strong>
     <small>${escapeHtml(detail)}</small>
-  </article>`;
+    ${drilldown ? `<span class="metric__action">${escapeHtml(drilldown.actionLabel)}</span>` : ''}
+  </${element}>`;
 }
 
 export function renderDashboardMetrics({ month, today, totals, t = (value) => value }) {
@@ -37,6 +43,10 @@ export function renderDashboardMetrics({ month, today, totals, t = (value) => va
   const unpricedDetailKey = totals.unpricedBillCount === 1
     ? 'unpriced bill snapshot excluded from billed amount'
     : 'unpriced bill snapshots excluded from billed amount';
+  const makeDrilldown = (card, actionLabel, accessibleLabel) => {
+    const route = createDashboardDrilldown(card, month);
+    return route ? { ...route, actionLabel: t(actionLabel), accessibleLabel } : null;
+  };
   const metrics = [
     {
       tone: 'billed',
@@ -61,10 +71,11 @@ export function renderDashboardMetrics({ month, today, totals, t = (value) => va
     },
     {
       tone: 'overdue',
-      label: `${t('Overdue outstanding balance')} · ${t('as of local date')} ${today}`,
+      label: `${t('Overdue outstanding balance')} · ${month} · ${t('as of local date')} ${today}`,
       icon: 'overdue',
       value: formatMoney(totals.overdueCents),
-      detail: `${totals.overdueAccountCount} ${t(overdueAccountWord)}; ${t('all bill periods; priced bills with a positive balance and a saved due date before today; missing due dates are excluded')}`,
+      detail: `${totals.overdueAccountCount} ${t(overdueAccountWord)}; ${t('selected bill period; priced bills with a positive balance and a saved due date before today; missing due dates are excluded')}`,
+      drilldown: makeDrilldown('overdue', 'View overdue bills', `${t('Overdue outstanding balance')}, ${formatMoney(totals.overdueCents)}, ${t('for bill period')} ${month}. ${t('View overdue bills for')} ${month}.`),
     },
     {
       tone: 'unpriced',
@@ -72,6 +83,7 @@ export function renderDashboardMetrics({ month, today, totals, t = (value) => va
       icon: 'unpriced',
       value: String(totals.unpricedBillCount),
       detail: t('Count only; no bill amount is recorded or treated as zero.'),
+      drilldown: makeDrilldown('unpriced', 'View unpriced bills', `${t('Unpriced bills')} ${month}, ${totals.unpricedBillCount}. ${t('View unpriced bills for')} ${month}.`),
     },
     {
       tone: 'missing-bill',
@@ -79,6 +91,7 @@ export function renderDashboardMetrics({ month, today, totals, t = (value) => va
       icon: 'missingBill',
       value: String(totals.missingActiveBillSnapshotCount),
       detail: t('Active customer accounts with no bill snapshot in this selected month; count only.'),
+      drilldown: makeDrilldown('missing-snapshot', 'View matching active customers', `${t('Active accounts without a bill snapshot')} ${month}, ${totals.missingActiveBillSnapshotCount}. ${t('View active customers without a bill snapshot for')} ${month}.`),
     },
   ];
 

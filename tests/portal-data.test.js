@@ -192,6 +192,38 @@ test('collection monitoring uses only existing organization-scoped public billin
   assert.doesNotMatch(metricSources.join('\n'), /phone|staff_notes|customer_private_details|incident_private_details|portal_email|user_id/i);
 });
 
+test('collection drill-down reuses current RLS-scoped rows and adds no query or client field access', async () => {
+  const client = mockClient({
+    customers: { data: [], error: null },
+    bills: { data: [], error: null },
+    receipts: { data: [], error: null },
+    receipt_allocations: { data: [], error: null },
+    incidents: { data: [], error: null },
+    customer_private_details: { data: [], error: null },
+    incident_private_details: { data: [], error: null },
+  });
+  await loadPortalRows(client, { kind: 'admin', organizationId: 'synthetic-org' });
+  const expectedTables = [
+    'customers', 'bills', 'receipts', 'receipt_allocations', 'incidents',
+    'customer_private_details', 'incident_private_details',
+  ].sort();
+  assert.deepEqual(client.calls.map((query) => query.table).sort(), expectedTables);
+  for (const query of client.calls) {
+    assert.ok(query.filters.some(([kind, field, value]) => kind === 'eq' && field === 'organization_id' && value === 'synthetic-org'));
+  }
+  assert.deepEqual(client.calls.find((query) => query.table === 'bills').selects, ['id, customer_id, period, amount_due_cents, issued_on, due_date, plan_snapshot']);
+
+  const [main, routes] = await Promise.all([
+    readFile(new URL('../src/main.js', import.meta.url), 'utf8'),
+    readFile(new URL('../src/dashboard-drilldown.js', import.meta.url), 'utf8'),
+  ]);
+  assert.match(main, /filterCollectionBillRows\(allBillRows/);
+  assert.match(main, /filterCustomersWithoutBillSnapshot\(listRows, pageState\.rows\?\.bills/);
+  assert.match(main, /context\.organizationId !== pageState\.context\?\.organizationId/);
+  assert.doesNotMatch(routes, /supabase|\.from\(|\.rpc\(|fetch\(/i);
+  assert.doesNotMatch(routes, /phone|staff_notes|private_details|portal_email/i);
+});
+
 test('portal data loading throws at the paging cap rather than exposing partial rows', async () => {
   const fullPage = Array.from({ length: 1000 }, (_, index) => ({ id: `synthetic-bill-${index}` }));
   const client = mockClient({

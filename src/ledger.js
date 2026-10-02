@@ -38,7 +38,7 @@ function uniqueRows(rows, keyFor) {
 /**
  * Summarize one organization/month. Receipts alone contribute to collected cash;
  * bill allocations reduce balances but never create a second receipt. Overdue
- * totals span all loaded bill periods and require an explicit past due date.
+ * totals use the selected bill period and require an explicit past due date.
  */
 export function calculateDashboard({ month, today, customers = [], bills = [], receipts = [], allocations = [] }) {
   if (!/^\d{4}-\d{2}$/.test(month ?? '')) throw new Error('Choose a valid billing month.');
@@ -74,7 +74,7 @@ export function calculateDashboard({ month, today, customers = [], bills = [], r
     return Math.max(0, amount - (appliedByBill.get(key) ?? 0));
   };
   const outstandingCents = pricedBills.reduce((sum, bill) => sum + outstandingForBill(bill), 0);
-  const overdueBills = safeBills.filter((bill) => {
+  const overdueBills = monthBills.filter((bill) => {
     if (bill.amount_due_cents === null || bill.amount_due_cents === undefined) return false;
     const dueDate = normalizeIsoDate(bill.due_date);
     return Boolean(dueDate && dueDate < todayKey && outstandingForBill(bill) > 0);
