@@ -133,3 +133,66 @@ export async function invokeRpc(supabase, functionName, args) {
   if (error) throw error;
   return data;
 }
+
+const PPPoE_USAGE_COLUMNS = 'organization_id,customer_id,period_start,upload_bytes,download_bytes,used_bytes,quota_bytes,remaining_bytes,over_quota_bytes,speed_download_bps,speed_upload_bps,last_collector_contact_at,is_stale,coverage_since,coverage_incomplete,quarantined_source_count';
+
+export async function loadCustomerPppoeUsage(supabase, context) {
+  const names = {
+    currentMonth: 'pppoe_usage_current_month',
+    last_1_hour: 'pppoe_usage_last_1_hour',
+    last_2_hours: 'pppoe_usage_last_2_hours',
+    last_24_hours: 'pppoe_usage_last_24_hours',
+    last_30_days: 'pppoe_usage_last_30_days',
+  };
+  const entries = await Promise.all(Object.entries(names).map(async ([key, view]) => {
+    const { data, error } = await supabase.from(view).select(PPPoE_USAGE_COLUMNS)
+      .eq('organization_id', context.organizationId).eq('customer_id', context.customerId).maybeSingle();
+    if (error) throw error;
+    return [key, data ?? null];
+  }));
+  return Object.fromEntries(entries);
+}
+
+export async function loadPppoeUsageAdmin(supabase, organizationId) {
+  const { data, error } = await supabase.functions.invoke('pppoe-usage-admin', {
+    body: { action: 'list', organization_id: organizationId },
+  });
+  if (error) throw error;
+  return data ?? { mappings: [], sites: [] };
+}
+
+export async function savePppoeUsageMapping(supabase, organizationId, mapping) {
+  const { data, error } = await supabase.functions.invoke('pppoe-usage-admin', {
+    body: { action: 'save_mapping', organization_id: organizationId, ...mapping },
+  });
+  if (error) throw error;
+  if (!data?.saved) throw new Error(data?.error || 'The mapping could not be saved.');
+  return data;
+}
+
+export async function requestPppoeCollectorToken(supabase, organizationId, siteId) {
+  const { data, error } = await supabase.functions.invoke('pppoe-usage-admin', {
+    body: { action: 'collector_key', organization_id: organizationId, site_id: siteId },
+  });
+  if (error) throw error;
+  if (typeof data?.collector_token !== 'string') throw new Error(data?.error || 'Collector token could not be issued.');
+  return data.collector_token;
+}
+
+const PPPoE_USAGE_ADMIN_COLUMNS = 'organization_id,customer_id,period_start,upload_bytes,download_bytes,used_bytes,quota_bytes,remaining_bytes,over_quota_bytes,speed_download_bps,speed_upload_bps,last_collector_contact_at,is_stale,coverage_since,coverage_incomplete,quarantined_source_count';
+
+export async function loadAdminPppoeUsage(supabase, organizationId) {
+  const names = {
+    currentMonth: 'pppoe_usage_current_month',
+    last_1_hour: 'pppoe_usage_last_1_hour',
+    last_2_hours: 'pppoe_usage_last_2_hours',
+    last_24_hours: 'pppoe_usage_last_24_hours',
+    last_30_days: 'pppoe_usage_last_30_days',
+  };
+  const entries = await Promise.all(Object.entries(names).map(async ([key, view]) => {
+    const rows = await rowsFor(supabase, view, PPPoE_USAGE_ADMIN_COLUMNS,
+      (query) => query.eq('organization_id', organizationId), { column: 'customer_id' });
+    return [key, rows];
+  }));
+  return Object.fromEntries(entries);
+}

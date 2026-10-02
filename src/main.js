@@ -1,6 +1,6 @@
 import { createPortalClient } from './supabase-client.js';
 import { validatePakistanPhone } from './customer-input.js';
-import { createCustomer, invokeRpc, loadContexts, loadOrganizationBranding, loadPortalRows, manageServiceIncident } from './portal-data.js';
+import { createCustomer, invokeRpc, loadContexts, loadOrganizationBranding, loadPortalRows, loadCustomerPppoeUsage, loadAdminPppoeUsage, loadPppoeUsageAdmin, requestPppoeCollectorToken, savePppoeUsageMapping, manageServiceIncident } from './portal-data.js';
 import { getBillingCycleQuickDate, isValidBillingMonth, localDateString, localMonthString } from './bill-dates.js';
 import { amountToMinorUnits, calculateDashboard, formatMoney } from './ledger.js';
 import { renderDashboardMetrics } from './dashboard-metrics.js';
@@ -30,6 +30,7 @@ import {
 } from './admin-bills.js';
 import { parseDashboardDrilldownHash } from './dashboard-drilldown.js';
 import { renderAdminIncidentCards, renderIncidentCustomerOptions } from './admin-incidents.js';
+import { renderCustomerUsageCard, renderPppoeAdminSection, renderPppoeAdminUsageReport, renderPppoeMappingList } from './pppoe-usage.js';
 import { applyDocumentLanguage, formatUiMessage, getStoredLanguage, normalizeLanguage, setLanguagePreference, translateUi } from './language.js';
 import { BRANDING_BUCKET, buildBrandLogoPath, getOrganizationBranding, getPublicBrandLogoUrl, isSafeBrandLogoPath, safeSupportPhoneHref, validateBrandLogoFile } from './organization-branding.js';
 import { renderPrintableBillHtml } from './customer-documents.js';
@@ -813,6 +814,7 @@ if (!supabase) {
           </form><p class="form-message" id="receipt-message" role="status"></p>
         </section>
       </div>
+      ${renderPppoeAdminSection({ customers: inviteCustomers, t, escapeHtml })}
       <section id="customer-list" class="panel data-panel customer-list-panel" aria-labelledby="customer-list-title">
         <div class="customer-list-heading"><div><p class="eyebrow">${escapeHtml(t('Customer directory'))}</p><h2 id="customer-list-title" tabindex="-1">${escapeHtml(t('Customers'))}</h2></div>
           <div class="customer-summary" aria-label="${escapeHtml(t('Customer count, active count, and unpaid count'))}"><span><strong>${customerSummary.total}</strong><small>${escapeHtml(t('Total'))}</small></span><span><strong>${customerSummary.active}</strong><small>${escapeHtml(t('Active'))}</small></span><span><strong>${customerSummary.unpaid}</strong><small>${escapeHtml(t('Unpaid'))}</small></span></div>
@@ -892,9 +894,104 @@ if (!supabase) {
     bindAdminIncidentForms(context);
     bindAdminActions(context);
     bindAdminBillActions(context);
+    bindPppoeUsageAdmin(context, customers);
+    void refreshPppoeUsageAdmin(context, customers);
     bindDashboardDrilldowns(context);
     bindCustomerListActions(context);
     populateReceiptBills(portalPanel.querySelector('#receipt-customer')?.value);
+  }
+
+  async function refreshPppoeUsageAdmin(context, customers) {
+    const list = portalPanel.querySelector('#pppoe-mapping-list');
+    const report = portalPanel.querySelector('#pppoe-usage-report');
+    if (!list) return;
+    try {
+      const [data, views] = await Promise.all([
+        loadPppoeUsageAdmin(supabase, context.organizationId),
+        loadAdminPppoeUsage(supabase, context.organizationId),
+      ]);
+      if (pageState.context?.kind !== 'admin' || pageState.context.organizationId !== context.organizationId) return;
+      list.innerHTML = renderPppoeMappingList({ ...data, customers, t, escapeHtml });
+      if (report) report.innerHTML = renderPppoeAdminUsageReport({ ...data, customers, views, t, escapeHtml });
+    } catch {
+      list.innerHTML = `<p class="error-text" role="alert">${escapeHtml(t('PPPoE mappings could not be loaded.'))}</p>`;
+      if (report) report.innerHTML = `<p class="error-text" role="alert">${escapeHtml(t('PPPoE usage summaries could not be loaded.'))}</p>`;
+    }
+  }
+
+  function bindPppoeUsageAdmin(context, customers) {
+    const form = portalPanel.querySelector('#pppoe-mapping-form');
+    form?.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const button = form.querySelector('button[type="submit"]');
+      const message = portalPanel.querySelector('#pppoe-mapping-message');
+      button.disabled = true;
+      setMessage(message, 'Saving PPPoE usage mapping…');
+      try {
+        const values = new FormData(form);
+        const quotaGb = Number(values.get('quota_gb'));
+        const downloadMbps = Number(values.get('download_mbps'));
+        const uploadMbps = Number(values.get('upload_mbps'));
+        const mapping = {
+          site_id: String(values.get('site_id') ?? '').trim(),
+          site_label: String(values.get('site_label') ?? '').trim(),
+          customer_id: String(values.get('customer_id') ?? ''),
+          pppoe_username: String(values.get('pppoe_username') ?? ''),
+          quota_bytes: Math.round(quotaGb * 1_000_000_000),
+          speed_download_bps: Math.round(downloadMbps * 1_000_000),
+          speed_upload_bps: Math.round(uploadMbps * 1_000_000),
+        };
+        if (![mapping.quota_bytes, mapping.speed_download_bps, mapping.speed_upload_bps].every(Number.isSafeInteger)
+            || Object.values(mapping).some((value) => typeof value === 'number' && value <= 0)) {
+          throw new Error(t('Enter positive, valid quota and speed values.'));
+        }
+        await savePppoeUsageMapping(supabase, context.organizationId, mapping);
+        form.elements.pppoe_username.value = '';
+        form.elements.customer_id.value = '';
+        setMessage(message, 'PPPoE usage mapping saved.');
+        await refreshPppoeUsageAdmin(context, customers);
+      } catch (error) {
+        setMessage(message, error?.message || 'PPPoE mapping could not be saved.', true);
+      } finally {
+        button.disabled = false;
+      }
+    });
+    portalPanel.querySelector('#admin-pppoe-usage')?.addEventListener('click', async (event) => {
+      const button = event.target instanceof Element ? event.target.closest('[data-usage-action]') : null;
+      if (!button) return;
+      const tokenBox = portalPanel.querySelector('#pppoe-collector-token');
+      const tokenInput = portalPanel.querySelector('#pppoe-token-value');
+      if (button.dataset.usageAction === 'hide-token') {
+        if (tokenInput) tokenInput.value = '';
+        if (tokenBox) tokenBox.hidden = true;
+        return;
+      }
+      if (button.dataset.usageAction === 'copy-token') {
+        try {
+          await navigator.clipboard.writeText(tokenInput?.value ?? '');
+          setMessage(portalPanel.querySelector('#pppoe-mapping-message'), 'Collector token copied. Store it securely on the private collector host.');
+        } catch {
+          tokenInput?.select();
+          setMessage(portalPanel.querySelector('#pppoe-mapping-message'), 'Select and copy the token, then store it securely on the private collector host.', true);
+        }
+        return;
+      }
+      if (button.dataset.usageAction !== 'show-token') return;
+      button.disabled = true;
+      try {
+        const token = await requestPppoeCollectorToken(supabase, context.organizationId, button.dataset.siteId);
+        if (tokenInput && tokenBox) {
+          tokenInput.value = token;
+          tokenBox.hidden = false;
+          tokenBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+        setMessage(portalPanel.querySelector('#pppoe-mapping-message'), 'Collector token displayed. It is not stored in this browser.');
+      } catch (error) {
+        setMessage(portalPanel.querySelector('#pppoe-mapping-message'), error?.message || 'Collector token could not be issued.', true);
+      } finally {
+        button.disabled = false;
+      }
+    });
   }
 
   function populateReceiptBills(customerId) {
@@ -1456,6 +1553,7 @@ if (!supabase) {
         <div class="profile-card__status"><span class="status-pill">${escapeHtml(customer.archived ? t('Archived') : ({ active: t('Active'), offline: t('Offline'), 'not-set': t('Not set') }[customer.service_status] ?? customer.service_status ?? t('Not set')))}</span><p>${escapeHtml(t('Service status'))}</p></div>
       </section>
       <section class="metric-grid customer-metrics"><article class="metric"><span>${escapeHtml(t('Total receipts'))}</span><strong>${formatMoney(totalCash)}</strong><small>${customerReceipts.length} ${escapeHtml(t('actual payments'))}</small></article><article class="metric"><span>${escapeHtml(t('Billing history'))}</span><strong>${customerBills.length}</strong><small>${escapeHtml(t('Monthly snapshots'))}</small></article></section>
+      <section id="customer-usage" class="panel data-panel usage-panel" aria-labelledby="customer-usage-title"><div class="section-heading"><div><p class="eyebrow">${escapeHtml(t('Internet usage'))}</p><h2 id="customer-usage-title">${escapeHtml(t('Data usage'))}</h2></div></div><p class="muted" role="status">${escapeHtml(t('Loading data usage…'))}</p></section>
       <section id="customer-billing" class="panel data-panel customer-billing-panel" aria-labelledby="customer-billing-title"><div class="section-heading"><div><p class="eyebrow">${escapeHtml(t('Your billing history'))}</p><h2 id="customer-billing-title">${escapeHtml(t('Bills and receipts'))}</h2></div></div>
         <div id="customer-billing-filters" class="customer-billing-filters" aria-describedby="customer-billing-filter-help">
           <label for="customer-billing-month">${escapeHtml(t('Billing / receipt month'))}<select id="customer-billing-month"><option value="">${escapeHtml(t('All months'))}</option>${monthOptions}</select></label>
@@ -1475,6 +1573,7 @@ if (!supabase) {
         }).join('') || `<p class="incident-empty" role="status">${escapeHtml(t('No customer-visible service updates are recorded for this account.'))}</p>`}</div>
       </section>`;
     wirePortalBase();
+    void refreshCustomerPppoeUsage(pageState.context, customer.id);
     renderCustomerBillingResults();
     portalPanel.querySelector('#customer-billing-results')?.addEventListener('click', (event) => {
       const target = event.target instanceof Element ? event.target.closest('[data-action="print-bill"]') : null;
@@ -1495,6 +1594,24 @@ if (!supabase) {
       portalPanel.querySelector('#customer-receipt-through').value = '';
       renderCustomerBillingResults();
     });
+  }
+
+  async function refreshCustomerPppoeUsage(context, customerId) {
+    const card = portalPanel.querySelector('#customer-usage');
+    if (!card) return;
+    try {
+      const usage = await loadCustomerPppoeUsage(supabase, { organizationId: context.organizationId, customerId });
+      if (pageState.context?.kind !== 'customer' || pageState.context.organizationId !== context.organizationId
+          || pageState.context.customerId !== customerId) return;
+      card.outerHTML = renderCustomerUsageCard({
+        currentMonth: usage.currentMonth,
+        windows: usage,
+        t,
+        escapeHtml,
+      });
+    } catch {
+      card.innerHTML = `<div class="section-heading"><div><p class="eyebrow">${escapeHtml(t('Internet usage'))}</p><h2 id="customer-usage-title">${escapeHtml(t('Data usage'))}</h2></div></div><p class="error-text" role="status">${escapeHtml(t('Usage information is temporarily unavailable. Billing and receipt records are unchanged.'))}</p>`;
+    }
   }
 
   async function refreshCurrentContext(announcement = 'Portal data updated.') {
