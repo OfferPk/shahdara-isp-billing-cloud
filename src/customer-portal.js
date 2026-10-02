@@ -102,13 +102,13 @@ export function formatIncidentTimestamp(value, locale = 'en-PK') {
   }).format(new Date(value));
 }
 
-export function buildIncidentTimeline(incident) {
+export function buildIncidentTimeline(incident, t = (value) => value) {
   const status = incident.status === 'open' || incident.status === 'resolved' ? incident.status : 'unknown';
-  const statusLabel = status === 'open' ? 'In progress' : status === 'resolved' ? 'Resolved' : 'Status not available';
+  const statusLabel = status === 'open' ? t('In progress') : status === 'resolved' ? t('Resolved') : t('Status not available');
   const eventDefinitions = [
-    ['reported_at', 'Reported'],
-    ['offline_at', 'Service went offline'],
-    ['restored_at', 'Service restored'],
+    ['reported_at', t('Reported')],
+    ['offline_at', t('Service went offline')],
+    ['restored_at', t('Service restored')],
   ];
   const events = eventDefinitions
     .filter(([field]) => isValidTimestamp(incident[field]))
@@ -116,12 +116,12 @@ export function buildIncidentTimeline(incident) {
     .sort((a, b) => Date.parse(a.datetime) - Date.parse(b.datetime) || a.index - b.index)
     .map(({ label, datetime }) => ({ label, datetime, displayTime: formatIncidentTimestamp(datetime) }));
   const restorationMessage = isValidTimestamp(incident.restored_at)
-    ? `Restoration recorded ${formatIncidentTimestamp(incident.restored_at)}.`
+    ? `${t('Restoration recorded')} ${formatIncidentTimestamp(incident.restored_at)}.`
     : status === 'resolved'
-      ? 'Marked resolved; a restoration time is not recorded.'
+      ? t('Marked resolved; a restoration time is not recorded.')
       : status === 'open'
-        ? 'Service is marked in progress; a restoration time is not recorded.'
-        : 'A restoration time is not recorded.';
+        ? t('Service is marked in progress; a restoration time is not recorded.')
+        : t('A restoration time is not recorded.');
 
   return { status, statusLabel, events, restorationMessage };
 }

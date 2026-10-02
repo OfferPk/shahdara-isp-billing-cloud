@@ -24,6 +24,11 @@ button { cursor: pointer; }
 button:disabled { cursor: wait; opacity: .65; }
 .app-shell { max-width: 1320px; margin: 0 auto; padding: 0 24px 36px; }
 .site-header { min-height: 82px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(23, 52, 47, .12); gap: 20px; }
+.header-tools { display: flex; align-items: center; gap: 10px; }
+.language-toggle { display: inline-flex; flex: none; align-items: center; gap: 2px; padding: 3px; border: 1px solid #cbd9d2; border-radius: 999px; background: #fff; }
+.language-toggle__option { min-height: 38px; padding: 7px 11px; border: 0; border-radius: 999px; color: #38574c; background: transparent; font-size: 11px; font-weight: 750; white-space: nowrap; }
+.language-toggle__option.is-active { color: #fff; background: #177b59; }
+.language-toggle__option:focus-visible { outline: 3px solid #102e27; outline-offset: 2px; box-shadow: 0 0 0 5px #fff; }
 .brand { display: flex; align-items: center; gap: 12px; color: inherit; text-decoration: none; }
 .brand-mark { width: 42px; height: 42px; border-radius: 14px; display: grid; place-items: center; color: #fff; font: 800 14px Manrope, sans-serif; background: linear-gradient(145deg, #1a926a, #0b5941); box-shadow: 0 7px 18px rgba(23,123,89,.25); }
 .brand strong, .brand small { display: block; }
@@ -61,6 +66,10 @@ button:focus-visible, a:focus-visible { outline: 3px solid #102e27; outline-offs
 .portal-heading h1 { font-size: clamp(25px, 3vw, 34px); }
 .portal-heading .muted { margin: 7px 0 0; }
 .header-actions { display: flex; align-items: flex-start; gap: 12px; }
+.portal-nav { display: flex; flex-wrap: wrap; gap: 7px; margin: -7px 0 16px; }
+.portal-nav a { display: inline-flex; min-height: 44px; align-items: center; justify-content: center; padding: 8px 13px; border: 1px solid #d2e1d9; border-radius: 999px; color: #285748; background: #fff; font-size: 12px; font-weight: 750; text-decoration: none; }
+.portal-nav a:hover { border-color: #9bc9ae; background: #eff8f2; }
+.portal-nav a:focus-visible { outline: 3px solid #102e27; outline-offset: 3px; box-shadow: 0 0 0 6px #fff; }
 .context-picker { min-width: 210px; font-size: 11px; }
 .metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 13px; margin-bottom: 16px; }
 .metric { display: grid; gap: 8px; min-height: 128px; padding: 19px; border: 1px solid #d9e6df; border-radius: 16px; background: linear-gradient(145deg, #fff, #f5faf7); box-shadow: 0 10px 28px rgba(24,54,45,.045); }
@@ -183,7 +192,8 @@ td { color: #25433b; }
 }
 @media (max-width: 600px) {
   .app-shell { padding: 0 14px 24px; }
-  .site-header { min-height: 68px; }
+  .site-header { min-height: 68px; flex-wrap: wrap; gap: 8px; padding: 10px 0; }
+  .header-tools { width: 100%; justify-content: space-between; }
   .environment-tag { max-width: 120px; padding: 6px 8px; font-size: 9px; text-align: center; }
   main { padding-top: 18px; }
   .panel { padding: 18px; border-radius: 15px; }
@@ -217,7 +227,9 @@ td { color: #25433b; }
 
 @media (max-width: 380px) {
   .site-header { flex-wrap: wrap; gap: 8px; padding: 10px 0; }
+  .header-tools { width: 100%; justify-content: space-between; }
   .environment-tag { max-width: none; }
+  .language-toggle__option { padding-right: 9px; padding-left: 9px; }
 }
 
 

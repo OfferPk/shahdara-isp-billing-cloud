@@ -1,44 +1,50 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" dir="ltr">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#123c35" />
     <meta name="description" content="Private Shahdara ISP cloud billing portal." />
-    <title>Shahdara Fiber Net · Cloud Portal</title>
+    <title id="page-title">Shahdara Fiber Net · Cloud Portal</title>
   </head>
   <body>
-    <a class="skip-link" href="#app">Skip to main content</a>
+    <a class="skip-link" href="#app" data-i18n="Skip to main content">Skip to main content</a>
     <div class="app-shell">
       <header class="site-header">
         <a class="brand" href="./" aria-label="Shahdara Fiber Net cloud portal home">
           <span class="brand-mark" aria-hidden="true">SF</span>
-          <span><strong>Shahdara Fiber Net</strong><small>Cloud billing portal</small></span>
+          <span><strong>Shahdara Fiber Net</strong><small data-i18n="Cloud billing portal">Cloud billing portal</small></span>
         </a>
-        <span class="environment-tag">Isolated review edition</span>
+        <div class="header-tools">
+          <div id="language-toggle" class="language-toggle" role="group" aria-label="Language">
+            <button class="language-toggle__option is-active" type="button" data-language="en" aria-label="English" aria-pressed="true">English</button>
+            <button class="language-toggle__option" type="button" data-language="ur-Latn" aria-label="Roman Urdu" aria-pressed="false">Roman Urdu</button>
+          </div>
+          <span class="environment-tag" data-i18n="Isolated review edition">Isolated review edition</span>
+        </div>
       </header>
       <main id="app" tabindex="-1">
         <p id="app-announcement" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></p>
         <section class="panel config-panel" id="configuration-message" hidden>
-          <p class="eyebrow">Setup pending</p>
-          <h1>Connect an approved Supabase project</h1>
-          <p>This isolated portal has no project credentials configured. Copy <code>.env.example</code> to <code>.env.local</code> and enter only the approved project URL and publishable/anon key. No database connection is attempted until both are present.</p>
+          <p class="eyebrow" data-i18n="Setup pending">Setup pending</p>
+          <h1 data-i18n="Connect an approved Supabase project">Connect an approved Supabase project</h1>
+          <p data-i18n="This isolated portal has no project credentials configured. Copy .env.example to .env.local and enter only the approved project URL and publishable/anon key. No database connection is attempted until both are present.">This isolated portal has no project credentials configured. Copy <code>.env.example</code> to <code>.env.local</code> and enter only the approved project URL and publishable/anon key. No database connection is attempted until both are present.</p>
         </section>
         <section class="panel auth-panel" id="auth-panel" hidden>
-          <p class="eyebrow">Private sign-in</p>
-          <h1>Sign in to your account</h1>
-          <p>The first-owner invitation has been sent. The owner must accept it before requesting a secure sign-in link with the invited email address. This page cannot confirm email delivery or acceptance. Self-service sign-up is disabled.</p>
+          <p class="eyebrow" data-i18n="Private sign-in">Private sign-in</p>
+          <h1 data-i18n="Sign in to your account">Sign in to your account</h1>
+          <p data-i18n="The first-owner invitation has been sent. The owner must accept it before requesting a secure sign-in link with the invited email address. This page cannot confirm email delivery or acceptance. Self-service sign-up is disabled.">The first-owner invitation has been sent. The owner must accept it before requesting a secure sign-in link with the invited email address. This page cannot confirm email delivery or acceptance. Self-service sign-up is disabled.</p>
           <form id="login-form" class="stack">
-            <label for="login-email">Email address</label>
+            <label for="login-email" data-i18n="Email address">Email address</label>
             <input id="login-email" name="email" type="email" autocomplete="email" required maxlength="254" />
-            <button class="button primary" type="submit">Email me a secure sign-in link</button>
+            <button class="button primary" type="submit" data-i18n="Email me a secure sign-in link">Email me a secure sign-in link</button>
           </form>
           <p class="form-message" id="login-message" role="status"></p>
-          <p class="muted">A Shahdara administrator can request a customer portal invitation. This page cannot confirm email delivery.</p>
+          <p class="muted" data-i18n="A Shahdara administrator can request a customer portal invitation. This page cannot confirm email delivery.">A Shahdara administrator can request a customer portal invitation. This page cannot confirm email delivery.</p>
         </section>
         <section class="panel portal-panel" id="portal-panel" hidden></section>
       </main>
-      <footer class="site-footer">Private customer and billing records are protected by Supabase Auth and database row-level security. The first-owner invitation is awaiting acceptance. Customer invitations are managed by the server-side invite-customer function; email delivery is not confirmed here.</footer>
+      <footer class="site-footer" data-i18n="Private customer and billing records are protected by Supabase Auth and database row-level security. The first-owner invitation is awaiting acceptance. Customer invitations are managed by the server-side invite-customer function; email delivery is not confirmed here.">Private customer and billing records are protected by Supabase Auth and database row-level security. The first-owner invitation is awaiting acceptance. Customer invitations are managed by the server-side invite-customer function; email delivery is not confirmed here.</footer>
     </div>
     <script type="module" src="/src/main.js"></script>
   </body>

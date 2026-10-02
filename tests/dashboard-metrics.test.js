@@ -23,7 +23,7 @@ function syntheticTotals(overrides = {}) {
 test('Admin KPI cards show billed, collected, and pending values with clear month and cash/credit definitions', () => {
   const markup = renderDashboardMetrics({ month: '2026-02', totals: syntheticTotals() });
 
-  assert.match(markup, /<section class="metric-grid admin-metrics" aria-label="Monthly billing summary">/);
+  assert.match(markup, /<section id="admin-overview" class="metric-grid admin-metrics" aria-label="Monthly billing summary">/);
   assert.equal((markup.match(/<article class="metric metric--/g) ?? []).length, 3);
   assert.match(markup, /Total Billed · 2026-02/);
   assert.match(markup, /Collected · 2026-02/);
