@@ -45,10 +45,13 @@ async function deriveSiteKey(master, siteId) {
 function isCounter(value) { return typeof value === 'string' && /^\d{1,19}$/.test(value); }
 function validPayload(payload) {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return false;
-  if (Object.keys(payload).sort().join(',') !== 'sampled_at,sessions,snapshot_id') return false;
+  const keys = Object.keys(payload).sort().join(',');
+  if (!['sampled_at,sessions,snapshot_id', 'quarantined_batch_count,sampled_at,sessions,snapshot_id'].includes(keys)) return false;
   if (!UUID_RE.test(payload.snapshot_id ?? '') || typeof payload.sampled_at !== 'string'
       || Number.isNaN(Date.parse(payload.sampled_at)) || !Array.isArray(payload.sessions)
-      || payload.sessions.length > MAX_SESSIONS) return false;
+      || payload.sessions.length > MAX_SESSIONS
+      || (Object.hasOwn(payload, 'quarantined_batch_count')
+        && (!Number.isSafeInteger(payload.quarantined_batch_count) || payload.quarantined_batch_count < 0))) return false;
   return payload.sessions.every((session) => session && typeof session === 'object' && !Array.isArray(session)
     && Object.keys(session).sort().join(',') === 'bytes_in,bytes_out,session_id,session_key,uptime_seconds,username'
     && typeof session.username === 'string' && session.username.trim().length > 0 && session.username.length <= 255
@@ -141,12 +144,19 @@ export function createPppoeAdminHandler({ env, createClient }) {
       const adminClient = createClient(supabaseUrl, serviceRoleKey, { auth: { autoRefreshToken: false, persistSession: false } });
 
       if (action === 'list') {
-        const [{ data: mappings, error: mappingError }, { data: sites, error: siteError }] = await Promise.all([
+        const [
+          { data: mappings, error: mappingError },
+          { data: sites, error: siteError },
+          { data: accounts, error: accountError },
+        ] = await Promise.all([
           adminClient.from('pppoe_usage_mappings').select('organization_id,site_id,pppoe_username,customer_id,quota_bytes,speed_download_bps,speed_upload_bps').eq('organization_id', organizationId).order('site_id').order('pppoe_username'),
-          adminClient.from('pppoe_usage_sites').select('site_id,display_name,enabled,last_contact_at').eq('organization_id', organizationId).order('site_id'),
+          adminClient.from('pppoe_usage_sites').select('site_id,display_name,enabled,last_contact_at,quarantined_batch_count,last_quarantined_at').eq('organization_id', organizationId).order('site_id'),
+          adminClient.from('pppoe_usage_admin_account_month_current')
+            .select('organization_id,customer_id,period_start,site_id,pppoe_username,quota_bytes,speed_download_bps,speed_upload_bps,upload_bytes,download_bytes,used_bytes,coverage_since,coverage_incomplete')
+            .eq('organization_id', organizationId).order('customer_id').order('site_id').order('pppoe_username'),
         ]);
-        if (mappingError || siteError) return json(503, { error: 'Usage configuration could not be loaded.' }, appOrigin);
-        return json(200, { mappings: mappings ?? [], sites: sites ?? [] }, appOrigin);
+        if (mappingError || siteError || accountError) return json(503, { error: 'Usage configuration could not be loaded.' }, appOrigin);
+        return json(200, { mappings: mappings ?? [], sites: sites ?? [], accounts: accounts ?? [] }, appOrigin);
       }
       if (action === 'save_mapping') {
         const { site_id: siteId, site_label: siteLabel, pppoe_username: username, customer_id: customerId } = payload;

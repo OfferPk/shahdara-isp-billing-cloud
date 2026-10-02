@@ -1,0 +1,42 @@
+name: Cloud portal and disposable database tests
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  app-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out cloud portal
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Run Node and collector tests
+        run: npm test
+      - name: Build cloud portal
+        run: npm run build
+
+  disposable-pgtap:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out cloud portal
+        uses: actions/checkout@v4
+      - name: Install local PostgreSQL and pgTAP
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y postgresql-16 postgresql-16-pgtap
+          sudo pg_ctlcluster 16 main start
+          pg_isready -h /var/run/postgresql -p 5432
+      - name: Execute migrations and pgTAP in a disposable local database
+        run: npm run test:db

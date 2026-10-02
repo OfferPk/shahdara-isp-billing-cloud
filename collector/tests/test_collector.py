@@ -3,11 +3,13 @@ import os
 import sqlite3
 import tempfile
 import unittest
+import urllib.error
 from datetime import datetime, timezone
 from pathlib import Path
 
 from collector.pppoe_collector import (
     CollectorError,
+    PermanentUploadError,
     Settings,
     create_snapshot,
     flush_outbox,
@@ -126,10 +128,59 @@ class CollectorTests(unittest.TestCase):
                 flush_outbox(self.settings(), db, post=fails)
             self.assertEqual(db.execute("SELECT body FROM outbox WHERE snapshot_id = ?", (body["snapshot_id"],)).fetchone()[0], original)
             result = flush_outbox(self.settings(), db, post=lambda _settings, sent_body: {"accepted": True, "unmapped_sessions": 0})
-            self.assertEqual(result, (1, 0))
+            self.assertEqual(result, (1, 0, 0))
             self.assertEqual(len(calls), 1)
             self.assertEqual(db.execute("SELECT count(*) FROM outbox").fetchone()[0], 0)
             db.close()
+
+    def test_permanent_rejection_quarantines_exact_raw_batch_and_later_items_continue(self):
+        with tempfile.TemporaryDirectory() as directory:
+            db = open_state(str(Path(directory) / "state.sqlite3"))
+            first = create_snapshot([], datetime(2026, 10, 2, 10, 0, tzinfo=timezone.utc), db)
+            second = create_snapshot([], datetime(2026, 10, 2, 10, 1, tzinfo=timezone.utc), db)
+            first_body = db.execute("SELECT body FROM outbox WHERE snapshot_id = ?", (first["snapshot_id"],)).fetchone()[0]
+            sent_ids = []
+
+            def post(_settings, body):
+                snapshot_id = json.loads(body)["snapshot_id"]
+                sent_ids.append(snapshot_id)
+                if snapshot_id == first["snapshot_id"]:
+                    raise PermanentUploadError("rejected", 409)
+                return {"accepted": True, "unmapped_sessions": 0}
+
+            result = flush_outbox(self.settings(), db, post=post)
+            self.assertEqual(result, (1, 0, 1))
+            self.assertEqual(sent_ids, [first["snapshot_id"], second["snapshot_id"]])
+            quarantined = db.execute(
+                "SELECT body, status_code, reason_code, recovered_at FROM outbox_quarantine WHERE snapshot_id = ?",
+                (first["snapshot_id"],),
+            ).fetchone()
+            self.assertEqual(quarantined["body"], first_body)
+            self.assertEqual(quarantined["status_code"], 409)
+            self.assertEqual(quarantined["reason_code"], "HTTP_409_PERMANENT_REJECTION")
+            self.assertIsNone(quarantined["recovered_at"])
+            self.assertEqual(db.execute("SELECT count(*) FROM outbox").fetchone()[0], 0)
+
+            next_body = create_snapshot([], datetime(2026, 10, 2, 10, 2, tzinfo=timezone.utc), db)
+            self.assertEqual(next_body["quarantined_batch_count"], 1)
+            db.close()
+
+    def test_permanent_http_4xx_is_quarantinable_but_throttling_and_server_errors_retry(self):
+        settings = self.settings()
+        body = json.dumps({"snapshot_id": "123e4567-e89b-42d3-a456-426614174000", "sampled_at": "2026-10-02T00:00:00Z", "sessions": []})
+
+        def opener_for(status):
+            def opener(_request, timeout, context):
+                raise urllib.error.HTTPError("https://example.invalid", status, "synthetic", {}, None)
+            return opener
+
+        with self.assertRaises(PermanentUploadError) as rejected:
+            post_snapshot(settings, body, opener=opener_for(409), now=1790899200)
+        self.assertEqual(rejected.exception.status_code, 409)
+        for status in (408, 425, 429, 500, 503):
+            with self.subTest(status=status), self.assertRaises(CollectorError) as transient:
+                post_snapshot(settings, body, opener=opener_for(status), now=1790899200)
+            self.assertNotIsInstance(transient.exception, PermanentUploadError)
 
     def test_signed_upload_uses_publishable_key_and_per_site_headers(self):
         settings = self.settings()

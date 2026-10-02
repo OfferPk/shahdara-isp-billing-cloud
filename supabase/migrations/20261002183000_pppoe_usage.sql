@@ -272,11 +272,7 @@ begin
     p_organization_id, p_customer_id, v_period_start, p_quota_bytes,
     p_speed_download_bps, p_speed_upload_bps
   )
-  on conflict (organization_id, customer_id, period_start) do update
-    set quota_bytes = excluded.quota_bytes,
-        speed_download_bps = excluded.speed_download_bps,
-        speed_upload_bps = excluded.speed_upload_bps,
-        updated_at = now();
+  on conflict (organization_id, customer_id, period_start) do nothing;
 
   insert into public.pppoe_usage_customer_sources (
     organization_id, customer_id, period_start, site_id
@@ -349,6 +345,7 @@ declare
   v_current_entry jsonb;
   v_customer_deltas jsonb := '{}'::jsonb;
   v_delta_entry jsonb;
+  v_quarantined_batch_count integer;
 begin
   if coalesce(auth.role(), '') <> 'service_role' then
     raise exception 'Server-to-server access required' using errcode = '42501';
@@ -362,8 +359,13 @@ begin
      or jsonb_typeof(p_payload->'sessions') <> 'array'
      or jsonb_array_length(p_payload->'sessions') > 500
      or p_sampled_at > now() + interval '5 minutes'
-     or p_sampled_at < now() - interval '90 days' then
+     or p_sampled_at < now() - interval '90 days'
+     or (p_payload ? 'quarantined_batch_count'
+         and coalesce(p_payload->>'quarantined_batch_count', '') !~ '^\d{1,9}$') then
     raise exception 'Invalid or out-of-range PPPoE usage snapshot' using errcode = '22023';
+  end if;
+  if p_payload ? 'quarantined_batch_count' then
+    v_quarantined_batch_count := (p_payload->>'quarantined_batch_count')::integer;
   end if;
   if abs(extract(epoch from ((p_payload->>'sampled_at')::timestamptz - p_sampled_at))) > 1 then
     raise exception 'Snapshot timestamp mismatch' using errcode = '22023';
@@ -462,8 +464,10 @@ begin
       end if;
     else
       v_session_key := v_input_session_key;
-      v_delta_in := v_bytes_in;
-      v_delta_out := v_bytes_out;
+      -- First observation is a cumulative-counter baseline, not traffic captured
+      -- by this collector. Never charge pre-baseline bytes to the current month.
+      v_delta_in := 0;
+      v_delta_out := 0;
     end if;
 
     insert into public.pppoe_usage_logs (
@@ -568,7 +572,12 @@ begin
     and m.period_start = s.period_start;
 
   update public.pppoe_usage_sites
-  set last_contact_at = greatest(coalesce(last_contact_at, v_received_at), v_received_at), updated_at = v_received_at
+  set last_contact_at = greatest(coalesce(last_contact_at, v_received_at), v_received_at),
+      quarantined_batch_count = coalesce(v_quarantined_batch_count, quarantined_batch_count),
+      last_quarantined_at = case
+        when coalesce(v_quarantined_batch_count, quarantined_batch_count) > 0 then v_received_at
+        else last_quarantined_at end,
+      updated_at = v_received_at
   where site_id = p_site_id;
   update public.pppoe_usage_batches
   set unmapped_session_count = v_unmapped

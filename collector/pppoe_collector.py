@@ -36,6 +36,14 @@ class CollectorError(Exception):
     """Safe operational error; messages must not include credentials or PPPoE identities."""
 
 
+class PermanentUploadError(CollectorError):
+    """A permanent client rejection; the raw queued batch is retained for recovery."""
+
+    def __init__(self, message: str, status_code: int):
+        super().__init__(message)
+        self.status_code = status_code
+
+
 def parse_uptime_seconds(value: Any) -> int:
     if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
         return value
@@ -200,6 +208,16 @@ def open_state(path: str) -> sqlite3.Connection:
         body TEXT NOT NULL,
         queued_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS outbox_quarantine (
+        snapshot_id TEXT PRIMARY KEY,
+        sampled_at TEXT NOT NULL,
+        body TEXT NOT NULL,
+        queued_at TEXT NOT NULL,
+        quarantined_at TEXT NOT NULL,
+        status_code INTEGER NOT NULL,
+        reason_code TEXT NOT NULL,
+        recovered_at TEXT
+      );
     """)
     connection.commit()
     os.chmod(db_path, 0o600)
@@ -239,7 +257,15 @@ def create_snapshot(sessions: list[dict[str, Any]], sampled_at: datetime, connec
                 bytes_in=excluded.bytes_in, bytes_out=excluded.bytes_out,
                 uptime_seconds=excluded.uptime_seconds, sampled_at=excluded.sampled_at
             """, (item["session_id"], item["username"], session_key, int(item["bytes_in"]), int(item["bytes_out"]), item["uptime_seconds"], timestamp))
-        body = {"snapshot_id": snapshot_id, "sampled_at": timestamp, "sessions": snapshot_sessions}
+        quarantine_count = connection.execute(
+            "SELECT count(*) FROM outbox_quarantine WHERE recovered_at IS NULL"
+        ).fetchone()[0]
+        body = {
+            "snapshot_id": snapshot_id,
+            "sampled_at": timestamp,
+            "sessions": snapshot_sessions,
+            "quarantined_batch_count": quarantine_count,
+        }
         body_text = json.dumps(body, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
         connection.execute("INSERT INTO outbox(snapshot_id, sampled_at, body, queued_at) VALUES (?, ?, ?, ?)",
                            (snapshot_id, timestamp, body_text, datetime.now(timezone.utc).isoformat()))
@@ -301,6 +327,13 @@ def post_snapshot(settings: Settings, body: str, *, opener: Any = urllib.request
     try:
         with opener(request, timeout=15, context=ssl.create_default_context()) as response:
             raw = response.read(65536)
+    except urllib.error.HTTPError as exc:
+        if 400 <= exc.code < 500 and exc.code not in (408, 425, 429):
+            raise PermanentUploadError(
+                f"Usage upload was permanently rejected with HTTP {exc.code}; raw batch is quarantined locally",
+                exc.code,
+            ) from exc
+        raise CollectorError(f"Usage upload received transient HTTP {exc.code}; snapshot remains queued") from exc
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         raise CollectorError("Signed usage upload failed; snapshot remains queued") from exc
     try:
@@ -312,25 +345,57 @@ def post_snapshot(settings: Settings, body: str, *, opener: Any = urllib.request
     return result
 
 
-def flush_outbox(settings: Settings, connection: sqlite3.Connection, *, post: Any = post_snapshot, limit: int = 100) -> tuple[int, int]:
+def flush_outbox(settings: Settings, connection: sqlite3.Connection, *, post: Any = post_snapshot, limit: int = 100) -> tuple[int, int, int]:
     rows = connection.execute("SELECT snapshot_id, body FROM outbox ORDER BY queued_at, snapshot_id LIMIT ?", (limit,)).fetchall()
     sent = 0
     unmapped = 0
+    quarantined = 0
     for row in rows:
-        result = post(settings, row["body"])
+        try:
+            result = post(settings, row["body"])
+        except PermanentUploadError as exc:
+            with connection:
+                connection.execute("""
+                  INSERT INTO outbox_quarantine(
+                    snapshot_id, sampled_at, body, queued_at, quarantined_at,
+                    status_code, reason_code
+                  )
+                  SELECT snapshot_id, sampled_at, body, queued_at, ?, ?, ?
+                  FROM outbox WHERE snapshot_id = ?
+                  ON CONFLICT(snapshot_id) DO NOTHING
+                """, (
+                    datetime.now(timezone.utc).isoformat(), exc.status_code,
+                    f"HTTP_{exc.status_code}_PERMANENT_REJECTION", row["snapshot_id"],
+                ))
+                connection.execute("DELETE FROM outbox WHERE snapshot_id = ?", (row["snapshot_id"],))
+            quarantined += 1
+            logging.error(
+                "Permanent usage upload rejection quarantined locally (HTTP %d); later queued batches will continue",
+                exc.status_code,
+            )
+            continue
         with connection:
             connection.execute("DELETE FROM outbox WHERE snapshot_id = ?", (row["snapshot_id"],))
         sent += 1
         unmapped += int(result.get("unmapped_sessions", 0))
-    return sent, unmapped
+    return sent, unmapped, quarantined
 
 
 def poll_once(settings: Settings, connection: sqlite3.Connection, *, fetch: Any = fetch_router_sessions, post: Any = post_snapshot, now: datetime | None = None) -> dict[str, int]:
     sampled_at = now or datetime.now(timezone.utc)
     sessions = fetch(settings)
     create_snapshot(sessions, sampled_at, connection)
-    sent, unmapped = flush_outbox(settings, connection, post=post)
-    return {"active_sessions": len(sessions), "snapshots_sent": sent, "unmapped_sessions": unmapped}
+    sent, unmapped, newly_quarantined = flush_outbox(settings, connection, post=post)
+    quarantine_count = int(connection.execute(
+        "SELECT count(*) FROM outbox_quarantine WHERE recovered_at IS NULL"
+    ).fetchone()[0])
+    return {
+        "active_sessions": len(sessions),
+        "snapshots_sent": sent,
+        "unmapped_sessions": unmapped,
+        "newly_quarantined": newly_quarantined,
+        "quarantined_batch_count": quarantine_count,
+    }
 
 
 def main() -> int:
@@ -358,6 +423,11 @@ def main() -> int:
         try:
             stats = poll_once(settings, connection)
             logging.info("Poll complete active_sessions=%d snapshots_sent=%d unmapped_sessions=%d", stats["active_sessions"], stats["snapshots_sent"], stats["unmapped_sessions"])
+            if stats["quarantined_batch_count"]:
+                logging.error(
+                    "COLLECTOR QUARANTINE STATUS: %d unresolved batch(es) retained locally (%d newly quarantined); usage may be incomplete",
+                    stats["quarantined_batch_count"], stats["newly_quarantined"],
+                )
         except CollectorError as exc:
             logging.warning("Poll did not complete: %s", exc)
         except Exception as exc:

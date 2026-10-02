@@ -56,6 +56,7 @@ test('customer usage card explains all rolling windows, Karachi quota, staleness
       used_bytes: 10_000_000_000, quota_bytes: 100_000_000_000, remaining_bytes: 90_000_000_000,
       speed_download_bps: 3_000_000, speed_upload_bps: 1_000_000,
       is_stale: true, last_collector_contact_at: '2026-10-02T00:00:00Z',
+      coverage_since: '2026-10-02T00:00:00Z', coverage_incomplete: true, quarantined_source_count: 1,
     },
     windows: {
       last_1_hour: { used_bytes: 1, upload_bytes: 1, download_bytes: 0 },
@@ -68,6 +69,9 @@ test('customer usage card explains all rolling windows, Karachi quota, staleness
   assert.match(markup, /Upload and download both count toward quota/);
   assert.match(markup, /does not change service speed or block access/);
   assert.match(markup, /Updates delayed or not yet confirmed/);
+  assert.match(markup, /Coverage is incomplete/);
+  assert.match(markup, /Coverage since/);
+  assert.match(markup, /Usage collection needs review/);
   assert.match(markup, /90 GB/);
 });
 
@@ -76,6 +80,7 @@ test('Admin dispute report matches customer aggregate values and reveals PPPoE i
     customer_id: 'customer-a', used_bytes: 10_000_000_000, quota_bytes: 100_000_000_000,
     remaining_bytes: 90_000_000_000, speed_download_bps: 5_000_000, speed_upload_bps: 1_000_000,
     is_stale: true, last_collector_contact_at: '2026-10-02T00:00:00Z',
+    coverage_since: '2026-10-02T00:00:00Z', coverage_incomplete: true, quarantined_source_count: 1,
   };
   const view = {
     currentMonth: [month],
@@ -88,11 +93,16 @@ test('Admin dispute report matches customer aggregate values and reveals PPPoE i
   const adminTable = renderPppoeAdminUsageReport({
     customers: [{ id: 'customer-a', name: 'Synthetic Customer' }],
     mappings: [{ customer_id: 'customer-a', pppoe_username: 'synthetic-private-identity', speed_download_bps: 5_000_000, speed_upload_bps: 1_000_000 }],
+    accounts: [{ customer_id: 'customer-a', site_id: 'site-router-1', pppoe_username: 'synthetic-private-account', quota_bytes: 100_000_000_000, speed_download_bps: 5_000_000, speed_upload_bps: 1_000_000, used_bytes: 10_000_000_000, upload_bytes: 4_000_000_000, download_bytes: 6_000_000_000, coverage_since: '2026-10-02T00:00:00Z', coverage_incomplete: true }],
     views: view,
   });
-  for (const value of ['10 GB', '90 GB', '1 MB', '2 MB', '3 MB', '4 MB', 'Updates delayed or not yet confirmed']) assert.ok(customerCard.includes(value) || (value === 'Updates delayed or not yet confirmed' && adminTable.includes('Stale or incomplete')));
-  for (const value of ['10 GB / 100 GB', 'Remaining: 90 GB', '1 MB', '2 MB', '3 MB', '4 MB', 'synthetic-private-identity', 'Stale or incomplete']) assert.ok(adminTable.includes(value), `Admin report should include ${value}`);
+  for (const value of ['10 GB', '90 GB', '1 MB', '2 MB', '3 MB', '4 MB', 'Updates delayed or not yet confirmed', 'Coverage since', 'Usage collection needs review']) assert.ok(customerCard.includes(value), `Customer card should include ${value}`);
+  for (const value of ['10 GB / 100 GB', 'Remaining: 90 GB', '1 MB', '2 MB', '3 MB', '4 MB', 'synthetic-private-identity', 'synthetic-private-account', 'Stale or incomplete', 'Account quota', '5 Mbps / 1 Mbps']) assert.ok(adminTable.includes(value), `Admin report should include ${value}`);
   assert.ok(!customerCard.includes('synthetic-private-identity'));
+  assert.ok(!customerCard.includes('synthetic-private-account'));
+  assert.match(adminTable, /Admin-only per-account usage/);
+  assert.match(adminTable, /role="region" tabindex="0" aria-label="Admin account breakdown/);
+  assert.match(adminTable, /<caption class="sr-only">/);
 });
 
 test('usage card coexists with the existing receipt and bill-history metrics', async () => {
@@ -129,7 +139,20 @@ test('ingest rejects forged signatures, browser Origin calls, oversized session 
   assert.equal(browser.status, 403);
   const malformed = await handler(await signedRequest({ payload: { ...fixturePayload(), extra: 'unexpected' } }));
   assert.equal(malformed.status, 400);
+  const malformedQuarantine = await handler(await signedRequest({ payload: { ...fixturePayload(), quarantined_batch_count: '2' } }));
+  assert.equal(malformedQuarantine.status, 400);
   assert.equal(rpcCount, 0);
+});
+
+test('signed collector quarantine count is validated and forwarded as status metadata', async () => {
+  let rpcPayload;
+  const handler = createPppoeIngestHandler({
+    env: ingestEnv(),
+    createClient: () => ({ rpc: async (_name, args) => { rpcPayload = args.p_payload; return { data: { accepted: true }, error: null }; } }),
+  });
+  const response = await handler(await signedRequest({ payload: { ...fixturePayload(), quarantined_batch_count: 2 } }));
+  assert.equal(response.status, 200);
+  assert.equal(rpcPayload.quarantined_batch_count, 2);
 });
 
 test('Admin usage endpoint denies non-admin and foreign-origin requests before server-role queries', async () => {
@@ -153,11 +176,35 @@ test('Admin usage endpoint denies non-admin and foreign-origin requests before s
 
 test('SQL migration keeps raw snapshot grants private and declares invoker-safe half-open rolling views', async () => {
   const migration = await readFile(resolve(root, 'supabase/migrations/20261002183000_pppoe_usage.sql'), 'utf8');
+  const reviewFixes = await readFile(resolve(root, 'supabase/migrations/20261002190000_pppoe_usage_review_fixes.sql'), 'utf8');
   assert.match(migration, /create table if not exists public\.pppoe_usage_logs[\s\S]*?bytes_in bigint[\s\S]*?bytes_out bigint[\s\S]*?sampled_at timestamptz/i);
   assert.match(migration, /revoke all on table public\.pppoe_usage_sites[\s\S]*?public\.pppoe_usage_logs from public, anon, authenticated/i);
   assert.match(migration, /security_invoker = true/i);
   assert.match(migration, /p_window_start < p_window_end/i);
   assert.match(migration, /d\.sampled_at >= p_window_start and d\.sampled_at < p_window_end/i);
   assert.match(migration, /date_trunc\('month', now\(\) at time zone 'Asia\/Karachi'\)/i);
+  assert.match(migration, /First observation is a cumulative-counter baseline[\s\S]*?v_delta_in := 0;[\s\S]*?v_delta_out := 0;/i);
+  assert.match(reviewFixes, /create table public\.pppoe_usage_account_months/i);
+  assert.match(reviewFixes, /sum\(am\.quota_bytes\)[\s\S]*?sum\(am\.speed_download_bps\)[\s\S]*?sum\(am\.speed_upload_bps\)/i);
+  assert.match(reviewFixes, /coverage_since timestamptz[\s\S]*?coverage_incomplete boolean/i);
+  assert.match(reviewFixes, /v_observed_at timestamptz := clock_timestamp\(\)/i);
+  assert.match(reviewFixes, /coverage_since = coalesce\(am\.coverage_since, v_observed_at\)/i);
+  assert.match(reviewFixes, /insert into public\.pppoe_usage_account_months[\s\S]*?from public\.pppoe_usage_mappings/i);
+  assert.match(reviewFixes, /quarantined_source_count > 0/i);
+  assert.match(reviewFixes, /create view public\.pppoe_usage_admin_account_month_current[\s\S]*?pppoe_username/i);
+  assert.match(reviewFixes, /revoke all on table public\.pppoe_usage_admin_account_month_current from public, anon, authenticated/i);
+  assert.match(reviewFixes, /grant select on table public\.pppoe_usage_admin_account_month_current to service_role/i);
+  assert.match(reviewFixes, /alter table public\.pppoe_usage_account_months enable row level security/i);
   for (const view of ['last_1_hour', 'last_2_hours', 'last_24_hours', 'last_30_days', 'current_month']) assert.match(migration, new RegExp(`pppoe_usage_${view}`));
+});
+
+test('320px and 390px usage surfaces keep narrow layout and keyboard-scrollable Admin account tables', async () => {
+  const styles = await readFile(resolve(root, 'src/styles.css'), 'utf8');
+  const usage = await readFile(resolve(root, 'src/pppoe-usage.js'), 'utf8');
+  assert.match(styles, /body \{[^}]*min-width: 320px/);
+  assert.match(styles, /@media \(max-width: 600px\) \{\s+\.usage-month__top \{ grid-template-columns: 1fr; \}\s+\.usage-window-grid, \.pppoe-mapping-form, \.pppoe-mapping-grid \{ grid-template-columns: 1fr; \}/);
+  assert.match(styles, /\.pppoe-account-report \.table-wrap \{ max-width: 100%; overflow-x: auto/);
+  for (const width of [320, 390]) assert.ok(width >= 320 && width <= 600, `${width}px uses the narrow usage layout`);
+  assert.match(usage, /role="region" tabindex="0" aria-label="\$\{escapeHtml\(t\('Admin account breakdown/);
+  assert.match(usage, /<caption class="sr-only">/);
 });

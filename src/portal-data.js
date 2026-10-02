@@ -134,7 +134,7 @@ export async function invokeRpc(supabase, functionName, args) {
   return data;
 }
 
-const PPPoE_USAGE_COLUMNS = 'organization_id,customer_id,period_start,upload_bytes,download_bytes,used_bytes,quota_bytes,remaining_bytes,over_quota_bytes,speed_download_bps,speed_upload_bps,last_collector_contact_at,is_stale';
+const PPPoE_USAGE_COLUMNS = 'organization_id,customer_id,period_start,upload_bytes,download_bytes,used_bytes,quota_bytes,remaining_bytes,over_quota_bytes,speed_download_bps,speed_upload_bps,last_collector_contact_at,is_stale,coverage_since,coverage_incomplete,quarantined_source_count';
 
 export async function loadCustomerPppoeUsage(supabase, context) {
   const names = {
@@ -179,7 +179,7 @@ export async function requestPppoeCollectorToken(supabase, organizationId, siteI
   return data.collector_token;
 }
 
-const PPPoE_USAGE_ADMIN_COLUMNS = 'organization_id,customer_id,period_start,upload_bytes,download_bytes,used_bytes,quota_bytes,remaining_bytes,over_quota_bytes,speed_download_bps,speed_upload_bps,last_collector_contact_at,is_stale';
+const PPPoE_USAGE_ADMIN_COLUMNS = 'organization_id,customer_id,period_start,upload_bytes,download_bytes,used_bytes,quota_bytes,remaining_bytes,over_quota_bytes,speed_download_bps,speed_upload_bps,last_collector_contact_at,is_stale,coverage_since,coverage_incomplete,quarantined_source_count';
 
 export async function loadAdminPppoeUsage(supabase, organizationId) {
   const names = {
