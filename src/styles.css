@@ -19,7 +19,7 @@
 
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 320px; min-height: 100vh; background: radial-gradient(circle at top right, #e7f0eb 0, transparent 32rem), #f2f5f3; }
-button, input, select { font: inherit; }
+button, input, select, textarea { font: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: wait; opacity: .65; }
 .app-shell { max-width: 1320px; margin: 0 auto; padding: 0 24px 36px; }
@@ -45,9 +45,10 @@ p { line-height: 1.6; }
 .success-text { color: var(--green-dark) !important; }
 .stack { display: grid; gap: 11px; }
 label { display: grid; gap: 7px; color: #29463f; font-size: 13px; font-weight: 700; }
-input, select { width: 100%; min-height: 43px; padding: 10px 12px; border: 1px solid #cbd9d2; border-radius: 10px; outline: none; color: var(--ink); background: #fff; }
-input:focus, select:focus { border-color: #0b6b4b; box-shadow: 0 0 0 3px rgba(11,107,75,.16); }
-input:focus-visible, select:focus-visible { outline: 2px solid #102e27; outline-offset: 2px; }
+input, select, textarea { width: 100%; min-height: 43px; padding: 10px 12px; border: 1px solid #cbd9d2; border-radius: 10px; outline: none; color: var(--ink); background: #fff; }
+textarea { min-height: 96px; resize: vertical; line-height: 1.5; }
+input:focus, select:focus, textarea:focus { border-color: #0b6b4b; box-shadow: 0 0 0 3px rgba(11,107,75,.16); }
+input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid #102e27; outline-offset: 2px; }
 button:focus-visible, a:focus-visible { outline: 3px solid #102e27; outline-offset: 3px; box-shadow: 0 0 0 6px #fff; }
 .button { min-height: 43px; padding: 10px 16px; border: 1px solid transparent; border-radius: 10px; font-weight: 700; transition: transform .15s, background .15s; }
 .button:hover { transform: translateY(-1px); }
@@ -366,4 +367,44 @@ td { color: #25433b; }
   .bill-card__receipts { margin-right: 11px; margin-left: 11px; }
   .bill-receipt-list li { align-items: flex-start; flex-direction: column; }
   .bill-receipt-print { width: 100%; }
+}
+
+
+/* Admin-only service incident workflow. */
+.incident-create-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 24px; padding: 16px; border: 1px solid #e0ebe5; border-radius: 14px; background: #f8fbf9; }
+.incident-create-form > label:nth-of-type(2), .incident-create-form > label:nth-of-type(6), .incident-create-form__actions, .incident-create-form > .form-message { grid-column: 1 / -1; }
+.incident-create-form__actions { display: flex; justify-content: flex-start; }
+.incident-create-form > .form-message { margin: 0; }
+.incident-private-note-help { margin: -5px 0 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.incident-create-form > .incident-private-note-help { grid-column: 1 / -1; }
+.incident-card-heading { align-items: flex-end; margin-top: 12px; }
+.incident-card-heading h3 { font-size: 16px; }
+.incident-card-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.incident-card { min-width: 0; overflow: hidden; border: 1px solid #dfe9e3; border-radius: 15px; background: linear-gradient(145deg, #fff, #f9fcfa); box-shadow: 0 8px 22px rgba(24, 54, 45, .045); }
+.incident-card--open { border-top: 4px solid #c4872d; }
+.incident-card--resolved { border-top: 4px solid #2a936c; }
+.incident-card--unknown { border-top: 4px solid #8a6e31; }
+.incident-card__top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 15px 16px 0; }
+.incident-card__top h3 { font-size: 16px; }
+.incident-card__reported { margin: 7px 16px 11px; color: var(--muted); font-size: 11px; }
+.incident-card__summary { margin: 12px 16px; overflow-wrap: anywhere; }
+.incident-card__form { gap: 10px; padding: 0 16px 15px; }
+.incident-card__form label { font-size: 12px; }
+.incident-card__form textarea { min-height: 82px; }
+.incident-card__actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.incident-card__actions .button { min-height: 44px; }
+.incident-card .form-message { min-height: 18px; margin: 0; }
+.incident-card__warning { margin: 12px 16px 16px; padding: 11px; border-radius: 10px; color: #6f521c; background: #fff6e6; font-size: 12px; }
+.incident-card-empty { grid-column: 1 / -1; margin: 0; padding: 22px 14px; border: 1px dashed #ceddd4; border-radius: 13px; color: var(--muted); text-align: center; }
+.incident-card :is(button, input, select, textarea):focus-visible, .incident-create-form :is(button, input, select, textarea):focus-visible { outline: 3px solid #102e27; outline-offset: 2px; }
+@media (max-width: 760px) {
+  .incident-card-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 600px) {
+  .incident-create-form { grid-template-columns: 1fr; padding: 12px; }
+  .incident-create-form > label:nth-of-type(2), .incident-create-form > label:nth-of-type(6), .incident-create-form__actions, .incident-create-form > .form-message, .incident-create-form > .incident-private-note-help { grid-column: 1; }
+  .incident-create-form__actions .button { width: 100%; }
+  .incident-card__top { padding: 14px 13px 0; }
+  .incident-card__reported { margin-right: 13px; margin-left: 13px; }
+  .incident-card__form { padding: 0 13px 13px; }
 }
