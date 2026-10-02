@@ -2,7 +2,8 @@
 set -Eeuo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-TEST_FILE="$ROOT/supabase/tests/organization_branding.test.sql"
+TEST_FILE_RELATIVE="supabase/tests/organization_branding.test.sql"
+TEST_FILE="$ROOT/$TEST_FILE_RELATIVE"
 TEST_TMP=""
 PGDATA=""
 SOCKET_DIR=""
@@ -149,6 +150,9 @@ for migration in "${MIGRATIONS[@]}"; do
 done
 
 printf 'Running the current organization_branding pgTAP suite (35 planned assertions).\n'
-as_postgres env PGDATABASE="$DB_NAME" PGOPTIONS='-c search_path=public,extensions' \
-  pg_prove --verbose "$TEST_FILE"
+(
+  cd "$ROOT"
+  as_postgres env PGDATABASE="$DB_NAME" PGOPTIONS='-c search_path=public,extensions' \
+    pg_prove --verbose "$TEST_FILE_RELATIVE"
+)
 printf 'pgTAP suite passed; removing disposable database and PostgreSQL cluster.\n'
