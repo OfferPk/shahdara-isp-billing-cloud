@@ -44,7 +44,7 @@ test('portal route and data refreshes provide a focus destination and announce c
 
 test('all wide billing tables are named, keyboard-scrollable regions with captions and column headers', () => {
   const tableRegions = (source) => [...source.matchAll(/class="table-wrap" role="region" tabindex="0" aria-label="[^"]+"/g)].length;
-  assert.equal(tableRegions(main), 4, 'remaining Admin and Customer portal tables have named keyboard-scroll regions');
+  assert.equal(tableRegions(main), 3, 'remaining Admin and Customer portal tables have named keyboard-scroll regions');
   assert.equal(tableRegions(customerList), 1, 'Admin customer-profile billing table has a named keyboard-scroll region');
   for (const [name, source] of [['portal', main], ['customer profile', customerList]]) {
     const tables = [...source.matchAll(/<table>([\s\S]*?)<\/table>/g)].map((match) => match[1]);
@@ -96,4 +96,23 @@ test('billing date pickers are labeled, use native inputs, and provide accessibl
   assert.match(main, /role="group" aria-label="Choose an exact due date quickly"/);
   assert.match(styles, /\.due-date-preset \{ min-height: 44px;/);
   assert.match(styles, /\.due-date-preset:focus-visible/);
+});
+
+test('Admin incident reporting and updates use labeled fields, explicit statuses, and responsive cards', () => {
+  for (const label of [
+    'Affected customer (optional)',
+    'Customer-visible summary',
+    'Status',
+    'Service offline at (optional)',
+    'Service restored at (optional)',
+    'Staff-only note (optional)',
+  ]) assert.ok(main.includes(label), `Admin incident form includes ${label}`);
+  assert.match(main, /id="incident-create-summary" name="customer_visible_summary" maxlength="1000"/);
+  assert.match(main, /id="incident-create-status" name="status" required><option value="open" selected>Open<\/option><option value="resolved">Resolved<\/option>/);
+  assert.match(main, /name="restored_at" type="datetime-local" step="1"/);
+  assert.match(main, /Date-times use this device's local time zone/);
+  assert.match(main, /Private to same-organization Admins; stored separately and never copied into the customer-visible summary/);
+  assert.match(styles, /\.incident-card-grid \{ display: grid; grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
+  assert.match(styles, /@media \(max-width: 760px\) \{\s+\.incident-card-grid \{ grid-template-columns: 1fr; \}/);
+  assert.match(styles, /@media \(max-width: 600px\) \{\s+\.incident-create-form \{ grid-template-columns: 1fr;/);
 });

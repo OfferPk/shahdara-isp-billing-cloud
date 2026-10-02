@@ -68,10 +68,13 @@ export async function loadPortalRows(supabase, context) {
   const privateCustomerDetailsQuery = context.kind === 'admin'
     ? rowsFor(supabase, 'customer_private_details', 'customer_id, phone', byOrganization, { column: 'customer_id' })
     : Promise.resolve([]);
+  const privateIncidentDetailsQuery = context.kind === 'admin'
+    ? rowsFor(supabase, 'incident_private_details', 'incident_id, staff_notes', byOrganization, { column: 'incident_id' })
+    : Promise.resolve([]);
   const billColumns = context.kind === 'admin'
     ? 'id, customer_id, period, amount_due_cents, issued_on, due_date, plan_snapshot'
     : 'id, customer_id, period, amount_due_cents, plan_snapshot';
-  const [customers, bills, receipts, allocations, incidents, privateCustomerDetails] = await Promise.all([
+  const [customers, bills, receipts, allocations, incidents, privateCustomerDetails, privateIncidentDetails] = await Promise.all([
     rowsFor(supabase, 'customers', 'id, customer_number, name, plan_name, service_address, service_status, monthly_fee_cents, archived',
       context.kind === 'admin' ? byOrganization : customerTableOnly, { column: 'customer_number' }),
     rowsFor(supabase, 'bills', billColumns,
@@ -83,8 +86,9 @@ export async function loadPortalRows(supabase, context) {
     rowsFor(supabase, 'incidents', 'id, customer_id, customer_visible_summary, status, reported_at, offline_at, restored_at',
       context.kind === 'admin' ? byOrganization : customerOnly, { column: 'reported_at', ascending: false }),
     privateCustomerDetailsQuery,
+    privateIncidentDetailsQuery,
   ]);
-  return { customers, bills, receipts, allocations, incidents, privateCustomerDetails };
+  return { customers, bills, receipts, allocations, incidents, privateCustomerDetails, privateIncidentDetails };
 }
 
 export async function createCustomer(supabase, customer) {
@@ -97,6 +101,19 @@ export async function createCustomer(supabase, customer) {
     p_service_address: customer.serviceAddress,
     p_service_status: customer.serviceStatus,
     p_phone: customer.phone,
+  });
+}
+
+export async function manageServiceIncident(supabase, incident) {
+  return invokeRpc(supabase, 'manage_service_incident', {
+    p_organization_id: incident.organizationId,
+    p_incident_id: incident.incidentId ?? null,
+    p_customer_id: incident.customerId ?? null,
+    p_customer_visible_summary: incident.customerVisibleSummary,
+    p_status: incident.status,
+    p_offline_at: incident.offlineAt ?? null,
+    p_restored_at: incident.restoredAt ?? null,
+    p_staff_notes: incident.staffNotes ?? null,
   });
 }
 

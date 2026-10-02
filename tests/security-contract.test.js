@@ -7,6 +7,7 @@ const root = resolve(import.meta.dirname, '..');
 const migrationPath = resolve(root, 'supabase/migrations/20261001120000_cloud_portal.sql');
 const billDateMigrationPath = resolve(root, 'supabase/migrations/20261002033000_bill_issue_due_dates.sql');
 const customerPhoneMigrationPath = resolve(root, 'supabase/migrations/20261002000000_create_customer_with_private_phone.sql');
+const incidentMigrationPath = resolve(root, 'supabase/migrations/20261002150000_admin_incident_management.sql');
 const frontendPaths = [
   resolve(root, 'src/main.js'),
   resolve(root, 'src/customer-input.js'),
@@ -14,6 +15,7 @@ const frontendPaths = [
   resolve(root, 'src/supabase-client.js'),
   resolve(root, 'src/portal-data.js'),
   resolve(root, 'src/customer-portal.js'),
+  resolve(root, 'src/admin-incidents.js'),
   resolve(root, 'index.html'),
   resolve(root, '.env.example'),
 ];
@@ -211,4 +213,27 @@ test('customer billing controls and incident timeline retain accessible states a
   assert.match(styles, /@media \(max-width: 600px\) \{[\s\S]*?\.customer-billing-filters \{ grid-template-columns: 1fr;/);
   assert.match(styles, /\.customer-history-block/);
   assert.match(styles, /\.incident-timeline__event/);
+});
+
+test('incident writes use a same-organization Admin RPC and never grant browser table writes', async () => {
+  const incidentMigration = await readFile(incidentMigrationPath, 'utf8');
+  const portalData = await readFile(resolve(root, 'src/portal-data.js'), 'utf8');
+  const adminIncidents = await readFile(resolve(root, 'src/admin-incidents.js'), 'utf8');
+  const pgTap = await readFile(resolve(root, 'supabase/tests/incidents_management.test.sql'), 'utf8');
+
+  assert.match(incidentMigration, /create or replace function public\.manage_service_incident\([\s\S]*?security definer\s+set search_path = ''/i);
+  assert.match(incidentMigration, /auth\.uid\(\)[\s\S]*?public\.is_org_admin\(p_organization_id\)/i);
+  assert.match(incidentMigration, /where organization_id = p_organization_id and id = p_incident_id/i);
+  assert.match(incidentMigration, /insert into public\.incident_private_details[\s\S]*?staff_notes[\s\S]*?on conflict/i);
+  assert.match(incidentMigration, /revoke all on function public\.manage_service_incident[\s\S]*?from public, anon, authenticated/i);
+  assert.match(incidentMigration, /grant execute on function public\.manage_service_incident[\s\S]*?to authenticated/i);
+  assert.doesNotMatch(incidentMigration, /grant\s+(?:insert|update|delete)[^;]*public\.(?:incidents|incident_private_details)/i);
+  assert.match(portalData, /context\.kind === 'admin'[\s\S]*rowsFor\(supabase, 'incident_private_details', 'incident_id, staff_notes'/i);
+  assert.match(portalData, /: Promise\.resolve\(\[\]\)[\s\S]*const billColumns/);
+  assert.match(portalData, /'incidents', 'id, customer_id, customer_visible_summary, status, reported_at, offline_at, restored_at'/);
+  assert.match(adminIncidents, /Private to same-organization Admins; stored separately and never copied into the customer-visible summary/);
+  assert.match(pgTap, /customer cannot read private incident notes/);
+  assert.match(pgTap, /non-admin customer cannot create an incident/);
+  assert.match(pgTap, /Admin from another organization cannot update the incident/);
+  assert.match(pgTap, /customer cannot directly create private notes/);
 });

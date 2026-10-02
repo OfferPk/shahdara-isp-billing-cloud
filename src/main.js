@@ -1,6 +1,6 @@
 import { createPortalClient } from './supabase-client.js';
 import { validatePakistanPhone } from './customer-input.js';
-import { createCustomer, invokeRpc, loadContexts, loadPortalRows } from './portal-data.js';
+import { createCustomer, invokeRpc, loadContexts, loadPortalRows, manageServiceIncident } from './portal-data.js';
 import { getBillingCycleQuickDate, isValidBillingMonth, localDateString, localMonthString } from './bill-dates.js';
 import { amountToMinorUnits, calculateDashboard, formatMoney } from './ledger.js';
 import { renderDashboardMetrics } from './dashboard-metrics.js';
@@ -26,6 +26,7 @@ import {
   renderAdminBillCards,
   renderPrintableReceiptHtml,
 } from './admin-bills.js';
+import { renderAdminIncidentCards, renderIncidentCustomerOptions } from './admin-incidents.js';
 import './styles.css';
 
 const app = document.querySelector('#app');
@@ -97,6 +98,14 @@ if (!supabase) {
 
   function localDate(date = new Date()) {
     return localDateString(date);
+  }
+
+  function incidentTimestamp(value, label) {
+    const localValue = String(value ?? '').trim();
+    if (!localValue) return null;
+    const parsed = new Date(localValue);
+    if (Number.isNaN(parsed.getTime())) throw new Error(`${label} must be a valid local date and time.`);
+    return parsed.toISOString();
   }
 
   function escapeHtml(value) {
@@ -432,6 +441,13 @@ if (!supabase) {
     const billOptions = bills.map((bill) => `<option value="${escapeHtml(bill.id)}">${escapeHtml(customerName(bill.customer_id))} · ${escapeHtml(bill.period.slice(0, 7))} · ${formatMoney(bill.amount_due_cents)}</option>`).join('');
     const inviteCustomers = customers.filter((customer) => !customer.archived);
     const inviteCustomerOptions = inviteCustomers.map((customer) => `<option value="${escapeHtml(customer.id)}">#${customer.customer_number} · ${escapeHtml(customer.name)}</option>`).join('');
+    const incidentCustomerOptions = renderIncidentCustomerOptions(customers);
+    const incidents = [...rows.incidents].sort((a, b) => String(b.reported_at).localeCompare(String(a.reported_at)));
+    const incidentCards = renderAdminIncidentCards({
+      incidents,
+      privateDetails: rows.privateIncidentDetails,
+      customers,
+    });
 
     portalPanel.innerHTML = `${shellHeader('Administrator portal')}
       ${renderDashboardMetrics({ month: pageState.selectedMonth, totals })}
@@ -517,9 +533,22 @@ if (!supabase) {
       <section class="panel data-panel"><div class="section-heading"><div><p class="eyebrow">Dated cash entries</p><h2>Receipts</h2></div><span class="muted">${receipts.length} actual receipts</span></div>
         <div class="table-wrap" role="region" tabindex="0" aria-label="Receipts table; scroll horizontally to view all columns"><table><caption class="sr-only">Actual cash receipts with date, customer, method, amount, and available actions.</caption><thead><tr><th scope="col">Date</th><th scope="col">Customer</th><th scope="col">Method</th><th scope="col">Amount</th><th scope="col">Actions</th></tr></thead><tbody>${receipts.slice(0, 100).map((receipt) => `<tr><td>${escapeHtml(receipt.received_on)}</td><td>${escapeHtml(customerName(receipt.customer_id))}</td><td>${escapeHtml(receipt.method)}</td><td>${formatMoney(receipt.amount_cents)}</td><td><button class="text-button" type="button" data-action="edit-receipt" data-id="${escapeHtml(receipt.id)}" aria-label="Edit receipt for ${escapeHtml(customerName(receipt.customer_id))}, dated ${escapeHtml(receipt.received_on)}">Edit</button><button class="text-button danger" type="button" data-action="delete-receipt" data-id="${escapeHtml(receipt.id)}" aria-label="Delete receipt for ${escapeHtml(customerName(receipt.customer_id))}, dated ${escapeHtml(receipt.received_on)}">Delete</button></td></tr>`).join('') || '<tr><td colspan="5" class="empty-cell">No receipts recorded yet.</td></tr>'}</tbody></table></div>
       </section>
-      <section class="panel data-panel"><div class="section-heading"><div><p class="eyebrow">Customer-visible summaries</p><h2>Incidents</h2></div><span class="muted">${rows.incidents.length} records</span></div>
-        <div class="table-wrap" role="region" tabindex="0" aria-label="Incidents table; scroll horizontally to view all columns"><table><caption class="sr-only">Customer-visible incident summaries with report date and status.</caption><thead><tr><th scope="col">Reported</th><th scope="col">Customer</th><th scope="col">Summary</th><th scope="col">Status</th></tr></thead><tbody>${rows.incidents.slice(0, 100).map((incident) => `<tr><td>${escapeHtml(String(incident.reported_at).slice(0, 10))}</td><td>${escapeHtml(incident.customer_id ? customerName(incident.customer_id) : 'Organization')}</td><td>${escapeHtml(incident.customer_visible_summary)}</td><td>${escapeHtml(incident.status)}</td></tr>`).join('') || '<tr><td colspan="4" class="empty-cell">No incident records yet.</td></tr>'}</tbody></table></div>
-        <p class="muted">Staff-only notes are stored in a separate RLS-protected table and are not sent to customer accounts.</p>
+      <section id="admin-incidents" class="panel data-panel incident-management" aria-labelledby="admin-incidents-title">
+        <div class="section-heading"><div><p class="eyebrow">Service operations</p><h2 id="admin-incidents-title">Incident management</h2></div><span class="muted">${rows.incidents.length} records</span></div>
+        <p class="muted incident-time-help">Date-times use this device's local time zone. Choose Resolved only when service restoration is confirmed; leave a time blank if it was not recorded.</p>
+        <form id="incident-create-form" class="incident-create-form">
+          <label for="incident-create-customer">Affected customer (optional)<select id="incident-create-customer" name="customer_id"><option value="">Organization-wide service incident</option>${incidentCustomerOptions}</select></label>
+          <label for="incident-create-summary">Customer-visible summary<textarea id="incident-create-summary" name="customer_visible_summary" maxlength="1000" rows="3" required></textarea></label>
+          <label for="incident-create-status">Status<select id="incident-create-status" name="status" required><option value="open" selected>Open</option><option value="resolved">Resolved</option></select></label>
+          <label for="incident-create-offline">Service offline at (optional)<input id="incident-create-offline" name="offline_at" type="datetime-local" step="1"></label>
+          <label for="incident-create-restored">Service restored at (optional)<input id="incident-create-restored" name="restored_at" type="datetime-local" step="1"></label>
+          <label for="incident-create-notes">Staff-only note (optional)<textarea id="incident-create-notes" name="staff_notes" maxlength="4000" rows="3" aria-describedby="incident-create-notes-help"></textarea></label>
+          <p class="incident-private-note-help" id="incident-create-notes-help">Private to same-organization Admins; stored separately and never copied into the customer-visible summary.</p>
+          <div class="incident-create-form__actions"><button class="button primary" type="submit">Report service incident</button></div>
+          <p class="form-message" id="incident-create-message" role="status" aria-live="polite" aria-atomic="true"></p>
+        </form>
+        <div class="section-heading incident-card-heading"><div><p class="eyebrow">Recorded incidents</p><h3>Update status and service times</h3></div></div>
+        <div class="incident-card-grid">${incidentCards}</div>
       </section>
       <dialog id="receipt-dialog" class="edit-dialog"><form id="receipt-edit-form" method="dialog"><div class="section-heading"><div><p class="eyebrow">Correction</p><h2>Edit receipt</h2></div><button class="icon-button" type="button" data-action="close-dialog" aria-label="Close">×</button></div><input type="hidden" name="receipt_id"><label>Original bill<select name="bill_id" required></select></label><label>Received on<input name="received_on" type="date" required></label><label>Actual amount (PKR)<input name="amount" inputmode="decimal" required></label><label>Method<input name="method" maxlength="40" required></label><div class="form-actions"><button class="button secondary" type="button" data-action="close-dialog">Cancel</button><button class="button primary" type="submit">Save correction</button></div></form></dialog>`;
 
@@ -542,6 +571,7 @@ if (!supabase) {
     }));
     portalPanel.querySelector('#receipt-customer')?.addEventListener('change', (event) => populateReceiptBills(event.target.value));
     bindAdminForms(context);
+    bindAdminIncidentForms(context);
     bindAdminActions(context);
     bindAdminBillActions(context);
     bindCustomerListActions(context);
@@ -690,6 +720,48 @@ if (!supabase) {
         setMessage(message, `${error.message || 'Receipt could not be recorded.'} Retry the same receipt with its existing request ID; do not start a second cash entry until the first outcome is clear.`, true);
       }
     });
+  }
+
+  function bindAdminIncidentForms(context) {
+    if (context.kind !== 'admin') return;
+    const forms = [
+      { form: portalPanel.querySelector('#incident-create-form'), isCreate: true },
+      ...[...portalPanel.querySelectorAll('[data-incident-update-form]')].map((form) => ({ form, isCreate: false })),
+    ].filter((entry) => entry.form);
+
+    for (const { form, isCreate } of forms) {
+      form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const submitButton = form.querySelector('button[type="submit"]');
+        const message = form.querySelector('[data-incident-message]')
+          ?? portalPanel.querySelector('#incident-create-message');
+        const data = new FormData(form);
+        const status = String(data.get('status') ?? '');
+        const staffNotes = String(data.get('staff_notes') ?? '');
+        if (submitButton) submitButton.disabled = true;
+        setMessage(message, 'Saving incident…');
+        try {
+          await manageServiceIncident(supabase, {
+            organizationId: context.organizationId,
+            incidentId: isCreate ? null : form.dataset.incidentId,
+            customerId: isCreate ? (String(data.get('customer_id') ?? '') || null) : null,
+            customerVisibleSummary: String(data.get('customer_visible_summary') ?? '').trim(),
+            status,
+            offlineAt: incidentTimestamp(data.get('offline_at'), 'Service offline time'),
+            restoredAt: incidentTimestamp(data.get('restored_at'), 'Service restored time'),
+            staffNotes: isCreate && !staffNotes ? null : staffNotes,
+          });
+          if (isCreate) form.reset();
+          await refreshCurrentContext(isCreate
+            ? 'Service incident reported.'
+            : status === 'resolved' ? 'Service incident marked resolved.' : 'Service incident updated.');
+        } catch (error) {
+          setMessage(message, error.message || 'Service incident could not be saved.', true);
+        } finally {
+          if (submitButton) submitButton.disabled = false;
+        }
+      });
+    }
   }
 
   function bindAdminActions(context) {

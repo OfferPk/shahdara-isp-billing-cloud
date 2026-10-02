@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createCustomer, invokeRpc, loadContexts, loadPortalRows } from '../src/portal-data.js';
+import { createCustomer, invokeRpc, loadContexts, loadPortalRows, manageServiceIncident } from '../src/portal-data.js';
 
 function mockClient(results = {}, rpcResult = { data: null, error: null }) {
   const calls = [];
@@ -77,9 +77,11 @@ test('portal row reads scope customer data and preserve safe paging', async () =
     kind: 'customer', organizationId: 'synthetic-org', customerId: 'synthetic-customer',
   });
 
-  assert.deepEqual(Object.keys(rows), ['customers', 'bills', 'receipts', 'allocations', 'incidents', 'privateCustomerDetails']);
+  assert.deepEqual(Object.keys(rows), ['customers', 'bills', 'receipts', 'allocations', 'incidents', 'privateCustomerDetails', 'privateIncidentDetails']);
   assert.deepEqual(rows.privateCustomerDetails, []);
   assert.equal(client.calls.some((query) => query.table === 'customer_private_details'), false);
+  assert.deepEqual(rows.privateIncidentDetails, []);
+  assert.equal(client.calls.some((query) => query.table === 'incident_private_details'), false);
   for (const query of client.calls) {
     assert.ok(query.filters.some((filter) => filter[0] === 'eq' && filter[1] === 'organization_id' && filter[2] === 'synthetic-org'));
     assert.deepEqual(query.ranges, [[0, 999]]);
@@ -141,6 +143,7 @@ test('Admin phone query uses only the private phone column and is scoped to the 
     receipt_allocations: { data: [], error: null },
     incidents: { data: [], error: null },
     customer_private_details: { data: [{ customer_id: 'synthetic-customer', phone: '03001234567' }], error: null },
+    incident_private_details: { data: [{ incident_id: 'synthetic-incident', staff_notes: 'Synthetic Admin-only note' }], error: null },
   });
   const rows = await loadPortalRows(client, { kind: 'admin', organizationId: 'synthetic-org' });
 
@@ -148,9 +151,42 @@ test('Admin phone query uses only the private phone column and is scoped to the 
   assert.deepEqual(query.selects, ['customer_id, phone']);
   assert.ok(query.filters.some(([kind, field, value]) => kind === 'eq' && field === 'organization_id' && value === 'synthetic-org'));
   assert.deepEqual(rows.privateCustomerDetails, [{ customer_id: 'synthetic-customer', phone: '03001234567' }]);
+  const incidentNotesQuery = client.calls.find((entry) => entry.table === 'incident_private_details');
+  assert.deepEqual(incidentNotesQuery.selects, ['incident_id, staff_notes']);
+  assert.ok(incidentNotesQuery.filters.some(([kind, field, value]) => kind === 'eq' && field === 'organization_id' && value === 'synthetic-org'));
+  assert.deepEqual(rows.privateIncidentDetails, [{ incident_id: 'synthetic-incident', staff_notes: 'Synthetic Admin-only note' }]);
   const billQuery = client.calls.find((entry) => entry.table === 'bills');
   assert.deepEqual(billQuery.selects, ['id, customer_id, period, amount_due_cents, issued_on, due_date, plan_snapshot']);
   assert.ok(billQuery.filters.some(([kind, field, value]) => kind === 'eq' && field === 'organization_id' && value === 'synthetic-org'));
+});
+
+test('incident management uses its dedicated RPC with public and private fields kept distinct', async () => {
+  const client = mockClient({}, { data: 'synthetic-incident-id', error: null });
+  const result = await manageServiceIncident(client, {
+    organizationId: 'synthetic-org',
+    incidentId: null,
+    customerId: 'synthetic-customer',
+    customerVisibleSummary: 'Synthetic public service update',
+    status: 'open',
+    offlineAt: null,
+    restoredAt: null,
+    staffNotes: 'Synthetic private note',
+  });
+
+  assert.equal(result, 'synthetic-incident-id');
+  assert.deepEqual(client.calls, [{
+    rpc: 'manage_service_incident',
+    args: {
+      p_organization_id: 'synthetic-org',
+      p_incident_id: null,
+      p_customer_id: 'synthetic-customer',
+      p_customer_visible_summary: 'Synthetic public service update',
+      p_status: 'open',
+      p_offline_at: null,
+      p_restored_at: null,
+      p_staff_notes: 'Synthetic private note',
+    },
+  }]);
 });
 
 test('query and receipt RPC errors are propagated to the UI', async () => {
