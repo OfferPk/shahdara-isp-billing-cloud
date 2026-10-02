@@ -44,6 +44,9 @@ function applyStaticTranslations(root = document) {
   for (const element of root.querySelectorAll('[data-i18n]')) {
     element.textContent = t(element.dataset.i18n);
   }
+  for (const element of root.querySelectorAll('[data-i18n-aria-label]')) {
+    element.setAttribute('aria-label', t(element.dataset.i18nAriaLabel));
+  }
   const group = document.querySelector('#language-toggle');
   if (group) {
     group.setAttribute('aria-label', t('Language'));
@@ -65,7 +68,11 @@ document.querySelector('#language-toggle')?.addEventListener('click', (event) =>
   currentLanguage = setLanguagePreference(nextLanguage).language;
   applyStaticTranslations();
   for (const message of document.querySelectorAll('[data-message-source]')) {
-    message.textContent = t(message.dataset.messageSource);
+    let values = {};
+    try { values = JSON.parse(message.dataset.messageValues || '{}'); } catch { /* Ignore invalid optional toast parameters. */ }
+    message.textContent = Object.keys(values).length
+      ? formatUiMessage(message.dataset.messageSource, currentLanguage, values)
+      : t(message.dataset.messageSource);
   }
   rerenderForLanguage();
   const announcement = document.querySelector('#app-announcement');
@@ -140,7 +147,7 @@ if (!supabase) {
     const localValue = String(value ?? '').trim();
     if (!localValue) return null;
     const parsed = new Date(localValue);
-    if (Number.isNaN(parsed.getTime())) throw new Error(`${label} must be a valid local date and time.`);
+    if (Number.isNaN(parsed.getTime())) throw new Error(formatUiMessage('{field} must be a valid local date and time.', currentLanguage, { field: label }));
     return parsed.toISOString();
   }
 
@@ -150,10 +157,11 @@ if (!supabase) {
     })[char]);
   }
 
-  function setMessage(node, message = '', isError = false) {
+  function setMessage(node, message = '', isError = false, values = {}) {
     if (!node) return;
     node.dataset.messageSource = message;
-    node.textContent = t(message);
+    node.dataset.messageValues = Object.keys(values).length ? JSON.stringify(values) : '';
+    node.textContent = Object.keys(values).length ? formatUiMessage(message, currentLanguage, values) : t(message);
     node.setAttribute('role', isError ? 'alert' : 'status');
     node.setAttribute('aria-live', isError ? 'assertive' : 'polite');
     node.setAttribute('aria-atomic', 'true');
@@ -418,6 +426,7 @@ if (!supabase) {
       allocations: pageState.rows.allocations,
       privateDetails: pageState.rows.privateCustomerDetails,
       today: localDate(),
+      t,
     });
   }
 
@@ -474,7 +483,7 @@ if (!supabase) {
     const bill = pageState.rows.bills.find((row) => row.id === receipt.origin_bill_id && row.customer_id === receipt.customer_id);
     const printWindow = window.open('', '_blank', 'popup,width=760,height=900');
     if (!printWindow) {
-      window.alert('Allow the print window to open, then choose Print or Save as PDF.');
+      window.alert(t('Allow the print window to open, then choose Print or Save as PDF.'));
       return;
     }
     printWindow.document.open();
@@ -484,6 +493,8 @@ if (!supabase) {
       bill,
       organizationName: pageState.context.organizationName,
       formatMoney,
+      t,
+      language: currentLanguage,
     }));
     printWindow.document.close();
     printWindow.opener = null;
@@ -511,6 +522,7 @@ if (!supabase) {
       allocations: rows.allocations,
       privateDetails: rows.privateCustomerDetails,
       today: localDate(),
+      t,
     });
     const billCounts = countAdminBillFilters(adminBillRows, { search: pageState.billSearch });
     const filteredAdminBillRows = filterAdminBillRows(adminBillRows, { search: pageState.billSearch, status: pageState.billStatus });
@@ -555,7 +567,7 @@ if (!supabase) {
             <label>${escapeHtml(t('Plan / speed'))}<input name="plan_name" maxlength="100"></label>
             <label>${escapeHtml(t('Monthly fee (PKR)'))}<input name="monthly_fee" inputmode="decimal" placeholder="${escapeHtml(t('Leave blank if not set'))}"></label>
             <label>${escapeHtml(t('Service address'))}<input name="service_address" maxlength="300"></label>
-            <label>${escapeHtml(t('Phone (private)'))}<input name="phone" type="text" inputmode="tel" autocomplete="tel" maxlength="40" placeholder="03XXXXXXXXX or +923XXXXXXXXX"></label>
+            <label>${escapeHtml(t('Phone (private)'))}<input name="phone" type="text" inputmode="tel" autocomplete="tel" maxlength="40" placeholder="${escapeHtml(t('03XXXXXXXXX or +923XXXXXXXXX'))}"></label>
             <label>${escapeHtml(t('Service status'))}<select name="service_status"><option value="not-set">${escapeHtml(t('Not set'))}</option><option value="active">${escapeHtml(t('Active'))}</option><option value="offline">${escapeHtml(t('Offline'))}</option></select></label>
             <button class="button primary" type="submit">${escapeHtml(t('Save customer'))}</button>
           </form><p class="form-message" id="customer-message" role="status"></p>
@@ -592,7 +604,7 @@ if (!supabase) {
             <label>${escapeHtml(t('Bill'))}<select name="bill_id" id="receipt-bill" required>${billOptions}</select></label>
             <label>${escapeHtml(t('Received on'))}<input name="received_on" type="date" value="${localDate()}" required></label>
             <label>${escapeHtml(t('Amount received (PKR)'))}<input name="amount" inputmode="decimal" required></label>
-            <label>${escapeHtml(t('Method'))}<select name="method" required><option value="" selected disabled>${escapeHtml(t('Select a method'))}</option><option value="Cash">Cash</option><option value="Easypaisa">Easypaisa</option><option value="JazzCash">JazzCash</option><option value="Bank transfer">Bank transfer</option><option value="Other">${escapeHtml(t('Other'))}</option></select></label>
+            <label>${escapeHtml(t('Method'))}<select name="method" required><option value="" selected disabled>${escapeHtml(t('Select a method'))}</option><option value="Cash">${escapeHtml(t('Cash'))}</option><option value="Easypaisa">Easypaisa</option><option value="JazzCash">JazzCash</option><option value="Bank transfer">${escapeHtml(t('Bank transfer'))}</option><option value="Other">${escapeHtml(t('Other'))}</option></select></label>
             <button class="button primary" type="submit">${escapeHtml(t('Record receipt'))}</button>
           </form><p class="form-message" id="receipt-message" role="status"></p>
         </section>
@@ -645,7 +657,7 @@ if (!supabase) {
         <div class="section-heading incident-card-heading"><div><p class="eyebrow">${escapeHtml(t('Recorded incidents'))}</p><h3>${escapeHtml(t('Update status and service times'))}</h3></div></div>
         <div class="incident-card-grid">${incidentCards}</div>
       </section>
-      <dialog id="receipt-dialog" class="edit-dialog"><form id="receipt-edit-form" method="dialog"><div class="section-heading"><div><p class="eyebrow">${escapeHtml(t('Correction'))}</p><h2>${escapeHtml(t('Edit receipt'))}</h2></div><button class="icon-button" type="button" data-action="close-dialog" aria-label="${escapeHtml(t('Close'))}">×</button></div><input type="hidden" name="receipt_id"><label>${escapeHtml(t('Original bill'))}<select name="bill_id" required></select></label><label>${escapeHtml(t('Received on'))}<input name="received_on" type="date" required></label><label>${escapeHtml(t('Actual amount (PKR)'))}<input name="amount" inputmode="decimal" required></label><label>${escapeHtml(t('Method'))}<input name="method" maxlength="40" required></label><div class="form-actions"><button class="button secondary" type="button" data-action="close-dialog">${escapeHtml(t('Cancel'))}</button><button class="button primary" type="submit">${escapeHtml(t('Save correction'))}</button></div></form></dialog>`;
+      <dialog id="receipt-dialog" class="edit-dialog" aria-labelledby="receipt-edit-title"><form id="receipt-edit-form" method="dialog"><div class="section-heading"><div><p class="eyebrow">${escapeHtml(t('Correction'))}</p><h2 id="receipt-edit-title">${escapeHtml(t('Edit receipt'))}</h2></div><button class="icon-button" type="button" data-action="close-dialog" aria-label="${escapeHtml(t('Close'))}">×</button></div><input type="hidden" name="receipt_id"><label>${escapeHtml(t('Original bill'))}<select name="bill_id" required></select></label><label>${escapeHtml(t('Received on'))}<input name="received_on" type="date" required></label><label>${escapeHtml(t('Actual amount (PKR)'))}<input name="amount" inputmode="decimal" required></label><label>${escapeHtml(t('Method'))}<input name="method" maxlength="40" required></label><div class="form-actions"><button class="button secondary" type="button" data-action="close-dialog">${escapeHtml(t('Cancel'))}</button><button class="button primary" type="submit">${escapeHtml(t('Save correction'))}</button></div></form></dialog>`;
 
     wirePortalBase();
     portalPanel.insertAdjacentHTML('beforeend', `<dialog id="bill-edit-dialog" class="edit-dialog" aria-labelledby="bill-edit-title"><form id="bill-edit-form" class="stack" method="dialog"><div class="section-heading"><div><p class="eyebrow">${escapeHtml(t('Explicit correction'))}</p><h2 id="bill-edit-title">${escapeHtml(t('Correct bill'))}</h2></div><button class="icon-button" type="button" data-action="close-bill-dialog" aria-label="${escapeHtml(t('Close'))}">×</button></div><input type="hidden" name="bill_id"><label for="bill-edit-amount">${escapeHtml(t('Bill amount (PKR)'))}<input id="bill-edit-amount" name="amount" inputmode="decimal" placeholder="${escapeHtml(t('Leave blank if not priced'))}"></label><label for="bill-edit-issued-on">${escapeHtml(t('Issue Date'))}<input id="bill-edit-issued-on" name="issued_on" type="date"></label><label for="bill-edit-due-date">${escapeHtml(t('Exact Due Date'))}<input id="bill-edit-due-date" name="due_date" type="date"></label><p class="muted">${escapeHtml(t('Dates stay blank when they were not explicitly recorded. Saving updates this bill only.'))}</p><div class="form-actions"><button class="button secondary" type="button" data-action="close-bill-dialog">${escapeHtml(t('Cancel'))}</button><button class="button primary" type="submit">${escapeHtml(t('Save bill correction'))}</button></div></form></dialog>`);
@@ -662,7 +674,7 @@ if (!supabase) {
       if (!dueDate) return;
       billForm.elements.due_date.value = dueDate;
       pageState.billDueDate = dueDate;
-      setMessage(portalPanel.querySelector('#bill-message'), `Due date set to ${dueDate}.`);
+      setMessage(portalPanel.querySelector('#bill-message'), 'Due date set to {date}.', false, { date: dueDate });
     }));
     portalPanel.querySelector('#receipt-customer')?.addEventListener('change', (event) => populateReceiptBills(event.target.value));
     bindAdminForms(context);
@@ -812,7 +824,11 @@ if (!supabase) {
         setMessage(message, 'Receipt recorded. Carry-forward credit is shown separately, not as another payment.');
         await refreshCurrentContext('Receipt recorded. Carry-forward credit remains separate.');
       } catch (error) {
-        setMessage(message, `${error.message || 'Receipt could not be recorded.'} Retry the same receipt with its existing request ID; do not start a second cash entry until the first outcome is clear.`, true);
+        if (error.message) {
+          setMessage(message, '{error} Retry the same receipt with its existing request ID; do not start a second cash entry until the first outcome is clear.', true, { error: error.message });
+        } else {
+          setMessage(message, 'Receipt could not be recorded. Retry the same receipt with its existing request ID; do not start a second cash entry until the first outcome is clear.', true);
+        }
       }
     });
   }
@@ -842,8 +858,8 @@ if (!supabase) {
             customerId: isCreate ? (String(data.get('customer_id') ?? '') || null) : null,
             customerVisibleSummary: String(data.get('customer_visible_summary') ?? '').trim(),
             status,
-            offlineAt: incidentTimestamp(data.get('offline_at'), 'Service offline time'),
-            restoredAt: incidentTimestamp(data.get('restored_at'), 'Service restored time'),
+            offlineAt: incidentTimestamp(data.get('offline_at'), t('Service offline time')),
+            restoredAt: incidentTimestamp(data.get('restored_at'), t('Service restored time')),
             staffNotes: isCreate && !staffNotes ? null : staffNotes,
           });
           if (isCreate) form.reset();
@@ -878,7 +894,7 @@ if (!supabase) {
         billEditDialog?.close();
         await refreshCurrentContext('Bill correction saved.');
       } catch (error) {
-        window.alert(error.message || 'Bill could not be corrected.');
+        window.alert(error.message || t('Bill could not be corrected.'));
       }
     });
 
@@ -909,7 +925,7 @@ if (!supabase) {
 
     portalPanel.querySelectorAll('[data-action="delete-receipt"]').forEach((button) => button.addEventListener('click', async () => {
       const receipt = pageState.rows.receipts.find((row) => row.id === button.dataset.id);
-      if (!receipt || !window.confirm('Delete this cash receipt? Its allocations will be recalculated, and this deletion cannot be undone.')) return;
+      if (!receipt || !window.confirm(t('Delete this cash receipt? Its allocations will be recalculated, and this deletion cannot be undone.'))) return;
       try {
         await invokeRpc(supabase, 'delete_cash_receipt', {
           p_organization_id: context.organizationId,
@@ -917,7 +933,7 @@ if (!supabase) {
         });
         await refreshCurrentContext('Receipt deleted. Any dependent allocations were recalculated.');
       } catch (error) {
-        window.alert(error.message || 'Receipt could not be deleted.');
+        window.alert(error.message || t('Receipt could not be deleted.'));
       }
     }));
 
@@ -939,7 +955,7 @@ if (!supabase) {
         portalPanel.querySelector('#receipt-dialog')?.close();
         await refreshCurrentContext('Receipt correction saved.');
       } catch (error) {
-        window.alert(error.message || 'Receipt correction could not be saved.');
+        window.alert(error.message || t('Receipt correction could not be saved.'));
       }
     });
   }
@@ -1053,12 +1069,12 @@ if (!supabase) {
       const priceNote = summary.status === 'not-priced'
         ? `<small class="customer-history-note">${escapeHtml(t('Price not recorded; no balance is calculated.'))}</small>`
         : '';
-      return `<tr><th scope="row"><strong>${escapeHtml(formatBillingMonth(String(bill.period ?? '').slice(0, 7)))}</strong><small>${planLabel}</small></th><td>${formatMoney(bill.amount_due_cents)}${priceNote}</td><td>${formatMoney(summary.receiptCashCents)}</td><td>${formatMoney(summary.creditAppliedCents)}</td><td>${formatMoney(summary.balanceCents)}</td><td><span class="status-pill status-pill--${summary.status}">${statusLabel}</span></td></tr>`;
+      return `<tr><th scope="row"><strong>${escapeHtml(formatBillingMonth(String(bill.period ?? '').slice(0, 7), 'en-PK', t))}</strong><small>${planLabel}</small></th><td>${formatMoney(bill.amount_due_cents)}${priceNote}</td><td>${formatMoney(summary.receiptCashCents)}</td><td>${formatMoney(summary.creditAppliedCents)}</td><td>${formatMoney(summary.balanceCents)}</td><td><span class="status-pill status-pill--${summary.status}">${statusLabel}</span></td></tr>`;
     }).join('');
     const receiptRows = view.receipts.map((receipt) => {
       const originPeriod = periodByBillId.get(receipt.origin_bill_id);
       const originMonth = originPeriod
-        ? formatBillingMonth(String(originPeriod).slice(0, 7))
+        ? formatBillingMonth(String(originPeriod).slice(0, 7), 'en-PK', t)
         : t('Bill month not available');
       return `<tr><td><time datetime="${escapeHtml(receipt.received_on)}">${escapeHtml(receipt.received_on)}</time></td><td>${escapeHtml(receipt.method || t('Method not recorded'))}</td><td>${escapeHtml(originMonth)}</td><td>${formatMoney(receipt.amount_cents)}</td></tr>`;
     }).join('');
@@ -1100,7 +1116,7 @@ if (!supabase) {
     const totalCash = customerReceipts.reduce((sum, receipt) => sum + Number(receipt.amount_cents || 0), 0);
     const billingMonths = getCustomerBillingMonths({ customerId: customer.id, bills: customerBills, receipts: customerReceipts });
     if (!billingMonths.includes(pageState.customerBillingMonth)) pageState.customerBillingMonth = '';
-    const monthOptions = billingMonths.map((month) => `<option value="${escapeHtml(month)}" ${month === pageState.customerBillingMonth ? 'selected' : ''}>${escapeHtml(formatBillingMonth(month))}</option>`).join('');
+    const monthOptions = billingMonths.map((month) => `<option value="${escapeHtml(month)}" ${month === pageState.customerBillingMonth ? 'selected' : ''}>${escapeHtml(formatBillingMonth(month, 'en-PK', t))}</option>`).join('');
     const incidents = rows.incidents.filter((incident) => incident.customer_id === customer.id)
       .sort((a, b) => String(b.reported_at).localeCompare(String(a.reported_at)));
     portalPanel.innerHTML = `${shellHeader(t('Customer portal'))}

@@ -22,7 +22,7 @@ export function renderIncidentCustomerOptions(customers) {
 export function renderAdminIncidentCards({ incidents = [], privateDetails = [], customers = [], t = (value) => value } = {}) {
   const customerById = new Map(customers.map((customer) => [customer.id, customer]));
   const noteByIncidentId = new Map(privateDetails.map((detail) => [detail.incident_id, detail.staff_notes ?? '']));
-  if (!incidents.length) return `<p class="incident-card-empty" role="status">${t('No service incidents are recorded yet.')}</p>`;
+  if (!incidents.length) return `<p class="incident-card-empty" role="status">${escapeHtml(t('No service incidents are recorded yet.'))}</p>`;
 
   return incidents.slice(0, 100).map((incident, index) => {
     const customer = incident.customer_id ? customerById.get(incident.customer_id) : null;

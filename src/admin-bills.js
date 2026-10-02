@@ -18,7 +18,7 @@ function sumCents(rows) {
 }
 
 export function buildAdminBillRows({
-  customers = [], bills = [], receipts = [], allocations = [], privateDetails = [], today = '',
+  customers = [], bills = [], receipts = [], allocations = [], privateDetails = [], today = '', t = (value) => value,
 } = {}) {
   const customerById = new Map(customers.map((customer) => [customer.id, customer]));
   const phoneByCustomer = new Map(privateDetails.map((detail) => [detail.customer_id, String(detail.phone ?? '')]));
@@ -44,11 +44,11 @@ export function buildAdminBillRows({
 
     return {
       bill,
-      customerName: customer?.name ?? 'Customer',
+      customerName: customer?.name ?? '',
       customerNumber: customer?.customer_number ?? null,
       phone,
       period,
-      packageName: String(bill.plan_snapshot ?? '').trim() || String(customer?.plan_name ?? '').trim() || 'Package not recorded',
+      packageName: String(bill.plan_snapshot ?? '').trim() || String(customer?.plan_name ?? '').trim(),
       amountDueCents: isPriced ? Number(bill.amount_due_cents) : null,
       appliedCents,
       balanceCents,
@@ -56,8 +56,8 @@ export function buildAdminBillRows({
       cashReceiptCents: sumCents(billReceipts),
       issuedOn,
       dueDate,
+      dueLabel: dueDate ? `${t('Due date:')} ${dueDate}` : t('Due date not recorded'),
       overdueDays,
-      dueLabel: dueDate ? `Due date: ${dueDate}` : 'Due date not recorded',
       status,
       isOverdue,
       receipts: [...billReceipts].sort((left, right) => String(right.received_on).localeCompare(String(left.received_on))),
@@ -97,25 +97,34 @@ function whatsappDigits(phone) {
   return '';
 }
 
-export function buildWhatsappReminderHref(row, formatMoney) {
+function interpolate(template, values) {
+  return String(template).replace(/\{([a-zA-Z][a-zA-Z0-9_]*)\}/g, (_match, name) => String(values[name] ?? ''));
+}
+
+export function buildWhatsappReminderHref(row, formatMoney, t = (value) => value) {
   if (row?.status !== 'unpaid' || row.balanceCents == null || row.balanceCents <= 0) return '';
   const number = whatsappDigits(row.phone);
   if (!number) return '';
-  const dateText = row.dueDate ? ` Due date: ${row.dueDate}.` : '';
-  const message = `Assalam-o-Alaikum ${row.customerName}. Shahdara Fiber Net ki ${row.period || 'recorded period'} ki bill ke hawale se yaad-dihani: outstanding balance ${formatMoney(row.balanceCents)} hai.${dateText} Agar aap payment kar chuke hain to meherbani karke is paigham ko nazar-andaz karein aur humein tasdeeq ke liye rabta karein. Shukriya.`;
+  const dateText = row.dueDate ? ` ${t('Due date:')} ${row.dueDate}.` : '';
+  const message = interpolate(t('Assalam-o-Alaikum {name}. Shahdara Fiber Net ki {period} ki bill ke hawale se yaad-dihani: outstanding balance {balance} hai.{dueDate} Agar aap payment kar chuke hain to meherbani karke is paigham ko nazar-andaz karein aur humein tasdeeq ke liye rabta karein. Shukriya.'), {
+    name: row.customerName,
+    period: row.period || t('recorded period'),
+    balance: formatMoney(row.balanceCents),
+    dueDate: dateText,
+  });
   return `https://wa.me/${number}?text=${encodeURIComponent(message)}`;
 }
 
 export function renderAdminBillCards(rows, formatMoney, t = (value) => value) {
-  if (!rows.length) return `<p class="bill-card-empty" role="status">${t('No bills match this search and status filter.')}</p>`;
+  if (!rows.length) return `<p class="bill-card-empty" role="status">${escapeHtml(t('No bills match this search and status filter.'))}</p>`;
   return rows.slice(0, 100).map((row) => {
     const billId = escapeHtml(row.bill.id);
-    const customerName = escapeHtml(row.customerName);
+    const customerName = escapeHtml(row.customerName || t('Customer'));
     const period = escapeHtml(row.period || t('Period not recorded'));
     const badge = row.isOverdue ? `${t('Overdue by')} ${row.overdueDays} ${t('days')}` : row.status === 'paid' ? t('Paid') : row.status === 'unpaid' ? t('Unpaid') : t('Not priced');
     const badgeClass = row.isOverdue ? 'status-pill--overdue' : row.status === 'paid' ? 'status-pill--paid' : row.status === 'unpaid' ? 'status-pill--unpaid' : 'status-pill--not-priced';
-    const reminderHref = buildWhatsappReminderHref(row, formatMoney);
-    const packageName = escapeHtml(row.packageName);
+    const reminderHref = buildWhatsappReminderHref(row, formatMoney, t);
+    const packageName = escapeHtml(row.packageName || t('Package not recorded'));
     const phone = row.phone ? escapeHtml(row.phone) : escapeHtml(t('Not recorded'));
     const collect = row.status === 'unpaid' && row.balanceCents > 0
       ? `<button class="bill-action bill-action--collect" type="button" data-action="collect-bill" data-id="${billId}" aria-label="${escapeHtml(t('Collect for'))} ${customerName}, ${period}; ${escapeHtml(t('opens the receipt form without recording payment'))}">${escapeHtml(t('Collect'))}</button>`
@@ -142,16 +151,16 @@ export function renderAdminBillCards(rows, formatMoney, t = (value) => value) {
   }).join('');
 }
 
-export function renderPrintableReceiptHtml({ receipt, customer, bill, organizationName = 'Shahdara Fiber Net', formatMoney }) {
+export function renderPrintableReceiptHtml({ receipt, customer, bill, organizationName = 'Shahdara Fiber Net', formatMoney, t = (value) => value, language = 'en' }) {
   if (!receipt?.id || typeof formatMoney !== 'function') throw new Error('An existing receipt and money formatter are required.');
   const receiptId = escapeHtml(receipt.id);
-  const customerName = escapeHtml(customer?.name ?? 'Customer');
-  const period = escapeHtml(String(bill?.period ?? '').slice(0, 7) || 'Period not available');
+  const customerName = escapeHtml(customer?.name ?? t('Customer'));
+  const period = escapeHtml(String(bill?.period ?? '').slice(0, 7) || t('Period not available'));
   const orgName = escapeHtml(organizationName);
-  const receivedOn = escapeHtml(receipt.received_on ?? 'Date not recorded');
-  const method = escapeHtml(receipt.method ?? 'Method not recorded');
+  const receivedOn = escapeHtml(receipt.received_on || t('Date not recorded'));
+  const method = escapeHtml(receipt.method ?? t('Method not recorded'));
   const amount = escapeHtml(formatMoney(receipt.amount_cents));
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Cash receipt ${receiptId}</title><style>
+  return `<!doctype html><html lang="${escapeHtml(language)}" dir="ltr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(t('Cash receipt'))} ${receiptId}</title><style>
     :root{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:#17342f}*{box-sizing:border-box}body{margin:0;padding:32px;background:#eef3f0}.receipt{max-width:680px;margin:0 auto;padding:38px;border:1px solid #d7e3dc;border-radius:14px;background:#fff}.receipt__head{padding-bottom:20px;border-bottom:2px solid #177b59}.receipt__brand{margin:0 0 6px;color:#177b59;font-size:12px;font-weight:800;letter-spacing:.12em;text-transform:uppercase}.receipt h1{margin:0 0 12px;font-size:30px}.receipt__id{color:#536b61;font-size:12px;overflow-wrap:anywhere}.receipt dl{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin:24px 0}.receipt dl div{padding:12px;border:1px solid #e2ebe6;border-radius:10px}.receipt dt{margin-bottom:6px;color:#61756d;font-size:11px;font-weight:700;text-transform:uppercase}.receipt dd{margin:0;font-size:16px;font-weight:700;overflow-wrap:anywhere}.receipt__amount dd{font-size:24px;color:#0f5a43}.receipt__note{padding:13px;border-radius:10px;background:#f2f7f4;color:#496259;font-size:12px;line-height:1.6}.receipt__footer{margin-top:26px;color:#708078;font-size:11px}@media print{body{padding:0;background:#fff}.receipt{max-width:none;border:0;border-radius:0;box-shadow:none;padding:0}.receipt__note{break-inside:avoid}}@media(max-width:520px){body{padding:12px}.receipt{padding:22px}.receipt dl{grid-template-columns:1fr}}
-  </style></head><body><main class="receipt"><header class="receipt__head"><p class="receipt__brand">${orgName}</p><h1>Cash receipt</h1><p class="receipt__id">Receipt ID: ${receiptId}</p></header><dl><div><dt>Customer</dt><dd>${customerName}</dd></div><div><dt>Billing period linked to receipt</dt><dd>${period}</dd></div><div class="receipt__amount"><dt>Actual amount received</dt><dd>${amount}</dd></div><div><dt>Received on</dt><dd>${receivedOn}</dd></div><div><dt>Payment method</dt><dd>${method}</dd></div></dl><p class="receipt__note">This print-ready document reflects an existing cash receipt entry. It does not create a payment or state the remaining bill balance; balances are determined separately from ledger allocations.</p><footer class="receipt__footer">Keep the Receipt ID with your records.</footer></main></body></html>`;
+  </style></head><body><main class="receipt"><header class="receipt__head"><p class="receipt__brand">${orgName}</p><h1>${escapeHtml(t('Cash receipt'))}</h1><p class="receipt__id">${escapeHtml(t('Receipt ID:'))} ${receiptId}</p></header><dl><div><dt>${escapeHtml(t('Customer'))}</dt><dd>${customerName}</dd></div><div><dt>${escapeHtml(t('Billing period linked to receipt'))}</dt><dd>${period}</dd></div><div class="receipt__amount"><dt>${escapeHtml(t('Actual amount received'))}</dt><dd>${amount}</dd></div><div><dt>${escapeHtml(t('Received on'))}</dt><dd>${receivedOn}</dd></div><div><dt>${escapeHtml(t('Payment method'))}</dt><dd>${method}</dd></div></dl><p class="receipt__note">${escapeHtml(t('This print-ready document reflects an existing cash receipt entry. It does not create a payment or state the remaining bill balance; balances are determined separately from ledger allocations.'))}</p><footer class="receipt__footer">${escapeHtml(t('Keep the Receipt ID with your records.'))}</footer></main></body></html>`;
 }

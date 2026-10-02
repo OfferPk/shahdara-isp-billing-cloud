@@ -137,7 +137,7 @@ function phoneLinks(phone) {
 }
 
 export function renderCustomerCards(rows, formatMoney, t = (value) => value) {
-  if (!rows.length) return `<p class="customer-list-empty" role="status">${t('No customers match these filters.')}</p>`;
+  if (!rows.length) return `<p class="customer-list-empty" role="status">${escapeHtml(t('No customers match these filters.'))}</p>`;
   return rows.map(({ customer, phone, bill, dueBill, paymentBill, billing }) => {
     const id = escapeHtml(customer.id);
     const name = escapeHtml(customer.name);
@@ -150,7 +150,14 @@ export function renderCustomerCards(rows, formatMoney, t = (value) => value) {
     const links = phoneLinks(phone);
     const hasUnpaidBill = billing.status === 'unpaid' && billing.balanceCents > 0 && Boolean(paymentBill);
     const oldestOpenPeriod = periodOf(dueBill ?? bill);
-    const reminder = `Assalam-o-Alaikum ${customer.name}, Shahdara Fiber Net reminder: account #${customer.customer_number} has an unpaid account balance of ${balance}${oldestOpenPeriod ? `, with the oldest open bill from ${oldestOpenPeriod}` : ''}. If you have already paid, please disregard this reminder and contact us to confirm.`;
+    const oldest = oldestOpenPeriod
+      ? t(', with the oldest open bill from {period}').replace('{period}', oldestOpenPeriod)
+      : '';
+    const reminder = t('Assalam-o-Alaikum {name}, Shahdara Fiber Net reminder: account #{number} has an unpaid account balance of {balance}{oldest}. If you have already paid, please disregard this reminder and contact us to confirm.')
+      .replace('{name}', customer.name)
+      .replace('{number}', String(customer.customer_number))
+      .replace('{balance}', balance)
+      .replace('{oldest}', oldest);
     const whatsappHref = links.whatsapp && hasUnpaidBill
       ? `https://wa.me/${links.whatsapp}?text=${encodeURIComponent(reminder)}`
       : '';
