@@ -1,6 +1,6 @@
 import { createPortalClient } from './supabase-client.js';
 import { validatePakistanPhone } from './customer-input.js';
-import { createCustomer, invokeRpc, loadContexts, loadPortalRows, manageServiceIncident } from './portal-data.js';
+import { createCustomer, invokeRpc, loadContexts, loadOrganizationBranding, loadPortalRows, manageServiceIncident } from './portal-data.js';
 import { getBillingCycleQuickDate, isValidBillingMonth, localDateString, localMonthString } from './bill-dates.js';
 import { amountToMinorUnits, calculateDashboard, formatMoney } from './ledger.js';
 import { renderDashboardMetrics } from './dashboard-metrics.js';
@@ -31,6 +31,8 @@ import {
 import { parseDashboardDrilldownHash } from './dashboard-drilldown.js';
 import { renderAdminIncidentCards, renderIncidentCustomerOptions } from './admin-incidents.js';
 import { applyDocumentLanguage, formatUiMessage, getStoredLanguage, normalizeLanguage, setLanguagePreference, translateUi } from './language.js';
+import { BRANDING_BUCKET, buildBrandLogoPath, getOrganizationBranding, getPublicBrandLogoUrl, isSafeBrandLogoPath, safeSupportPhoneHref, validateBrandLogoFile } from './organization-branding.js';
+import { renderPrintableBillHtml } from './customer-documents.js';
 import './styles.css';
 
 const app = document.querySelector('#app');
@@ -280,6 +282,7 @@ if (!supabase) {
 
   function renderPortal() {
     if (!pageState.context || !pageState.rows) return;
+    applyBrandIdentity();
     if (pageState.context.kind === 'admin') renderAdmin();
     else renderCustomer();
   }
@@ -338,16 +341,82 @@ if (!supabase) {
     }).join('')}</select></label>`;
   }
 
+  function currentBranding() {
+    return getOrganizationBranding(pageState.rows?.branding, pageState.context?.organizationName);
+  }
+
+  function currentBrandLogoUrl() {
+    return getPublicBrandLogoUrl(supabase, pageState.context?.organizationId, pageState.rows?.branding?.logo_path);
+  }
+
+  function applyBrandIdentity() {
+    const branding = currentBranding();
+    const brandLink = document.querySelector('.site-header .brand');
+    const brandName = brandLink?.querySelector('strong');
+    const brandMark = brandLink?.querySelector('.brand-mark');
+    if (brandName) brandName.textContent = branding.displayName;
+    if (brandLink) brandLink.setAttribute('aria-label', `${branding.displayName} cloud portal home`);
+    if (brandMark) {
+      brandMark.replaceChildren();
+      const logoUrl = currentBrandLogoUrl();
+      if (logoUrl) {
+        const image = document.createElement('img');
+        image.src = logoUrl;
+        image.alt = '';
+        brandMark.append(image);
+      } else {
+        brandMark.textContent = branding.displayName.split(/\s+/).filter(Boolean).slice(0, 2)
+          .map((part) => Array.from(part)[0]).join('').toUpperCase().slice(0, 2) || 'ISP';
+      }
+    }
+    document.title = `${branding.displayName} · ${t('Cloud billing portal')}`;
+  }
+
+  function brandingSettingsHtml() {
+    if (pageState.context?.role !== 'owner') return '';
+    const branding = currentBranding();
+    const logoUrl = currentBrandLogoUrl();
+    return `<section id="company-branding" class="panel data-panel brand-settings" aria-labelledby="company-branding-title">
+      <div class="section-heading"><div><p class="eyebrow">${escapeHtml(t('Brand identity'))}</p><h2 id="company-branding-title">${escapeHtml(t('Company profile'))}</h2></div></div>
+      <p class="muted">${escapeHtml(t('Customers see this name, logo, support phone, and address in their portal and print-ready billing documents.'))}</p>
+      <p class="muted">${escapeHtml(t('The company support phone is separate from each customer’s private phone record.'))}</p>
+      <form id="brand-profile-form" class="brand-settings__form">
+        <label>${escapeHtml(t('Company display name'))}<input name="display_name" maxlength="120" required value="${escapeHtml(branding.displayName)}"></label>
+        <label>${escapeHtml(t('Support phone'))}<input name="support_phone" type="tel" autocomplete="tel" maxlength="40" value="${escapeHtml(branding.supportPhone)}"></label>
+        <label class="brand-settings__address">${escapeHtml(t('Company address'))}<textarea name="address" maxlength="300" rows="3">${escapeHtml(branding.address)}</textarea></label>
+        <label class="brand-settings__logo">${escapeHtml(t('Logo image'))}<input id="brand-logo-file" name="logo" type="file" accept="image/png,image/jpeg,image/webp" aria-describedby="brand-logo-help"><small id="brand-logo-help">${escapeHtml(t('Choose a PNG, JPEG, or WebP image. Maximum size: 1 MB.'))}</small></label>
+        <div id="brand-logo-preview" class="brand-logo-preview">${logoUrl ? `<img src="${escapeHtml(logoUrl)}" alt="${escapeHtml(t('Current company logo'))}">` : `<span>${escapeHtml(t('No logo uploaded'))}</span>`}</div>
+        <div class="brand-settings__actions"><button class="button primary" type="submit">${escapeHtml(t('Save company profile'))}</button>${logoUrl ? `<button class="button secondary" type="button" data-action="remove-brand-logo">${escapeHtml(t('Remove logo'))}</button>` : ''}</div>
+        <p class="form-message" id="brand-profile-message" role="status" aria-live="polite"></p>
+      </form>
+    </section>`;
+  }
+
+  function customerProviderCardHtml() {
+    const branding = currentBranding();
+    const logoUrl = currentBrandLogoUrl();
+    const phoneHref = safeSupportPhoneHref(branding.supportPhone);
+    const supportPhone = branding.supportPhone
+      ? phoneHref ? `<a href="${escapeHtml(phoneHref)}">${escapeHtml(branding.supportPhone)}</a>` : escapeHtml(branding.supportPhone)
+      : escapeHtml(t('Not recorded'));
+    const companyAddress = branding.address ? escapeHtml(branding.address) : escapeHtml(t('Not recorded'));
+    return `<section class="provider-card panel" aria-labelledby="provider-card-title">
+      ${logoUrl ? `<img class="provider-card__logo" src="${escapeHtml(logoUrl)}" alt="">` : ''}
+      <div class="provider-card__identity"><p class="eyebrow">${escapeHtml(t('Your service provider'))}</p><h2 id="provider-card-title">${escapeHtml(branding.displayName)}</h2></div>
+      <div class="provider-card__contact"><p><span>${escapeHtml(t('Support phone'))}</span>${supportPhone}</p><p><span>${escapeHtml(t('Company address'))}</span><strong>${companyAddress}</strong></p></div>
+    </section>`;
+  }
+
   function shellHeader(label) {
     const accountLabel = pageState.context?.kind === 'admin'
       ? `${t('Signed in as')} ${pageState.user?.email ?? ''}`
       : t('Linked customer account');
-    return `<div class="portal-heading"><div><p class="eyebrow">${escapeHtml(label)}</p><h1 tabindex="-1">${escapeHtml(pageState.context.organizationName ?? 'Shahdara Fiber Net')}</h1><p class="muted">${escapeHtml(accountLabel)}</p></div><div class="header-actions">${contextSelectHtml()}<button class="button secondary small" data-action="sign-out">${escapeHtml(t('Sign out'))}</button></div></div>`;
+    return `<div class="portal-heading"><div><p class="eyebrow">${escapeHtml(label)}</p><h1 tabindex="-1">${escapeHtml(currentBranding().displayName)}</h1><p class="muted">${escapeHtml(accountLabel)}</p></div><div class="header-actions">${contextSelectHtml()}<button class="button secondary small" data-action="sign-out">${escapeHtml(t('Sign out'))}</button></div></div>`;
   }
 
   function renderPortalNavigation(kind) {
     const links = kind === 'admin'
-      ? [['#admin-overview', 'Overview'], ['#customer-list', 'Customers'], ['#admin-bills', 'Bills'], ['#admin-receipts', 'Receipts'], ['#admin-incidents', 'Service incidents']]
+      ? [['#admin-overview', 'Overview'], ['#customer-list', 'Customers'], ['#admin-bills', 'Bills'], ['#admin-receipts', 'Receipts'], ['#admin-incidents', 'Service incidents'], ...(pageState.context?.role === 'owner' ? [['#company-branding', 'Company profile']] : [])]
       : [['#customer-account', 'My account'], ['#customer-billing', 'Billing history'], ['#customer-incidents', 'Service updates']];
     return `<nav class="portal-nav" aria-label="${escapeHtml(t('Portal navigation'))}">${links.map(([href, label]) => `<a href="${href}">${escapeHtml(t(label))}</a>`).join('')}</nav>`;
   }
@@ -584,7 +653,37 @@ if (!supabase) {
       receipt,
       customer,
       bill,
-      organizationName: pageState.context.organizationName,
+      organizationName: currentBranding().displayName,
+      branding: { ...currentBranding(), logoUrl: currentBrandLogoUrl() },
+      projectUrl: supabase.supabaseUrl,
+      formatMoney,
+      t,
+      language: currentLanguage,
+    }));
+    printWindow.document.close();
+    printWindow.opener = null;
+    printWindow.focus();
+    window.setTimeout(() => printWindow.print(), 150);
+  }
+
+  function printExistingBill(billId) {
+    if (pageState.context?.kind !== 'customer') return;
+    const bill = pageState.rows?.bills.find((row) => row.id === billId && row.customer_id === pageState.context.customerId);
+    const customer = pageState.rows?.customers.find((row) => row.id === pageState.context.customerId);
+    if (!bill || !customer) return;
+    const summary = summarizeCustomerBill(bill, pageState.rows.receipts, pageState.rows.allocations);
+    const printWindow = window.open('', '_blank', 'popup,width=760,height=900');
+    if (!printWindow) {
+      window.alert(t('Allow the print window to open, then choose Print or Save as PDF.'));
+      return;
+    }
+    printWindow.document.open();
+    printWindow.document.write(renderPrintableBillHtml({
+      bill,
+      customer,
+      summary,
+      branding: { ...currentBranding(), logoUrl: currentBrandLogoUrl() },
+      projectUrl: supabase.supabaseUrl,
       formatMoney,
       t,
       language: currentLanguage,
@@ -661,6 +760,7 @@ if (!supabase) {
 
     portalPanel.innerHTML = `${shellHeader(t('Administrator portal'))}
       ${renderPortalNavigation('admin')}
+      ${brandingSettingsHtml()}
       ${renderDashboardMetrics({ month: pageState.selectedMonth, today: dashboardToday, totals, t })}
       <section class="panel month-panel"><label for="dashboard-month">${escapeHtml(t('Dashboard month'))}</label><input type="month" id="dashboard-month" value="${escapeHtml(pageState.selectedMonth)}"><p class="muted">${escapeHtml(t('Cash totals follow receipt dates. Credit allocation is shown separately and is never counted as another payment.'))}</p></section>
       <div class="admin-grid">
@@ -788,6 +888,7 @@ if (!supabase) {
     }));
     portalPanel.querySelector('#receipt-customer')?.addEventListener('change', (event) => populateReceiptBills(event.target.value));
     bindAdminForms(context);
+    bindBrandingActions(context);
     bindAdminIncidentForms(context);
     bindAdminActions(context);
     bindAdminBillActions(context);
@@ -940,6 +1041,111 @@ if (!supabase) {
         } else {
           setMessage(message, 'Receipt could not be recorded. Retry the same receipt with its existing request ID; do not start a second cash entry until the first outcome is clear.', true);
         }
+      }
+    });
+  }
+
+  function bindBrandingActions(context) {
+    if (context.role !== 'owner') return;
+    const form = portalPanel.querySelector('#brand-profile-form');
+    if (!form) return;
+
+    const saveProfile = async ({ displayName, supportPhone, address, file = null, removeLogo = false }) => {
+      const previousPath = pageState.rows?.branding?.logo_path ?? null;
+      let nextPath = removeLogo ? null : previousPath;
+      let uploadedPath = null;
+      const cleanup = async (path) => {
+        if (!isSafeBrandLogoPath(context.organizationId, path)) return;
+        const { error } = await supabase.storage.from(BRANDING_BUCKET).remove([path]);
+        if (error) throw error;
+      };
+      if (file) {
+        const image = await validateBrandLogoFile(file);
+        uploadedPath = buildBrandLogoPath(context.organizationId, image.type);
+        const { error } = await supabase.storage.from(BRANDING_BUCKET).upload(uploadedPath, file, {
+          cacheControl: '3600',
+          contentType: image.type,
+          upsert: false,
+        });
+        if (error) throw error;
+        nextPath = uploadedPath;
+      }
+
+      try {
+        await invokeRpc(supabase, 'save_organization_branding', {
+          p_organization_id: context.organizationId,
+          p_display_name: displayName,
+          p_logo_path: nextPath,
+          p_support_phone: supportPhone,
+          p_address: address,
+        });
+      } catch (error) {
+        if (uploadedPath) {
+          try { await cleanup(uploadedPath); } catch { /* Keep the database's previous logo reference intact. */ }
+        }
+        throw error;
+      }
+
+      const localBranding = {
+        organization_id: context.organizationId,
+        display_name: displayName,
+        logo_path: nextPath,
+        support_phone: supportPhone,
+        address,
+      };
+      let warning = '';
+      try {
+        pageState.rows.branding = await loadOrganizationBranding(supabase, context.organizationId) ?? localBranding;
+      } catch {
+        pageState.rows.branding = localBranding;
+        warning = 'Company profile saved, but it could not be refreshed from the database.';
+      }
+      if (previousPath && previousPath !== nextPath) {
+        try { await cleanup(previousPath); } catch { warning = 'Company profile saved, but the previous logo could not be removed.'; }
+      }
+      renderPortal();
+      setMessage(portalPanel.querySelector('#brand-profile-message'), warning || (removeLogo ? 'Company logo removed.' : 'Company profile saved.'));
+    };
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const submitButton = form.querySelector('button[type="submit"]');
+      const file = form.elements.logo.files?.[0] ?? null;
+      const displayName = String(form.elements.display_name.value ?? '').trim();
+      const supportPhone = String(form.elements.support_phone.value ?? '').trim();
+      const address = String(form.elements.address.value ?? '').trim();
+      const message = portalPanel.querySelector('#brand-profile-message');
+      if (!displayName || displayName.length > 120 || supportPhone.length > 40 || address.length > 300) {
+        setMessage(message, 'Check the company name, support phone, and address lengths.', true);
+        return;
+      }
+      submitButton.disabled = true;
+      setMessage(message, 'Saving company profile…');
+      try {
+        await saveProfile({ displayName, supportPhone, address, file });
+      } catch (error) {
+        setMessage(portalPanel.querySelector('#brand-profile-message'), error.message || 'Company profile could not be saved.', true);
+      } finally {
+        submitButton.disabled = false;
+      }
+    });
+
+    portalPanel.querySelector('[data-action="remove-brand-logo"]')?.addEventListener('click', async () => {
+      if (!window.confirm(t('Remove the company logo?'))) return;
+      const branding = currentBranding();
+      const button = portalPanel.querySelector('[data-action="remove-brand-logo"]');
+      button.disabled = true;
+      setMessage(portalPanel.querySelector('#brand-profile-message'), 'Saving company profile…');
+      try {
+        await saveProfile({
+          displayName: branding.displayName,
+          supportPhone: branding.supportPhone,
+          address: branding.address,
+          removeLogo: true,
+        });
+      } catch (error) {
+        setMessage(portalPanel.querySelector('#brand-profile-message'), error.message || 'Company profile could not be saved.', true);
+        button.disabled = false;
       }
     });
   }
@@ -1190,7 +1396,8 @@ if (!supabase) {
       const priceNote = summary.status === 'not-priced'
         ? `<small class="customer-history-note">${escapeHtml(t('Price not recorded; no balance is calculated.'))}</small>`
         : '';
-      return `<tr><th scope="row"><strong>${escapeHtml(formatBillingMonth(String(bill.period ?? '').slice(0, 7), 'en-PK', t))}</strong><small>${planLabel}</small></th><td>${formatMoney(bill.amount_due_cents)}${priceNote}</td><td>${formatMoney(summary.receiptCashCents)}</td><td>${formatMoney(summary.creditAppliedCents)}</td><td>${formatMoney(summary.balanceCents)}</td><td><span class="status-pill status-pill--${summary.status}">${statusLabel}</span></td></tr>`;
+      const printButton = `<button class="text-button" type="button" data-action="print-bill" data-id="${escapeHtml(bill.id)}" aria-label="${escapeHtml(t('Print or save PDF of this bill'))} ${escapeHtml(String(bill.period ?? '').slice(0, 7))}">${escapeHtml(t('Print bill'))}</button>`;
+      return `<tr><th scope="row"><strong>${escapeHtml(formatBillingMonth(String(bill.period ?? '').slice(0, 7), 'en-PK', t))}</strong><small>${planLabel}</small></th><td>${formatMoney(bill.amount_due_cents)}${priceNote}</td><td>${formatMoney(summary.receiptCashCents)}</td><td>${formatMoney(summary.creditAppliedCents)}</td><td>${formatMoney(summary.balanceCents)}</td><td><span class="status-pill status-pill--${summary.status}">${statusLabel}</span></td><td>${printButton}</td></tr>`;
     }).join('');
     const receiptRows = view.receipts.map((receipt) => {
       const originPeriod = periodByBillId.get(receipt.origin_bill_id);
@@ -1213,7 +1420,7 @@ if (!supabase) {
 
     results.innerHTML = `<p class="customer-history-count" role="${view.invalidDateRange ? 'alert' : 'status'}" aria-live="${view.invalidDateRange ? 'assertive' : 'polite'}" aria-atomic="true">${escapeHtml(countMessage)}</p>
       <section class="customer-history-block" aria-labelledby="customer-bills-title"><div class="section-heading"><div><p class="eyebrow">${escapeHtml(t('Monthly snapshots'))}</p><h3 id="customer-bills-title">${escapeHtml(t('Bills'))}</h3></div></div>
-        <div class="table-wrap" role="region" tabindex="0" aria-label="${escapeHtml(t('Bills table; scroll horizontally to view all columns'))}"><table><caption class="sr-only">${escapeHtml(t('Monthly bill amounts, cash receipts, credit, balance, and status.'))}</caption><thead><tr><th scope="col">${escapeHtml(t('Bill month / plan'))}</th><th scope="col">${escapeHtml(t('Bill amount'))}</th><th scope="col">${escapeHtml(t('Cash receipts linked to bill'))}</th><th scope="col">${escapeHtml(t('Credit applied'))}</th><th scope="col">${escapeHtml(t('Balance'))}</th><th scope="col">${escapeHtml(t('Status'))}</th></tr></thead><tbody>${billRows || `<tr><td colspan="6" class="empty-cell">${escapeHtml(billEmpty)}</td></tr>`}</tbody></table></div>
+        <div class="table-wrap" role="region" tabindex="0" aria-label="${escapeHtml(t('Bills table; scroll horizontally to view all columns'))}"><table><caption class="sr-only">${escapeHtml(t('Monthly bill amounts, cash receipts, credit, balance, and status.'))}</caption><thead><tr><th scope="col">${escapeHtml(t('Bill month / plan'))}</th><th scope="col">${escapeHtml(t('Bill amount'))}</th><th scope="col">${escapeHtml(t('Cash receipts linked to bill'))}</th><th scope="col">${escapeHtml(t('Credit applied'))}</th><th scope="col">${escapeHtml(t('Balance'))}</th><th scope="col">${escapeHtml(t('Status'))}</th><th scope="col">${escapeHtml(t('Actions'))}</th></tr></thead><tbody>${billRows || `<tr><td colspan="7" class="empty-cell">${escapeHtml(billEmpty)}</td></tr>`}</tbody></table></div>
         <p class="muted">${escapeHtml(t('Bill balances use the complete allocation history. Actual receipts are counted once; carry-forward credit is separate. A bill without a recorded price has no calculated balance.'))}</p>
       </section>
       <section class="customer-history-block" aria-labelledby="customer-receipts-title"><div class="section-heading"><div><p class="eyebrow">${escapeHtml(t('Actual cash entries'))}</p><h3 id="customer-receipts-title">${escapeHtml(t('Receipts'))}</h3></div><span class="muted">${view.receipts.length} ${escapeHtml(t('shown'))}</span></div>
@@ -1242,6 +1449,7 @@ if (!supabase) {
       .sort((a, b) => String(b.reported_at).localeCompare(String(a.reported_at)));
     portalPanel.innerHTML = `${shellHeader(t('Customer portal'))}
       ${renderPortalNavigation('customer')}
+      ${customerProviderCardHtml()}
       <section id="customer-account" class="profile-card panel" aria-label="${escapeHtml(t('Customer profile'))}">
         <div class="profile-card__identity"><p class="eyebrow">${escapeHtml(t('Your account'))}</p><h2>${escapeHtml(customer.name)}</h2><p class="profile-card__number">${escapeHtml(t('Customer'))} #${escapeHtml(customer.customer_number)}</p></div>
         <div class="profile-card__details"><div class="profile-field"><span>${escapeHtml(t('Plan'))}</span><strong>${escapeHtml(customer.plan_name || t('Plan not set'))}</strong></div><div class="profile-field"><span>${escapeHtml(t('Monthly fee'))}</span><strong>${formatMoney(customer.monthly_fee_cents)}</strong></div><div class="profile-field profile-field--wide"><span>${escapeHtml(t('Service address'))}</span><strong>${escapeHtml(customer.service_address || t('Service address not recorded'))}</strong></div></div>
@@ -1268,6 +1476,10 @@ if (!supabase) {
       </section>`;
     wirePortalBase();
     renderCustomerBillingResults();
+    portalPanel.querySelector('#customer-billing-results')?.addEventListener('click', (event) => {
+      const target = event.target instanceof Element ? event.target.closest('[data-action="print-bill"]') : null;
+      if (target) printExistingBill(target.dataset.id);
+    });
     portalPanel.querySelector('#customer-billing-filters')?.addEventListener('change', (event) => {
       if (event.target.id === 'customer-billing-month') pageState.customerBillingMonth = event.target.value;
       if (event.target.id === 'customer-receipt-from') pageState.customerReceiptFrom = event.target.value;

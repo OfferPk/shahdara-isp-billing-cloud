@@ -78,15 +78,20 @@ test('portal row reads scope customer data and preserve safe paging', async () =
     kind: 'customer', organizationId: 'synthetic-org', customerId: 'synthetic-customer',
   });
 
-  assert.deepEqual(Object.keys(rows), ['customers', 'bills', 'receipts', 'allocations', 'incidents', 'privateCustomerDetails', 'privateIncidentDetails']);
+  assert.deepEqual(Object.keys(rows), ['customers', 'bills', 'receipts', 'allocations', 'incidents', 'privateCustomerDetails', 'privateIncidentDetails', 'branding']);
+  assert.equal(rows.branding, null);
   assert.deepEqual(rows.privateCustomerDetails, []);
   assert.equal(client.calls.some((query) => query.table === 'customer_private_details'), false);
   assert.deepEqual(rows.privateIncidentDetails, []);
   assert.equal(client.calls.some((query) => query.table === 'incident_private_details'), false);
   for (const query of client.calls) {
     assert.ok(query.filters.some((filter) => filter[0] === 'eq' && filter[1] === 'organization_id' && filter[2] === 'synthetic-org'));
-    assert.deepEqual(query.ranges, [[0, 999]]);
+    if (query.table !== 'organization_branding') assert.deepEqual(query.ranges, [[0, 999]]);
   }
+  const brandingQuery = client.calls.find((query) => query.table === 'organization_branding');
+  assert.deepEqual(brandingQuery.selects, ['organization_id, display_name, logo_path, support_phone, address']);
+  assert.deepEqual(brandingQuery.ranges, []);
+  assert.ok(brandingQuery.single);
   assert.ok(client.calls.find((query) => query.table === 'bills').filters.some((filter) => filter[1] === 'customer_id' && filter[2] === 'synthetic-customer'));
 });
 
@@ -205,13 +210,14 @@ test('collection drill-down reuses current RLS-scoped rows and adds no query or 
   await loadPortalRows(client, { kind: 'admin', organizationId: 'synthetic-org' });
   const expectedTables = [
     'customers', 'bills', 'receipts', 'receipt_allocations', 'incidents',
-    'customer_private_details', 'incident_private_details',
+    'customer_private_details', 'incident_private_details', 'organization_branding',
   ].sort();
   assert.deepEqual(client.calls.map((query) => query.table).sort(), expectedTables);
   for (const query of client.calls) {
     assert.ok(query.filters.some(([kind, field, value]) => kind === 'eq' && field === 'organization_id' && value === 'synthetic-org'));
   }
   assert.deepEqual(client.calls.find((query) => query.table === 'bills').selects, ['id, customer_id, period, amount_due_cents, issued_on, due_date, plan_snapshot']);
+  assert.deepEqual(client.calls.find((query) => query.table === 'organization_branding').selects, ['organization_id, display_name, logo_path, support_phone, address']);
 
   const [main, routes] = await Promise.all([
     readFile(new URL('../src/main.js', import.meta.url), 'utf8'),

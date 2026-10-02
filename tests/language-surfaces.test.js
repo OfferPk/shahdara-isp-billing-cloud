@@ -86,6 +86,7 @@ test('scoped hardcoded UI copy is enumerated, Roman Urdu is complete, and no non
     '../index.html',
     '../src/main.js',
     '../src/admin-bills.js',
+    '../src/customer-documents.js',
     '../src/customer-portal.js',
     '../src/admin-incidents.js',
     '../src/customer-list.js',
