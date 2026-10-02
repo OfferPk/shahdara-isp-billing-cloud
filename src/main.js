@@ -41,6 +41,8 @@ const authPanel = document.querySelector('#auth-panel');
 const portalPanel = document.querySelector('#portal-panel');
 const loginForm = document.querySelector('#login-form');
 const loginMessage = document.querySelector('#login-message');
+const customerLoginForm = document.querySelector('#customer-login-form');
+const customerLoginMessage = document.querySelector('#customer-login-message');
 let currentLanguage = getStoredLanguage();
 const t = (message) => translateUi(message, currentLanguage);
 let rerenderForLanguage = () => {};
@@ -188,6 +190,7 @@ if (!supabase) {
     portalPanel.hidden = true;
     authPanel.hidden = false;
     setMessage(loginMessage, message, false);
+    setMessage(customerLoginMessage, '', false);
   }
 
   function showPortalLoading() {
@@ -247,10 +250,17 @@ if (!supabase) {
     pageState.user = session.user;
     showPortalLoading();
     try {
+      const { data: passwordStates, error: passwordStateError } = await supabase.rpc('my_customer_portal_password_state');
+      if (passwordStateError) throw passwordStateError;
+      const passwordState = passwordStates?.[0]?.state ?? 'none';
+      if (!['none', 'active'].includes(passwordState)) {
+        showCustomerPasswordGate(passwordState);
+        return;
+      }
       pageState.contexts = await loadContexts(supabase, session.user);
       if (!pageState.contexts.length) {
-        portalPanel.innerHTML = `<div class="panel" role="status"><p class="eyebrow">${escapeHtml(t('No portal access'))}</p><h2>${escapeHtml(t('This email is not linked to an ISP account'))}</h2><p>${escapeHtml(t('Ask the ISP administrator to assign an Admin role or send a customer invitation.'))}</p><button class="button secondary" data-action="sign-out">${escapeHtml(t('Sign out'))}</button></div>`;
-        announceApp('No portal access is linked to this account.');
+        portalPanel.innerHTML = `<div class="panel" role="status"><p class="eyebrow">${escapeHtml(t('No portal access'))}</p><h2>${escapeHtml(t('Account access is not available'))}</h2><p>${escapeHtml(t('Ask the ISP administrator to verify this account or issue an invitation.'))}</p><button class="button secondary" data-action="sign-out">${escapeHtml(t('Sign out'))}</button></div>`;
+        announceApp('Account access is not available.');
         bindSharedActions();
         return;
       }
@@ -267,6 +277,66 @@ if (!supabase) {
     portalPanel.querySelector('[data-action="sign-out"]')?.addEventListener('click', async () => {
       await supabase.auth.signOut();
       showLogin('You have signed out.');
+    });
+  }
+
+  function showCustomerPasswordGate(state) {
+    pageState.contexts = [];
+    pageState.context = null;
+    pageState.rows = null;
+    authPanel.hidden = true;
+    portalPanel.hidden = false;
+    const canChange = state === 'change_required';
+    const heading = canChange ? 'Change your temporary password' : state === 'expired'
+      ? 'Temporary password expired'
+      : 'Customer access is temporarily unavailable';
+    const description = canChange
+      ? 'Set a new password before portal data is available. The temporary password can be used only once and expires after 24 hours.'
+      : state === 'expired'
+        ? 'This temporary password expired or was already used. Ask a Shahdara administrator to issue a new one.'
+        : 'Customer data is blocked until an administrator reviews or resets this account.';
+    portalPanel.innerHTML = `<section class="panel" aria-labelledby="password-gate-title"><p class="eyebrow">${escapeHtml(t('Customer account security'))}</p><h1 id="password-gate-title">${escapeHtml(t(heading))}</h1><p>${escapeHtml(t(description))}</p>${canChange ? `<form id="mandatory-password-change-form" class="stack"><label for="mandatory-new-password">${escapeHtml(t('New password'))}</label><input id="mandatory-new-password" name="new_password" type="password" autocomplete="new-password" required minlength="12" maxlength="72" /><label for="mandatory-confirm-password">${escapeHtml(t('Confirm new password'))}</label><input id="mandatory-confirm-password" name="confirm_password" type="password" autocomplete="new-password" required minlength="12" maxlength="72" /><button class="button primary" type="submit">${escapeHtml(t('Save new password'))}</button></form><p id="password-change-message" class="form-message" role="status"></p>` : ''}<button class="button secondary" data-action="sign-out">${escapeHtml(t('Sign out'))}</button></section>`;
+    bindSharedActions();
+    const form = portalPanel.querySelector('#mandatory-password-change-form');
+    form?.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const newPasswordInput = form.elements.new_password;
+      const confirmPasswordInput = form.elements.confirm_password;
+      let newPassword = String(newPasswordInput.value ?? '');
+      const message = portalPanel.querySelector('#password-change-message');
+      const submit = form.querySelector('button[type="submit"]');
+      if (newPassword !== String(confirmPasswordInput.value ?? '')) {
+        setMessage(message, 'The new passwords do not match.', true);
+        return;
+      }
+      const byteLength = new TextEncoder().encode(newPassword).byteLength;
+      if (byteLength < 12 || byteLength > 72) {
+        setMessage(message, 'Choose a password between 12 and 72 UTF-8 bytes.', true);
+        return;
+      }
+      submit.disabled = true;
+      setMessage(message, 'Updating password…');
+      try {
+        const { data, error } = await supabase.functions.invoke('change-customer-password', {
+          body: { new_password: newPassword },
+        });
+        newPasswordInput.value = '';
+        confirmPasswordInput.value = '';
+        newPassword = '';
+        if (error || data?.ok !== true) {
+          setMessage(message, 'Password could not be changed. Try again or contact an administrator.', true);
+          return;
+        }
+        const { data: sessionData } = await supabase.auth.getSession();
+        await handleSession(sessionData.session);
+      } catch {
+        newPasswordInput.value = '';
+        confirmPasswordInput.value = '';
+        newPassword = '';
+        setMessage(message, 'Password could not be changed. Try again or contact an administrator.', true);
+      } finally {
+        if (submit.isConnected) submit.disabled = false;
+      }
     });
   }
 
@@ -501,6 +571,65 @@ if (!supabase) {
     });
     content.dataset.customerId = customerId;
     content.querySelector('[data-action="close-customer-profile"]')?.addEventListener('click', () => dialog.close());
+    dialog.addEventListener('close', () => {
+      const oneTimeResult = content.querySelector('#customer-credential-result');
+      oneTimeResult?.replaceChildren();
+      if (oneTimeResult) oneTimeResult.hidden = true;
+    }, { once: true });
+    content.querySelector('#customer-credential-form')?.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      if (pageState.context?.kind !== 'admin') return;
+      if (!window.confirm(t('This will block customer portal data until a new password is set. Continue?'))) return;
+      const form = event.currentTarget;
+      const button = form.querySelector('button[type="submit"]');
+      const result = content.querySelector('#customer-credential-result');
+      const formData = new FormData(form);
+      const reason = String(formData.get('reason') ?? '').trim();
+      const identityVerified = formData.get('identity_verified') === 'yes';
+      if (reason.length < 10 || reason.length > 500 || !identityVerified) {
+        result.textContent = t('Complete the identity check and enter a valid reason.');
+        result.hidden = false;
+        return;
+      }
+      result.replaceChildren();
+      result.textContent = t('Issuing credentials…');
+      result.hidden = false;
+      button.disabled = true;
+      try {
+        const { data, error } = await supabase.functions.invoke('manage-customer-credentials', {
+          body: {
+            organization_id: pageState.context.organizationId,
+            customer_id: form.dataset.customerId,
+            identity_verified: true,
+            reason,
+          },
+        });
+        if (error || data?.ok !== true || !data.username || !data.temporary_password) {
+          result.textContent = t('Credential issue or reset could not be completed. Contact an administrator before retrying.');
+          return;
+        }
+        result.replaceChildren();
+        const warning = document.createElement('p');
+        warning.textContent = t('Show this temporary password to the customer through the approved staff handoff. It will not be shown again.');
+        const usernameLabel = document.createElement('p');
+        usernameLabel.textContent = `${t('Username')}: `;
+        const usernameValue = document.createElement('code');
+        usernameValue.textContent = data.username;
+        usernameLabel.append(usernameValue);
+        const passwordLabel = document.createElement('p');
+        passwordLabel.textContent = `${t('Temporary password')}: `;
+        const passwordValue = document.createElement('code');
+        passwordValue.textContent = data.temporary_password;
+        passwordLabel.append(passwordValue);
+        const expiry = document.createElement('p');
+        expiry.textContent = `${t('Expires')}: ${data.expires_at}`;
+        result.append(warning, usernameLabel, passwordLabel, expiry);
+      } catch {
+        result.textContent = t('Credential issue or reset could not be completed. Contact an administrator before retrying.');
+      } finally {
+        button.disabled = false;
+      }
+    });
     dialog.showModal();
     content.querySelector('[data-action="close-customer-profile"]')?.focus();
   }
@@ -817,7 +946,7 @@ if (!supabase) {
         <div class="customer-list-heading"><div><p class="eyebrow">${escapeHtml(t('Customer directory'))}</p><h2 id="customer-list-title" tabindex="-1">${escapeHtml(t('Customers'))}</h2></div>
           <div class="customer-summary" aria-label="${escapeHtml(t('Customer count, active count, and unpaid count'))}"><span><strong>${customerSummary.total}</strong><small>${escapeHtml(t('Total'))}</small></span><span><strong>${customerSummary.active}</strong><small>${escapeHtml(t('Active'))}</small></span><span><strong>${customerSummary.unpaid}</strong><small>${escapeHtml(t('Unpaid'))}</small></span></div>
         </div>
-        <div class="customer-list-search"><label class="sr-only" for="customer-search">${escapeHtml(t('Search customers by name, phone, or Account number'))}</label><input id="customer-search" type="search" autocomplete="off" value="${escapeHtml(pageState.customerListSearch)}" placeholder="${escapeHtml(t('Search name, phone, or Account #'))}"><p class="muted">${escapeHtml(t('This cloud edition has no username field; use the customer number as Account #. Area choices use the saved service address.'))}</p></div>
+        <div class="customer-list-search"><label class="sr-only" for="customer-search">${escapeHtml(t('Search customers by name, phone, or Account number'))}</label><input id="customer-search" type="search" autocomplete="off" value="${escapeHtml(pageState.customerListSearch)}" placeholder="${escapeHtml(t('Search name, phone, or Account #'))}"><p class="muted">${escapeHtml(t('Customer portal username is separate from the customer number. Area choices use the saved service address.'))}</p></div>
         <div class="customer-list-filters" role="group" aria-label="${escapeHtml(t('Filter customers by payment status or area'))}">
           <button class="customer-filter-pill ${pageState.customerListStatus === 'all' ? 'is-active' : ''}" type="button" data-billing-filter="all" aria-pressed="${pageState.customerListStatus === 'all'}">${escapeHtml(t('All'))}</button>
           <button class="customer-filter-pill ${pageState.customerListStatus === 'paid' ? 'is-active' : ''}" type="button" data-billing-filter="paid" aria-pressed="${pageState.customerListStatus === 'paid'}">${escapeHtml(t('Paid'))}</button>
@@ -1523,6 +1652,35 @@ if (!supabase) {
 
   window.addEventListener('hashchange', syncDashboardDrilldownFromHistory);
   window.addEventListener('popstate', syncDashboardDrilldownFromHistory);
+
+  customerLoginForm?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const submitButton = customerLoginForm.querySelector('button[type="submit"]');
+    const username = String(new FormData(customerLoginForm).get('username') ?? '').trim().toLowerCase();
+    const passwordInput = customerLoginForm.elements.password;
+    const password = String(passwordInput.value ?? '');
+    submitButton.disabled = true;
+    setMessage(customerLoginMessage, 'Signing in…');
+    try {
+      const { data, error } = await supabase.functions.invoke('customer-login', {
+        body: { username, password },
+      });
+      if (error || !data?.session?.access_token || !data?.session?.refresh_token) {
+        setMessage(customerLoginMessage, 'Username or password is incorrect or unavailable.', true);
+        return;
+      }
+      const { error: sessionError } = await supabase.auth.setSession(data.session);
+      if (sessionError) {
+        await supabase.auth.signOut();
+        setMessage(customerLoginMessage, 'Username or password is incorrect or unavailable.', true);
+      }
+    } catch {
+      setMessage(customerLoginMessage, 'Username or password is incorrect or unavailable.', true);
+    } finally {
+      passwordInput.value = '';
+      submitButton.disabled = false;
+    }
+  });
 
   loginForm?.addEventListener('submit', async (event) => {
     event.preventDefault();

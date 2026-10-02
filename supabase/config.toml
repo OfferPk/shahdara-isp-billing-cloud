@@ -13,3 +13,12 @@ additional_redirect_urls = ["http://127.0.0.1:4173/**", "http://localhost:4173/*
 
 [functions.invite-customer]
 verify_jwt = true
+
+[functions.customer-login]
+verify_jwt = false
+
+[functions.manage-customer-credentials]
+verify_jwt = true
+
+[functions.change-customer-password]
+verify_jwt = true

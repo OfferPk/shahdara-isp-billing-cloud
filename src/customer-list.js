@@ -238,5 +238,16 @@ export function renderCustomerProfile(row, { bills = [], receipts = [], allocati
     </div>
     <section class="customer-profile-history"><h3>${escapeHtml(t('Billing history'))}</h3><div class="table-wrap" role="region" tabindex="0" aria-label="${escapeHtml(t('Customer billing history table; scroll horizontally to view all columns'))}"><table><caption class="sr-only">${escapeHtml(t('Monthly bills and their cash receipts, credit, balance, and status.'))}</caption><thead><tr><th scope="col">${escapeHtml(t('Period / due'))}</th><th scope="col">${escapeHtml(t('Bill'))}</th><th scope="col">${escapeHtml(t('Cash received'))}</th><th scope="col">${escapeHtml(t('Credit applied'))}</th><th scope="col">${escapeHtml(t('Balance'))}</th><th scope="col">${escapeHtml(t('Status'))}</th></tr></thead><tbody>${billHistory || `<tr><td colspan="6" class="empty-cell">${escapeHtml(t('No bills recorded yet.'))}</td></tr>`}</tbody></table></div><p class="muted">${escapeHtml(t('Cash is counted only from actual receipts; allocations and carry-forward credits reduce balances but are not additional payments.'))}</p></section>
     <section class="customer-profile-history"><h3>${escapeHtml(t('Receipt history'))}</h3><ul class="customer-receipt-list">${customerReceipts || `<li class="customer-receipt-list__empty">${escapeHtml(t('No receipts recorded yet.'))}</li>`}</ul></section>
+    <section class="customer-profile-history customer-credential-access">
+      <h3>${escapeHtml(t('Username + temporary password'))}</h3>
+      <p class="muted">${escapeHtml(t('Issue or reset a separate customer username and temporary password. Customer data stays blocked until the password is changed. The password is shown once; closing this profile clears it. The internal synthetic address is not an inbox and never proves inbox ownership.'))}</p>
+      <form id="customer-credential-form" class="stack" data-customer-id="${escapeHtml(customer.id)}">
+        <label for="customer-credential-reason">${escapeHtml(t('Reason for credential issue or reset'))}</label>
+        <textarea id="customer-credential-reason" name="reason" maxlength="500" minlength="10" required></textarea>
+        <label class="checkbox-label"><input type="checkbox" name="identity_verified" value="yes" required /> ${escapeHtml(t('I verified this customer under the approved staff identity-check process.'))}</label>
+        <button class="button secondary" type="submit">${escapeHtml(t('Issue or reset temporary password'))}</button>
+      </form>
+      <div id="customer-credential-result" class="form-message" role="status" aria-live="polite" hidden></div>
+    </section>
   </div>`;
 }

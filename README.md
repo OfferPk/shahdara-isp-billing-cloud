@@ -22,6 +22,12 @@ Customer invitations are handled by the separately deployed `invite-customer` Ed
 
 `APP_ORIGIN` and `APP_REDIRECT_URL` are server-only URL settings; the function uses Supabase's hosted server-side `SUPABASE_SERVICE_ROLE_KEY` and does not store that key in this repository, the browser, or Actions. A successful response means the Auth invitation request was accepted (or an earlier request was recovered) and the account link was created; it does not confirm email delivery. No customer invitation email or Auth magic link is sent by the test suite or deployment. The Pages workflow builds and deploys only the browser `dist/` artifact; it does not deploy the Edge Function, create Auth users, send invitations, or apply database changes. Apply `20261002120000_customer_invitation_lifecycle.sql` to the approved staging project and deploy `invite-customer` separately. Do not weaken RLS or use anonymous access as a bootstrap shortcut.
 
+## Username and temporary-password customer sign-in (draft-only)
+
+This branch adds a staff-issued username/password option while retaining the existing invited-email magic-link fallback and disabled self-service signup. It creates a separate synthetic Auth identity, uses a one-time 24-hour temporary password, and denies customer data in RLS until the latest temporary password is changed and the server marks the account active. The server-generated synthetic `internal.shahdara.net` address is an Auth-only alias, not an inbox or proof of inbox ownership; the user-approved exception and staff identity-check/handoff policy are documented in [`docs/customer-username-password-auth.md`](docs/customer-username-password-auth.md).
+
+The additive migration and three Edge Functions are not applied or deployed by this PR or the Pages workflow. No project settings, database, users, secrets, or customer communications are changed. Keep the PR draft until the documented isolated-staging checks verify managed-gateway IP trust, Supabase Auth rate-limit behavior behind the broker, password-change/secure-reauthentication behavior, CORS, RLS, and one-time credential failure recovery. Never put `SUPABASE_SERVICE_ROLE_KEY` or `PORTAL_RATE_LIMIT_HMAC_KEY` in the frontend or repository.
+
 ## Local development and tests
 
 Requires Node.js 20.19+ or 22.12+ and npm.
@@ -32,9 +38,10 @@ cp .env.example .env.local
 npm ci
 npm test
 npm run build
+tests/run-local-customer-auth.sh
 npm run dev
 ```
 
-`.env.local` is ignored by Git. `npm test` covers synthetic ledger behavior, invitation authorization/CORS/validation/linking behavior using mocked clients, branding validation/printing and static security contracts, Supabase client configuration and query adapters, and the price-history trigger correction. It does not run pgTAP locally; the 35-assertion company-branding pgTAP suite runs with synthetic fixtures inside a transaction that is rolled back on the approved staging database. A local `supabase test db` run requires the Supabase CLI and Docker.
+`.env.local` is ignored by Git. `npm test` covers synthetic ledger behavior, invitation and username/password Edge Function handlers with mocked clients, branding validation/printing, auth/RLS static security contracts, Supabase client configuration and query adapters, and the price-history trigger correction. `tests/run-local-customer-auth.sh` initializes a separate ephemeral PostgreSQL 16 cluster, applies the auth migration to synthetic fixtures, tests RLS gates, one-time lifecycle, and throttling, then stops and removes only that cluster; it never connects to Supabase or the existing local PostgreSQL cluster. It does not run pgTAP; the 35-assertion company-branding pgTAP suite runs with synthetic fixtures inside a transaction that is rolled back on the approved staging database. A local `supabase test db` run requires the Supabase CLI and Docker.
 
-This remains a review edition, not a production-ready replacement or full offline-parity port. It has no offline sync/outbox, conflict workflow, multi-organization chooser, operational monitoring/alerting, backup-restore rehearsal, or independent penetration test. The staging invitation lifecycle has unit/contract coverage, but email delivery and customer sign-in still require a designated synthetic test inbox. Keep the original offline app authoritative until the owner has accepted the invitation and confirmed access, integration review, and a reconciliation rehearsal are complete.
+This remains a review edition, not a production-ready replacement or full offline-parity port. It has no offline sync/outbox, conflict workflow, multi-organization chooser, operational monitoring/alerting, backup-restore rehearsal, or independent penetration test. The retained email-magic-link fallback needs a designated synthetic test inbox; the staff-issued username/password flow needs the isolated gateway, Auth, and RLS checks described above. Keep the original offline app authoritative until the owner has accepted the invitation and confirmed access, integration review, and a reconciliation rehearsal are complete.

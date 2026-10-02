@@ -39,8 +39,7 @@ export async function loadContexts(supabase, user) {
   }
 
   const { data: accounts, error: accountError } = await supabase
-    .from('customer_portal_accounts')
-    .select('organization_id, customer_id');
+    .rpc('my_customer_portal_contexts');
   if (accountError) throw accountError;
   const contexts = [];
   for (const account of accounts ?? []) {

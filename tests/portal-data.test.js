@@ -49,17 +49,17 @@ test('admin contexts are selected from the signed-in user membership and organiz
   assert.deepEqual(client.calls[1].filters, [['in', 'id', ['synthetic-org']]]);
 });
 
-test('customer context reads are tied to the authenticated account link', async () => {
+test('customer contexts come only from the authenticated safe account-link RPC', async () => {
   const client = mockClient({
     organization_memberships: { data: [], error: null },
-    customer_portal_accounts: { data: [{ organization_id: 'synthetic-org', customer_id: 'synthetic-customer' }], error: null },
     customers: { data: [{ name: 'Synthetic Customer' }], error: null },
-  });
+  }, { data: [{ organization_id: 'synthetic-org', customer_id: 'synthetic-customer' }], error: null });
   const contexts = await loadContexts(client, { id: 'synthetic-customer-user' });
 
   assert.deepEqual(contexts, [{
     kind: 'customer', organizationId: 'synthetic-org', customerId: 'synthetic-customer', customerName: 'Synthetic Customer',
   }]);
+  assert.deepEqual(client.calls[1], { rpc: 'my_customer_portal_contexts', args: undefined });
   assert.deepEqual(client.calls[2].filters, [
     ['eq', 'organization_id', 'synthetic-org'],
     ['eq', 'id', 'synthetic-customer'],
