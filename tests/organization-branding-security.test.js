@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-const migrationUrl = new URL('../supabase/migrations/20261002180000_organization_branding.sql', import.meta.url);
+const migrationUrl = new URL('../supabase/migrations/20261002162113_organization_branding.sql', import.meta.url);
 const [migration, portalData, clientBranding, main, receiptRenderer, billRenderer, databaseTests] = await Promise.all([
   readFile(migrationUrl, 'utf8'),
   readFile(new URL('../src/portal-data.js', import.meta.url), 'utf8'),
