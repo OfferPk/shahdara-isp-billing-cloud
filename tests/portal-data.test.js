@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { createCustomer, invokeRpc, loadContexts, loadPortalRows, manageServiceIncident } from '../src/portal-data.js';
 
 function mockClient(results = {}, rpcResult = { data: null, error: null }) {
@@ -158,6 +159,51 @@ test('Admin phone query uses only the private phone column and is scoped to the 
   const billQuery = client.calls.find((entry) => entry.table === 'bills');
   assert.deepEqual(billQuery.selects, ['id, customer_id, period, amount_due_cents, issued_on, due_date, plan_snapshot']);
   assert.ok(billQuery.filters.some(([kind, field, value]) => kind === 'eq' && field === 'organization_id' && value === 'synthetic-org'));
+});
+
+test('collection monitoring uses only existing organization-scoped public billing fields', async () => {
+  const client = mockClient({
+    customers: { data: [], error: null },
+    bills: { data: [], error: null },
+    receipts: { data: [], error: null },
+    receipt_allocations: { data: [], error: null },
+    incidents: { data: [], error: null },
+  });
+  await loadPortalRows(client, { kind: 'admin', organizationId: 'synthetic-org' });
+
+  const expectedColumns = {
+    customers: 'id, customer_number, name, plan_name, service_address, service_status, monthly_fee_cents, archived',
+    bills: 'id, customer_id, period, amount_due_cents, issued_on, due_date, plan_snapshot',
+    receipts: 'id, customer_id, origin_bill_id, received_on, amount_cents, method',
+    receipt_allocations: 'receipt_id, bill_id, customer_id, amount_cents, allocation_kind',
+  };
+  const dashboardQueries = Object.entries(expectedColumns).map(([table, columns]) => {
+    const query = client.calls.find((entry) => entry.table === table);
+    assert.deepEqual(query.selects, [columns], `${table} metric input columns`);
+    assert.ok(query.filters.some(([kind, field, value]) => kind === 'eq' && field === 'organization_id' && value === 'synthetic-org'));
+    return query;
+  });
+
+  assert.doesNotMatch(dashboardQueries.flatMap((query) => query.selects).join(' '), /phone|staff_notes|portal_email|user_id|private_details|created_by|recorded_by/i);
+  const metricSources = await Promise.all([
+    readFile(new URL('../src/ledger.js', import.meta.url), 'utf8'),
+    readFile(new URL('../src/dashboard-metrics.js', import.meta.url), 'utf8'),
+  ]);
+  assert.doesNotMatch(metricSources.join('\n'), /phone|staff_notes|customer_private_details|incident_private_details|portal_email|user_id/i);
+});
+
+test('portal data loading throws at the paging cap rather than exposing partial rows', async () => {
+  const fullPage = Array.from({ length: 1000 }, (_, index) => ({ id: `synthetic-bill-${index}` }));
+  const client = mockClient({
+    customers: { data: [], error: null },
+    bills: { data: fullPage, error: null },
+    receipts: { data: [], error: null },
+    receipt_allocations: { data: [], error: null },
+    incidents: { data: [], error: null },
+  });
+
+  await assert.rejects(loadPortalRows(client, { kind: 'admin', organizationId: 'synthetic-org' }), /safe paging limit/);
+  assert.equal(client.calls.filter((query) => query.table === 'bills').length, 50);
 });
 
 test('incident management uses its dedicated RPC with public and private fields kept distinct', async () => {

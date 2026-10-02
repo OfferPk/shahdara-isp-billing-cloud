@@ -86,6 +86,9 @@ button:focus-visible, a:focus-visible { outline: 3px solid #102e27; outline-offs
 .admin-metrics .metric--billed { --metric-accent: #376fc5; --metric-tint: #eaf1ff; --metric-border: #d5e1f8; background: linear-gradient(145deg, #fff, #f3f7ff); }
 .admin-metrics .metric--cash { --metric-accent: #7854b8; --metric-tint: #f1ebff; --metric-border: #e1d7f5; background: linear-gradient(145deg, #fff, #f8f4ff); }
 .admin-metrics .metric--outstanding { --metric-accent: #a96710; --metric-tint: #fff3df; --metric-border: #f0dfc0; background: linear-gradient(145deg, #fff, #fff9ee); }
+.admin-metrics .metric--overdue { --metric-accent: #b2473d; --metric-tint: #fff0ed; --metric-border: #f0d3ce; background: linear-gradient(145deg, #fff, #fff5f2); }
+.admin-metrics .metric--unpriced { --metric-accent: #5f6e69; --metric-tint: #edf2ef; --metric-border: #d7e0db; background: linear-gradient(145deg, #fff, #f6f9f7); }
+.admin-metrics .metric--missing-bill { --metric-accent: #26718a; --metric-tint: #eaf5f8; --metric-border: #cfe5eb; background: linear-gradient(145deg, #fff, #f3fafb); }
 .admin-metrics .metric strong { color: var(--ink); line-height: 1.2; }
 .admin-metrics .metric small { line-height: 1.45; }
 .month-panel { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 16px; padding: 14px 18px; }
