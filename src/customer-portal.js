@@ -7,8 +7,8 @@ function sumCents(rows) {
   return rows.reduce((sum, row) => sum + Number(row.amount_cents || 0), 0);
 }
 
-export function formatBillingMonth(month, locale = 'en-PK') {
-  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(String(month ?? ''))) return 'Month not available';
+export function formatBillingMonth(month, locale = 'en-PK', t = (value) => value) {
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(String(month ?? ''))) return t('Month not available');
   return new Intl.DateTimeFormat(locale, {
     month: 'long',
     year: 'numeric',
@@ -94,8 +94,8 @@ function isValidTimestamp(value) {
   return typeof value === 'string' && value.length > 0 && Number.isFinite(Date.parse(value));
 }
 
-export function formatIncidentTimestamp(value, locale = 'en-PK') {
-  if (!isValidTimestamp(value)) return 'Time not available';
+export function formatIncidentTimestamp(value, locale = 'en-PK', t = (entry) => entry) {
+  if (!isValidTimestamp(value)) return t('Time not available');
   return new Intl.DateTimeFormat(locale, {
     dateStyle: 'medium',
     timeStyle: 'short',
@@ -114,7 +114,7 @@ export function buildIncidentTimeline(incident, t = (value) => value) {
     .filter(([field]) => isValidTimestamp(incident[field]))
     .map(([field, label], index) => ({ label, datetime: incident[field], index }))
     .sort((a, b) => Date.parse(a.datetime) - Date.parse(b.datetime) || a.index - b.index)
-    .map(({ label, datetime }) => ({ label, datetime, displayTime: formatIncidentTimestamp(datetime) }));
+    .map(({ label, datetime }) => ({ label, datetime, displayTime: formatIncidentTimestamp(datetime, 'en-PK', t) }));
   const restorationMessage = isValidTimestamp(incident.restored_at)
     ? `${t('Restoration recorded')} ${formatIncidentTimestamp(incident.restored_at)}.`
     : status === 'resolved'
