@@ -5,6 +5,7 @@ import {
   buildCustomerListRows,
   customerDueLabel,
   filterCustomerRows,
+  filterCustomersWithoutBillSnapshot,
   getCustomerAreaOptions,
   renderCustomerCards,
   renderCustomerProfile,
@@ -135,6 +136,30 @@ test('Paid and Unpaid filters follow allocated balance and Area filters use only
   assert.doesNotMatch(JSON.stringify(getCustomerAreaOptions(rows)), /Private Mohalla|Private Zone/);
 });
 
+test('missing-snapshot drill-down returns only active non-archived customers missing the exact selected month', () => {
+  const candidates = [
+    { id: 'active-missing', customer_number: 40, name: 'Active Missing', service_status: 'active', archived: false },
+    { id: 'active-has-snapshot', customer_number: 41, name: 'Active Has Snapshot', service_status: 'active', archived: false },
+    { id: 'active-archived', customer_number: 42, name: 'Archived', service_status: 'active', archived: true },
+    { id: 'offline-missing', customer_number: 43, name: 'Offline', service_status: 'offline', archived: false },
+  ];
+  const rows = buildCustomerListRows({
+    customers: candidates,
+    bills: [
+      { id: 'old-snapshot', customer_id: 'active-missing', period: '2026-01-01', amount_due_cents: 5000 },
+      { id: 'month-snapshot', customer_id: 'active-has-snapshot', period: '2026-02-01', amount_due_cents: null },
+    ],
+    allocations: [],
+    currentMonth: '2026-02',
+  });
+
+  assert.deepEqual(filterCustomersWithoutBillSnapshot(rows, [
+    { id: 'old-snapshot', customer_id: 'active-missing', period: '2026-01-01' },
+    { id: 'month-snapshot', customer_id: 'active-has-snapshot', period: '2026-02-01' },
+  ], '2026-02').map((row) => row.customer.id), ['active-missing']);
+  assert.deepEqual(filterCustomersWithoutBillSnapshot(rows, [], '2026-13'), []);
+});
+
 test('header summary counts active non-archived customers and unpaid non-archived accounts', () => {
   assert.deepEqual(summarizeCustomerRows(rowsForTests()), { total: 3, active: 1, unpaid: 1 });
 });
@@ -206,7 +231,9 @@ test('list controls and mobile CSS provide labelled, keyboard-operable status an
   assert.match(main, /id="customer-search" type="search"/);
   assert.match(main, /role="group" aria-label="\$\{escapeHtml\(t\('Filter customers by payment status or area'\)\)\}"/);
   assert.match(main, /aria-pressed="\$\{pageState\.customerListStatus === 'paid'\}"/);
-  assert.match(main, /id="customer-list-count" class="customer-list-count" role="status" aria-live="polite"/);
+  assert.match(main, /id="customer-list-count" class="customer-list-count" role="status" aria-live="\$\{customerDrilldown \? 'off' : 'polite'\}"/);
+  assert.match(main, /id="customer-list-drilldown-message" role="status" aria-live="polite" aria-atomic="true"/);
+  assert.match(main, /data-action="clear-dashboard-drilldown" data-target="customer-list"/);
   assert.match(main, /<dialog id="customer-profile-dialog"/);
   assert.match(styles, /\.customer-card-grid\s*\{[^}]*display: grid/s);
   assert.match(styles, /@media \(max-width: 760px\)[\s\S]*?\.customer-card-grid \{ grid-template-columns: 1fr; \}/);

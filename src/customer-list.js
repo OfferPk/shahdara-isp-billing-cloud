@@ -105,6 +105,22 @@ export function filterCustomerRows(rows, { search = '', status = 'all', area = '
   });
 }
 
+export function filterCustomersWithoutBillSnapshot(rows, bills, period) {
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(String(period))) return [];
+  const customersWithSnapshot = new Set(bills
+    .filter((bill) => periodOf(bill) === period)
+    .map((bill) => bill.customer_id)
+    .filter(Boolean));
+  const seen = new Set();
+  return rows.filter(({ customer }) => {
+    if (!customer?.id || seen.has(customer.id)) return false;
+    seen.add(customer.id);
+    return !customer.archived
+      && customer.service_status === 'active'
+      && !customersWithSnapshot.has(customer.id);
+  });
+}
+
 export function summarizeCustomerRows(rows) {
   return {
     total: rows.length,

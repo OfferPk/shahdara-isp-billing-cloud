@@ -81,6 +81,24 @@ export function filterAdminBillRows(rows, { search = '', status = 'all' } = {}) 
   });
 }
 
+export function filterCollectionBillRows(rows, { scope = '', period = '' } = {}) {
+  if (!scope) return rows;
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(String(period))) return [];
+  return rows.filter((row) => {
+    if (row.period !== period) return false;
+    if (scope === 'overdue') {
+      return row.status === 'unpaid'
+        && row.amountDueCents !== null
+        && Number.isFinite(Number(row.amountDueCents))
+        && row.balanceCents > 0
+        && Boolean(validIsoDate(row.dueDate))
+        && row.isOverdue === true;
+    }
+    if (scope === 'unpriced') return row.status === 'not-priced' && row.amountDueCents === null;
+    return false;
+  });
+}
+
 export function countAdminBillFilters(rows, { search = '' } = {}) {
   const searchRows = filterAdminBillRows(rows, { search, status: 'all' });
   return {

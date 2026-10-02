@@ -76,7 +76,7 @@ test('credit allocated to a future month does not count as cash received in that
   assert.equal(summary.outstandingCents, 0);
 });
 
-test('overdue totals require an explicit past due date and positive priced balance, counting each account once', () => {
+test('selected-period overdue totals require an explicit past due date and positive priced balance, counting each account once', () => {
   const summary = calculateDashboard({
     month: '2026-02',
     today: '2026-02-15',
@@ -104,9 +104,9 @@ test('overdue totals require an explicit past due date and positive priced balan
     ],
   });
 
-  assert.equal(summary.overdueCents, 17000);
-  assert.equal(summary.overdueBillCount, 3);
-  assert.equal(summary.overdueAccountCount, 2);
+  assert.equal(summary.overdueCents, 5000, 'older-period balances are excluded from this period card');
+  assert.equal(summary.overdueBillCount, 1);
+  assert.equal(summary.overdueAccountCount, 1);
 });
 
 test('selected-month unpriced and missing-snapshot counts are scoped and deduplicate customer rows', () => {

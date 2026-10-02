@@ -7,6 +7,7 @@ import { renderDashboardMetrics } from './dashboard-metrics.js';
 import {
   buildCustomerListRows,
   filterCustomerRows,
+  filterCustomersWithoutBillSnapshot,
   getCustomerAreaOptions,
   renderCustomerCards,
   renderCustomerProfile,
@@ -22,10 +23,12 @@ import {
 import {
   buildAdminBillRows,
   countAdminBillFilters,
+  filterCollectionBillRows,
   filterAdminBillRows,
   renderAdminBillCards,
   renderPrintableReceiptHtml,
 } from './admin-bills.js';
+import { parseDashboardDrilldownHash } from './dashboard-drilldown.js';
 import { renderAdminIncidentCards, renderIncidentCustomerOptions } from './admin-incidents.js';
 import { applyDocumentLanguage, formatUiMessage, getStoredLanguage, normalizeLanguage, setLanguagePreference, translateUi } from './language.js';
 import './styles.css';
@@ -103,6 +106,7 @@ if (!supabase) {
     customerBillingMonth: '',
     customerReceiptFrom: '',
     customerReceiptThrough: '',
+    dashboardDrilldown: null,
   };
   let pendingReceiptAttempt = null;
 
@@ -214,8 +218,10 @@ if (!supabase) {
     showPortalLoading();
     try {
       pageState.rows = await loadPortalRows(supabase, context);
+      applyDashboardDrilldown(parseDashboardDrilldownHash(window.location.hash));
       renderPortal();
-      if (contextChanged) portalPanel.querySelector('h1')?.focus();
+      if (pageState.dashboardDrilldown) focusDashboardDrilldown(pageState.dashboardDrilldown);
+      else if (contextChanged) portalPanel.querySelector('h1')?.focus();
       announceApp(context.kind === 'admin' ? 'Administrator portal loaded.' : 'Customer portal loaded.');
     } catch (error) {
       portalPanel.innerHTML = `<div class="panel" role="alert"><p class="eyebrow">${escapeHtml(t('Could not load records'))}</p><h2>${escapeHtml(t('Access was not granted'))}</h2><p class="error-text">${escapeHtml(error.message || t('The request failed.'))}</p><p>${escapeHtml(t('Database row-level policies remain authoritative; contact the ISP administrator if this account should have portal access.'))}</p><button class="button secondary" data-action="sign-out">${escapeHtml(t('Sign out'))}</button></div>`;
@@ -368,19 +374,32 @@ if (!supabase) {
 
   function updateCustomerListResults() {
     const listRows = currentCustomerListRows();
-    const filteredRows = filterCustomerRows(listRows, {
+    const drilldown = pageState.dashboardDrilldown?.target === 'customer-list' ? pageState.dashboardDrilldown : null;
+    const scopedRows = drilldown
+      ? filterCustomersWithoutBillSnapshot(listRows, pageState.rows?.bills ?? [], drilldown.period)
+      : listRows;
+    const filteredRows = filterCustomerRows(scopedRows, {
       search: pageState.customerListSearch,
       status: pageState.customerListStatus,
       area: pageState.customerListArea,
     });
     const grid = portalPanel.querySelector('#customer-card-grid');
     const count = portalPanel.querySelector('#customer-list-count');
+    if (count) count.setAttribute('aria-live', drilldown ? 'off' : 'polite');
     if (grid) {
       grid.innerHTML = listRows.length
         ? renderCustomerCards(filteredRows, formatMoney, t)
         : `<p class="customer-list-empty" role="status">${escapeHtml(t('No customer records yet.'))}</p>`;
     }
-    if (count) count.textContent = formatUiMessage('Showing {shown} of {total} customers.', currentLanguage, { shown: filteredRows.length, total: listRows.length });
+    if (count) count.textContent = formatUiMessage('Showing {shown} of {total} customers.', currentLanguage, { shown: filteredRows.length, total: scopedRows.length });
+    const summary = portalPanel.querySelector('#customer-list-drilldown-summary');
+    const summaryMessage = portalPanel.querySelector('#customer-list-drilldown-message');
+    if (summary && summaryMessage) {
+      summary.hidden = !drilldown;
+      summaryMessage.textContent = drilldown
+        ? formatUiMessage('Showing active customers without a bill snapshot for {period}. {count} customers match.', currentLanguage, { period: drilldown.period, count: scopedRows.length })
+        : '';
+    }
     for (const button of portalPanel.querySelectorAll('[data-billing-filter]')) {
       const selected = button.dataset.billingFilter === pageState.customerListStatus;
       button.setAttribute('aria-pressed', String(selected));
@@ -430,14 +449,88 @@ if (!supabase) {
     });
   }
 
+  function focusDashboardDrilldown(route) {
+    const sectionId = route.target === 'admin-bills' ? 'admin-bills' : 'customer-list';
+    const headingId = route.target === 'admin-bills' ? 'admin-bills-title' : 'customer-list-title';
+    const section = portalPanel.querySelector(`#${sectionId}`);
+    const heading = portalPanel.querySelector(`#${headingId}`);
+    const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    section?.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'start' });
+    heading?.focus({ preventScroll: true });
+  }
+
+  function applyDashboardDrilldown(route, { focus = false } = {}) {
+    const nextRoute = pageState.context?.kind === 'admin' && pageState.rows && route ? route : null;
+    const current = pageState.dashboardDrilldown;
+    if (current?.hash === nextRoute?.hash && current?.card === nextRoute?.card) return;
+
+    pageState.dashboardDrilldown = nextRoute;
+    if (nextRoute) {
+      pageState.selectedMonth = nextRoute.period;
+      pageState.billSearch = '';
+      pageState.billStatus = 'all';
+      pageState.customerListSearch = '';
+      pageState.customerListStatus = 'all';
+      pageState.customerListArea = '';
+      pageState.customerAreaOpen = false;
+      const monthInput = portalPanel.querySelector('#dashboard-month');
+      if (monthInput) monthInput.value = nextRoute.period;
+      const billSearch = portalPanel.querySelector('#admin-bill-search');
+      if (billSearch) billSearch.value = '';
+      const customerSearch = portalPanel.querySelector('#customer-search');
+      if (customerSearch) customerSearch.value = '';
+    }
+    updateAdminBillResults();
+    updateCustomerListResults();
+    if (focus && nextRoute) focusDashboardDrilldown(nextRoute);
+    if (!nextRoute && current) announceApp('Dashboard filter cleared.');
+  }
+
+  function bindDashboardDrilldowns(context) {
+    if (context.kind !== 'admin') return;
+    portalPanel.querySelectorAll('[data-dashboard-drilldown]').forEach((link) => link.addEventListener('click', (event) => {
+      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const route = parseDashboardDrilldownHash(link.getAttribute('href'));
+      if (!route || !pageState.rows || context.organizationId !== pageState.context?.organizationId) return;
+      event.preventDefault();
+      history.pushState({ ...(history.state ?? {}), dashboardDrilldown: route }, '', route.hash);
+      applyDashboardDrilldown(route, { focus: true });
+    }));
+  }
+
+  function clearDashboardDrilldown(target) {
+    const sectionId = target === 'admin-bills' ? 'admin-bills' : 'customer-list';
+    history.pushState({ ...(history.state ?? {}), dashboardDrilldown: null }, '', `#${sectionId}`);
+    applyDashboardDrilldown(null);
+    const headingId = sectionId === 'admin-bills' ? 'admin-bills-title' : 'customer-list-title';
+    portalPanel.querySelector(`#${headingId}`)?.focus({ preventScroll: true });
+  }
+
   function updateAdminBillResults() {
-    const billRows = currentAdminBillRows();
+    const allBillRows = currentAdminBillRows();
+    const drilldown = pageState.dashboardDrilldown?.target === 'admin-bills' ? pageState.dashboardDrilldown : null;
+    const billRows = filterCollectionBillRows(allBillRows, {
+      scope: drilldown?.scope ?? '',
+      period: drilldown?.period ?? '',
+    });
     const filteredRows = filterAdminBillRows(billRows, { search: pageState.billSearch, status: pageState.billStatus });
     const counts = countAdminBillFilters(billRows, { search: pageState.billSearch });
     const grid = portalPanel.querySelector('#admin-bill-card-grid');
     const count = portalPanel.querySelector('#admin-bill-count');
+    if (count) count.setAttribute('aria-live', drilldown ? 'off' : 'polite');
     if (grid) grid.innerHTML = renderAdminBillCards(filteredRows, formatMoney, t);
-    if (count) count.textContent = formatUiMessage('Showing {shown} of {matching} matching bills; {total} total records.', currentLanguage, { shown: Math.min(filteredRows.length, 100), matching: filteredRows.length, total: billRows.length });
+    if (count) count.textContent = formatUiMessage('Showing {shown} of {matching} matching bills; {total} total records.', currentLanguage, { shown: Math.min(filteredRows.length, 100), matching: filteredRows.length, total: allBillRows.length });
+    const summary = portalPanel.querySelector('#admin-bill-drilldown-summary');
+    const summaryMessage = portalPanel.querySelector('#admin-bill-drilldown-message');
+    if (summary && summaryMessage) {
+      summary.hidden = !drilldown;
+      const message = drilldown?.scope === 'overdue'
+        ? 'Showing overdue bills for {period}. {count} bills match. Past-due means an explicitly recorded due date before today and a positive remaining balance.'
+        : 'Showing unpriced bills for {period}. {count} bills match. No bill amount is treated as zero.';
+      summaryMessage.textContent = drilldown
+        ? formatUiMessage(message, currentLanguage, { period: drilldown.period, count: filteredRows.length })
+        : '';
+    }
     for (const button of portalPanel.querySelectorAll('[data-bill-status]')) {
       const status = button.dataset.billStatus;
       const selected = status === pageState.billStatus;
@@ -526,8 +619,13 @@ if (!supabase) {
       today: localDate(),
       t,
     });
-    const billCounts = countAdminBillFilters(adminBillRows, { search: pageState.billSearch });
-    const filteredAdminBillRows = filterAdminBillRows(adminBillRows, { search: pageState.billSearch, status: pageState.billStatus });
+    const billDrilldown = pageState.dashboardDrilldown?.target === 'admin-bills' ? pageState.dashboardDrilldown : null;
+    const scopedAdminBillRows = filterCollectionBillRows(adminBillRows, {
+      scope: billDrilldown?.scope ?? '',
+      period: billDrilldown?.period ?? '',
+    });
+    const billCounts = countAdminBillFilters(scopedAdminBillRows, { search: pageState.billSearch });
+    const filteredAdminBillRows = filterAdminBillRows(scopedAdminBillRows, { search: pageState.billSearch, status: pageState.billStatus });
     const customerListRows = buildCustomerListRows({
       customers,
       bills: rows.bills,
@@ -536,7 +634,11 @@ if (!supabase) {
       currentMonth: localMonth(),
     });
     const customerSummary = summarizeCustomerRows(customerListRows);
-    const filteredCustomerRows = filterCustomerRows(customerListRows, {
+    const customerDrilldown = pageState.dashboardDrilldown?.target === 'customer-list' ? pageState.dashboardDrilldown : null;
+    const scopedCustomerListRows = customerDrilldown
+      ? filterCustomersWithoutBillSnapshot(customerListRows, rows.bills, customerDrilldown.period)
+      : customerListRows;
+    const filteredCustomerRows = filterCustomerRows(scopedCustomerListRows, {
       search: pageState.customerListSearch,
       status: pageState.customerListStatus,
       area: pageState.customerListArea,
@@ -612,7 +714,7 @@ if (!supabase) {
         </section>
       </div>
       <section id="customer-list" class="panel data-panel customer-list-panel" aria-labelledby="customer-list-title">
-        <div class="customer-list-heading"><div><p class="eyebrow">${escapeHtml(t('Customer directory'))}</p><h2 id="customer-list-title">${escapeHtml(t('Customers'))}</h2></div>
+        <div class="customer-list-heading"><div><p class="eyebrow">${escapeHtml(t('Customer directory'))}</p><h2 id="customer-list-title" tabindex="-1">${escapeHtml(t('Customers'))}</h2></div>
           <div class="customer-summary" aria-label="${escapeHtml(t('Customer count, active count, and unpaid count'))}"><span><strong>${customerSummary.total}</strong><small>${escapeHtml(t('Total'))}</small></span><span><strong>${customerSummary.active}</strong><small>${escapeHtml(t('Active'))}</small></span><span><strong>${customerSummary.unpaid}</strong><small>${escapeHtml(t('Unpaid'))}</small></span></div>
         </div>
         <div class="customer-list-search"><label class="sr-only" for="customer-search">${escapeHtml(t('Search customers by name, phone, or Account number'))}</label><input id="customer-search" type="search" autocomplete="off" value="${escapeHtml(pageState.customerListSearch)}" placeholder="${escapeHtml(t('Search name, phone, or Account #'))}"><p class="muted">${escapeHtml(t('This cloud edition has no username field; use the customer number as Account #. Area choices use the saved service address.'))}</p></div>
@@ -623,19 +725,21 @@ if (!supabase) {
           <button class="customer-filter-pill ${pageState.customerListArea ? 'is-active' : ''}" type="button" data-action="toggle-area-filter" aria-expanded="${pageState.customerAreaOpen}" aria-pressed="${Boolean(pageState.customerListArea)}">${escapeHtml(t('Area'))}</button>
           <label class="sr-only" for="customer-area-filter">${escapeHtml(t('Filter by saved service address'))}</label><select id="customer-area-filter" aria-label="${escapeHtml(t('Filter by saved service address'))}" ${pageState.customerAreaOpen ? '' : 'hidden'}><option value="" disabled ${pageState.customerListArea ? '' : 'selected'}>${escapeHtml(t('Choose an area / address'))}</option>${customerAreaOptions}</select>
         </div>
-        <p id="customer-list-count" class="customer-list-count" role="status" aria-live="polite">${formatUiMessage('Showing {shown} of {total} customers.', currentLanguage, { shown: filteredCustomerRows.length, total: customerSummary.total })}</p>
+        <div id="customer-list-drilldown-summary" class="filter-summary" ${customerDrilldown ? '' : 'hidden'}><p id="customer-list-drilldown-message" role="status" aria-live="polite" aria-atomic="true">${customerDrilldown ? formatUiMessage('Showing active customers without a bill snapshot for {period}. {count} customers match.', currentLanguage, { period: customerDrilldown.period, count: scopedCustomerListRows.length }) : ''}</p><button class="button secondary small" type="button" data-action="clear-dashboard-drilldown" data-target="customer-list">${escapeHtml(t('Clear dashboard filter'))}</button></div>
+        <p id="customer-list-count" class="customer-list-count" role="status" aria-live="${customerDrilldown ? 'off' : 'polite'}">${formatUiMessage('Showing {shown} of {total} customers.', currentLanguage, { shown: filteredCustomerRows.length, total: scopedCustomerListRows.length })}</p>
         <div id="customer-card-grid" class="customer-card-grid">${customerSummary.total ? renderCustomerCards(filteredCustomerRows, formatMoney, t) : `<p class="customer-list-empty" role="status">${escapeHtml(t('No customer records yet.'))}</p>`}</div>
         <dialog id="customer-profile-dialog" class="edit-dialog customer-profile-dialog" aria-labelledby="customer-profile-title"><div id="customer-profile-content"></div></dialog>
       </section>
       <button class="customer-fab" type="button" data-action="open-add-customer" aria-label="${escapeHtml(t('Add customer'))}" title="${escapeHtml(t('Add customer'))}"><span aria-hidden="true">+</span></button>
-      <section id="admin-bills" class="panel data-panel admin-bills-panel" aria-labelledby="admin-bills-title"><div class="section-heading"><div><p class="eyebrow">${escapeHtml(t('Monthly snapshots'))}</p><h2 id="admin-bills-title">${escapeHtml(t('Bills'))}</h2></div><span class="muted">${bills.length} ${escapeHtml(t('records'))}</span></div>
+      <section id="admin-bills" class="panel data-panel admin-bills-panel" aria-labelledby="admin-bills-title"><div class="section-heading"><div><p class="eyebrow">${escapeHtml(t('Monthly snapshots'))}</p><h2 id="admin-bills-title" tabindex="-1">${escapeHtml(t('Bills'))}</h2></div><span class="muted">${bills.length} ${escapeHtml(t('records'))}</span></div>
         <div class="bill-list-search"><label for="admin-bill-search">${escapeHtml(t('Search bills by customer name or Admin phone'))}</label><input id="admin-bill-search" type="search" autocomplete="off" value="${escapeHtml(pageState.billSearch)}" placeholder="${escapeHtml(t('Search customer name or phone'))}"><p class="muted">${escapeHtml(t('Phone lookup uses only the Admin-authorized private phone record.'))}</p></div>
         <div class="bill-list-filters" role="group" aria-label="${escapeHtml(t('Filter bills by payment status'))}">
           <button class="bill-filter-pill ${pageState.billStatus === 'all' ? 'is-active' : ''}" type="button" data-bill-status="all" aria-pressed="${pageState.billStatus === 'all'}">${escapeHtml(t('All'))} (${billCounts.all})</button>
           <button class="bill-filter-pill ${pageState.billStatus === 'unpaid' ? 'is-active' : ''}" type="button" data-bill-status="unpaid" aria-pressed="${pageState.billStatus === 'unpaid'}">${escapeHtml(t('Unpaid'))} (${billCounts.unpaid})</button>
           <button class="bill-filter-pill ${pageState.billStatus === 'paid' ? 'is-active' : ''}" type="button" data-bill-status="paid" aria-pressed="${pageState.billStatus === 'paid'}">${escapeHtml(t('Paid'))} (${billCounts.paid})</button>
         </div>
-        <p id="admin-bill-count" class="bill-list-count" role="status" aria-live="polite">${formatUiMessage('Showing {shown} of {matching} matching bills; {total} total records.', currentLanguage, { shown: Math.min(filteredAdminBillRows.length, 100), matching: filteredAdminBillRows.length, total: adminBillRows.length })}</p>
+        <div id="admin-bill-drilldown-summary" class="filter-summary" ${billDrilldown ? '' : 'hidden'}><p id="admin-bill-drilldown-message" role="status" aria-live="polite" aria-atomic="true">${billDrilldown ? formatUiMessage(billDrilldown.scope === 'overdue' ? 'Showing overdue bills for {period}. {count} bills match. Past-due means an explicitly recorded due date before today and a positive remaining balance.' : 'Showing unpriced bills for {period}. {count} bills match. No bill amount is treated as zero.', currentLanguage, { period: billDrilldown.period, count: filteredAdminBillRows.length }) : ''}</p><button class="button secondary small" type="button" data-action="clear-dashboard-drilldown" data-target="admin-bills">${escapeHtml(t('Clear dashboard filter'))}</button></div>
+        <p id="admin-bill-count" class="bill-list-count" role="status" aria-live="${billDrilldown ? 'off' : 'polite'}">${formatUiMessage('Showing {shown} of {matching} matching bills; {total} total records.', currentLanguage, { shown: Math.min(filteredAdminBillRows.length, 100), matching: filteredAdminBillRows.length, total: adminBillRows.length })}</p>
         <div id="admin-bill-card-grid" class="bill-card-grid">${renderAdminBillCards(filteredAdminBillRows, formatMoney, t)}</div>
         <p class="muted">${escapeHtml(t('Summary cards above use the selected dashboard month: billed and pending follow bill periods, while collected follows actual receipt dates. Carry-forward credit reduces pending balances but is never counted as cash. WhatsApp opens a draft only; receipts can be printed only from existing receipt records.'))}</p>
       </section>
@@ -665,6 +769,10 @@ if (!supabase) {
     portalPanel.insertAdjacentHTML('beforeend', `<dialog id="bill-edit-dialog" class="edit-dialog" aria-labelledby="bill-edit-title"><form id="bill-edit-form" class="stack" method="dialog"><div class="section-heading"><div><p class="eyebrow">${escapeHtml(t('Explicit correction'))}</p><h2 id="bill-edit-title">${escapeHtml(t('Correct bill'))}</h2></div><button class="icon-button" type="button" data-action="close-bill-dialog" aria-label="${escapeHtml(t('Close'))}">×</button></div><input type="hidden" name="bill_id"><label for="bill-edit-amount">${escapeHtml(t('Bill amount (PKR)'))}<input id="bill-edit-amount" name="amount" inputmode="decimal" placeholder="${escapeHtml(t('Leave blank if not priced'))}"></label><label for="bill-edit-issued-on">${escapeHtml(t('Issue Date'))}<input id="bill-edit-issued-on" name="issued_on" type="date"></label><label for="bill-edit-due-date">${escapeHtml(t('Exact Due Date'))}<input id="bill-edit-due-date" name="due_date" type="date"></label><p class="muted">${escapeHtml(t('Dates stay blank when they were not explicitly recorded. Saving updates this bill only.'))}</p><div class="form-actions"><button class="button secondary" type="button" data-action="close-bill-dialog">${escapeHtml(t('Cancel'))}</button><button class="button primary" type="submit">${escapeHtml(t('Save bill correction'))}</button></div></form></dialog>`);
     portalPanel.querySelector('#dashboard-month')?.addEventListener('change', (event) => {
       pageState.selectedMonth = event.target.value || localMonth();
+      if (pageState.dashboardDrilldown) {
+        pageState.dashboardDrilldown = null;
+        history.replaceState({ ...(history.state ?? {}), dashboardDrilldown: null }, '', '#admin-overview');
+      }
       renderPortal();
     });
     const billForm = portalPanel.querySelector('#bill-form');
@@ -683,6 +791,7 @@ if (!supabase) {
     bindAdminIncidentForms(context);
     bindAdminActions(context);
     bindAdminBillActions(context);
+    bindDashboardDrilldowns(context);
     bindCustomerListActions(context);
     populateReceiptBills(portalPanel.querySelector('#receipt-customer')?.value);
   }
@@ -979,6 +1088,11 @@ if (!supabase) {
         updateAdminBillResults();
         return;
       }
+      const clearFilter = target.closest('[data-action="clear-dashboard-drilldown"]');
+      if (clearFilter) {
+        clearDashboardDrilldown(clearFilter.dataset.target);
+        return;
+      }
       const action = target.closest('[data-action]');
       if (!action) return;
       if (action.dataset.action === 'collect-bill') {
@@ -1013,6 +1127,11 @@ if (!supabase) {
         pageState.customerListArea = '';
         pageState.customerAreaOpen = false;
         updateCustomerListResults();
+        return;
+      }
+      const clearFilter = target.closest('[data-action="clear-dashboard-drilldown"]');
+      if (clearFilter) {
+        clearDashboardDrilldown(clearFilter.dataset.target);
         return;
       }
       const action = target.closest('[data-action]');
@@ -1179,6 +1298,19 @@ if (!supabase) {
       bindSharedActions();
     }
   }
+
+  function syncDashboardDrilldownFromHistory() {
+    const route = parseDashboardDrilldownHash(window.location.hash);
+    const monthChanged = Boolean(route && route.period !== pageState.selectedMonth);
+    applyDashboardDrilldown(route);
+    if (monthChanged && pageState.context?.kind === 'admin' && pageState.rows) {
+      renderPortal();
+      if (pageState.dashboardDrilldown) focusDashboardDrilldown(pageState.dashboardDrilldown);
+    }
+  }
+
+  window.addEventListener('hashchange', syncDashboardDrilldownFromHistory);
+  window.addEventListener('popstate', syncDashboardDrilldownFromHistory);
 
   loginForm?.addEventListener('submit', async (event) => {
     event.preventDefault();

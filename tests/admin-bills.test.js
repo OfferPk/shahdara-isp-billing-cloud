@@ -5,6 +5,7 @@ import {
   buildAdminBillRows,
   buildWhatsappReminderHref,
   countAdminBillFilters,
+  filterCollectionBillRows,
   filterAdminBillRows,
   renderAdminBillCards,
   renderPrintableReceiptHtml,
@@ -79,6 +80,34 @@ test('Admin bill search supports customer name and Admin-only phone, and status 
   assert.deepEqual(filterAdminBillRows(rows, { search: '+923111234567', status: 'paid' }).map((row) => row.bill.id), ['bill-paid']);
   assert.deepEqual(countAdminBillFilters(rows), { all: 4, unpaid: 2, paid: 1 });
   assert.deepEqual(countAdminBillFilters(rows, { search: 'Amina' }), { all: 1, unpaid: 1, paid: 0 });
+});
+
+test('collection drill-down is selected-period-only and excludes due-today, missing-date, paid, and unpriced bills from overdue', () => {
+  const rows = buildAdminBillRows({
+    today: '2026-04-10',
+    customers: [
+      { id: 'open-before', name: 'Open Before' },
+      { id: 'due-today', name: 'Due Today' },
+      { id: 'no-date', name: 'No Date' },
+      { id: 'paid', name: 'Paid' },
+      { id: 'other-period', name: 'Other Period' },
+      { id: 'unpriced', name: 'Unpriced' },
+    ],
+    bills: [
+      { id: 'open-before', customer_id: 'open-before', period: '2026-04-01', amount_due_cents: 10000, due_date: '2026-04-09' },
+      { id: 'due-today', customer_id: 'due-today', period: '2026-04-01', amount_due_cents: 5000, due_date: '2026-04-10' },
+      { id: 'no-date', customer_id: 'no-date', period: '2026-04-01', amount_due_cents: 5000, due_date: null },
+      { id: 'paid', customer_id: 'paid', period: '2026-04-01', amount_due_cents: 5000, due_date: '2026-04-01' },
+      { id: 'other-period', customer_id: 'other-period', period: '2026-03-01', amount_due_cents: 9000, due_date: '2026-04-09' },
+      { id: 'unpriced', customer_id: 'unpriced', period: '2026-04-01', amount_due_cents: null, due_date: '2026-04-01' },
+    ],
+    allocations: [{ customer_id: 'paid', bill_id: 'paid', amount_cents: 5000 }],
+  });
+
+  assert.deepEqual(filterCollectionBillRows(rows, { scope: 'overdue', period: '2026-04' }).map((row) => row.bill.id), ['open-before']);
+  assert.deepEqual(filterCollectionBillRows(rows, { scope: 'unpriced', period: '2026-04' }).map((row) => row.bill.id), ['unpriced']);
+  assert.deepEqual(filterCollectionBillRows(rows, { scope: 'overdue', period: '2026-03' }).map((row) => row.bill.id), ['other-period']);
+  assert.deepEqual(filterCollectionBillRows(rows, { scope: 'overdue', period: '2026-13' }), []);
 });
 
 test('WhatsApp creates only a user-opened prefilled Roman Urdu draft for a priced unpaid bill', () => {

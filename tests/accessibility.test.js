@@ -57,7 +57,9 @@ test('all wide billing tables are named, keyboard-scrollable regions with captio
   assert.match(adminBills, /aria-label="\$\{escapeHtml\(t\('Correct bill for'\)\)\} \$\{customerName\}/);
   assert.match(main, /aria-label="\$\{escapeHtml\(t\('Edit receipt for'\)\)\} \$\{escapeHtml\(customerName\(receipt\.customer_id\)\)\}/);
   assert.match(main, /aria-label="\$\{escapeHtml\(t\('Filter bills by payment status'\)\)\}"/);
-  assert.match(main, /id="admin-bill-count" class="bill-list-count" role="status" aria-live="polite"/);
+  assert.match(main, /id="admin-bill-count" class="bill-list-count" role="status" aria-live="\$\{billDrilldown \? 'off' : 'polite'\}"/);
+  assert.match(main, /id="admin-bill-drilldown-message" role="status" aria-live="polite" aria-atomic="true"/);
+  assert.match(main, /data-action="clear-dashboard-drilldown" data-target="admin-bills"/);
   assert.match(main, /formatUiMessage\('Showing \{shown\} of \{matching\} matching bills; \{total\} total records\.'/);
 });
 
