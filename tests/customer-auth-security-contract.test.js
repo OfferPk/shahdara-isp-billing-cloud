@@ -53,7 +53,7 @@ test('username login coexists with invite-only email fallback and never enables 
   assert.match(main, /Username or password is incorrect or unavailable\./);
 });
 
-test('temporary passwords are cryptographic, short-lived, and never persisted; password change uses normal Auth API', async () => {
+test('temporary passwords are cryptographic, short-lived, and password changes stay user-scoped', async () => {
   const common = await read('supabase/functions/_shared/customer-auth.js');
   const manage = await read('supabase/functions/manage-customer-credentials/handler.js');
   const change = await read('supabase/functions/change-customer-password/handler.js');
@@ -67,8 +67,12 @@ test('temporary passwords are cryptographic, short-lived, and never persisted; p
   assert.doesNotMatch(migration, /temporary_password\s+text/i);
   assert.match(migration, /expires_at = clock_timestamp\(\) \+ interval '24 hours'/);
   assert.match(migration, /first_login_claimed_at is null/);
-  assert.match(change, /auth\.updateUser\(\{ password: newPassword \}\)/);
-  assert.doesNotMatch(change, /auth\.admin\.(updateUserById|createUser)/);
+  assert.match(change, /new URL\('\/auth\/v1\/user', parsed\)/);
+  assert.match(change, /method: 'PATCH'/);
+  assert.match(change, /apikey: clients\.publicKey/);
+  assert.match(change, /Authorization: `Bearer \$\{token\}`/);
+  assert.doesNotMatch(change, /\.auth\.updateUser\(/);
+  assert.doesNotMatch(change, /auth\.admin\./);
   assert.match(change, /abort_customer_portal_password_change/);
 });
 

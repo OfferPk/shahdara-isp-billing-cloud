@@ -138,7 +138,7 @@ function credentialsHarness(options = {}) {
 }
 
 function passwordChangeHarness(options = {}) {
-  const calls = { keys: [], options: [], rpcs: [], updates: [] };
+  const calls = { keys: [], options: [], rpcs: [], sdkUpdateUserCalls: [], authRequests: [], authResponseBodyReads: 0 };
   const env = makeEnv();
   const createClient = (_url, key, clientOptions = {}) => {
     calls.keys.push(key);
@@ -152,8 +152,8 @@ function passwordChangeHarness(options = {}) {
             : { data: { user: { id: userId } }, error: null };
         },
         async updateUser(input) {
-          calls.updates.push(input);
-          return { data: options.updateError ? null : { user: { id: userId } }, error: options.updateError ?? null };
+          calls.sdkUpdateUserCalls.push(input);
+          throw options.sdkUpdateError ?? Object.assign(new Error('session_not_found'), { code: 'session_not_found' });
         },
       } };
     }
@@ -165,7 +165,12 @@ function passwordChangeHarness(options = {}) {
       throw new Error(`Unexpected RPC ${name}`);
     } };
   };
-  return { handler: createChangeCustomerPasswordHandler({ env, createClient }), calls };
+  const fetchImpl = async (url, init) => {
+    calls.authRequests.push({ url: String(url), init });
+    if (options.authUpdateThrows) throw options.authUpdateThrows;
+    return options.authResponse ?? { ok: true, status: 200 };
+  };
+  return { handler: createChangeCustomerPasswordHandler({ env, createClient, fetchImpl }), calls };
 }
 
 async function responseJson(response) {
@@ -328,32 +333,91 @@ test('Admin credentials require exact origin, verified session, completed identi
   assert.equal(badOrigin.calls.keys.length, 0);
 });
 
-test('password change uses the authenticated-user Auth API and only marks state active after success', async () => {
-  const harness = passwordChangeHarness();
+test('password change works without an SDK session by PATCHing Auth as the verified bearer user', async () => {
+  const password = 'Synthetic-permanent-Password-2026!';
+  const harness = passwordChangeHarness({
+    sdkUpdateError: Object.assign(new Error('synthetic missing SDK session'), { code: 'session_not_found' }),
+  });
   const response = await harness.handler(request('change-customer-password', {
-    body: { new_password: 'Synthetic-permanent-Password-2026!' },
+    body: { new_password: password },
     authorization: 'Bearer synthetic-customer-jwt',
   }));
   assert.equal(response.status, 200);
   assert.deepEqual(await responseJson(response), { ok: true });
-  assert.deepEqual(harness.calls.updates, [{ password: 'Synthetic-permanent-Password-2026!' }]);
+  assert.equal(harness.calls.userToken, 'synthetic-customer-jwt');
+  assert.equal(harness.calls.sdkUpdateUserCalls.length, 0);
+  assert.equal(harness.calls.authRequests.length, 1);
+  const [{ url, init }] = harness.calls.authRequests;
+  assert.equal(url, 'https://synthetic-project.supabase.co/auth/v1/user');
+  assert.equal(init.method, 'PATCH');
+  assert.equal(init.headers.apikey, 'synthetic-publishable-key');
+  assert.equal(init.headers.Authorization, 'Bearer synthetic-customer-jwt');
+  assert.equal(init.headers['Content-Type'], 'application/json');
+  assert.deepEqual(Object.keys(init.headers).sort(), ['Authorization', 'Content-Type', 'apikey'].sort());
+  assert.deepEqual(JSON.parse(init.body), { password });
+  assert.equal(init.redirect, 'manual');
+  assert.deepEqual(harness.calls.rpcs[0], {
+    name: 'begin_customer_portal_password_change', args: { p_user_id: userId },
+  });
   assert.deepEqual(harness.calls.rpcs.map(({ name }) => name), [
     'begin_customer_portal_password_change', 'complete_customer_portal_password_change',
   ]);
+  assert.equal(harness.calls.rpcs.filter(({ name }) => name === 'complete_customer_portal_password_change').length, 1);
+  assert.deepEqual(harness.calls.rpcs.at(-1).args, { p_user_id: userId });
   assert.doesNotMatch(JSON.stringify(harness.calls.rpcs), /Synthetic-permanent-Password/);
-  assert.equal(harness.calls.options.find(({ key }) => key === 'synthetic-publishable-key').options.global.headers.Authorization, 'Bearer synthetic-customer-jwt');
 });
 
-test('password change failure releases the state lease and does not call completion', async () => {
-  const harness = passwordChangeHarness({ updateError: new Error('synthetic password policy failure') });
+test('password change rejects a non-exact Origin before Auth or lease operations', async () => {
+  const harness = passwordChangeHarness();
+  const response = await harness.handler(request('change-customer-password', {
+    originValue: 'https://evil.example',
+    body: { new_password: 'Synthetic-permanent-Password-2026!' },
+    authorization: 'Bearer synthetic-customer-jwt',
+  }));
+  assert.equal(response.status, 403);
+  assert.deepEqual(harness.calls.keys, []);
+  assert.deepEqual(harness.calls.authRequests, []);
+  assert.deepEqual(harness.calls.rpcs, []);
+});
+
+test('Auth rejection releases the lease, skips completion, and never exposes or reads raw Auth errors', async () => {
+  const rawAuthError = 'synthetic raw Auth error with password and bearer JWT';
+  const harness = passwordChangeHarness({
+    authResponse: {
+      ok: false,
+      status: 422,
+      async text() { harness.calls.authResponseBodyReads += 1; return rawAuthError; },
+      async json() { harness.calls.authResponseBodyReads += 1; return { message: rawAuthError }; },
+    },
+  });
   const response = await harness.handler(request('change-customer-password', {
     body: { new_password: 'Synthetic-permanent-Password-2026!' },
     authorization: 'Bearer synthetic-customer-jwt',
   }));
   assert.equal(response.status, 400);
+  const body = await responseJson(response);
+  assert.deepEqual(body, {
+    error: 'Password could not be changed. Check the account password policy and try again, or contact an administrator.',
+  });
+  assert.doesNotMatch(JSON.stringify(body), /synthetic raw Auth error|password and bearer JWT/i);
+  assert.equal(harness.calls.authResponseBodyReads, 0);
+  assert.equal(harness.calls.sdkUpdateUserCalls.length, 0);
   assert.deepEqual(harness.calls.rpcs.map(({ name }) => name), [
     'begin_customer_portal_password_change', 'abort_customer_portal_password_change',
   ]);
+});
+
+test('password change network failure releases the lease and skips completion', async () => {
+  const harness = passwordChangeHarness({ authUpdateThrows: new Error('synthetic Auth transport failure') });
+  const response = await harness.handler(request('change-customer-password', {
+    body: { new_password: 'Synthetic-permanent-Password-2026!' },
+    authorization: 'Bearer synthetic-customer-jwt',
+  }));
+  assert.equal(response.status, 503);
+  assert.deepEqual(harness.calls.rpcs.map(({ name }) => name), [
+    'begin_customer_portal_password_change', 'abort_customer_portal_password_change',
+  ]);
+  assert.equal(harness.calls.sdkUpdateUserCalls.length, 0);
 });
 
 test('password-change endpoint validates UTF-8 size, Auth session, and serialization status', async () => {
@@ -374,5 +438,6 @@ test('password-change endpoint validates UTF-8 size, Auth session, and serializa
     body: { new_password: 'Synthetic-permanent-Password-2026!' }, authorization: 'Bearer synthetic-customer-jwt',
   }));
   assert.equal(response.status, 409);
-  assert.equal(inProgress.calls.updates.length, 0);
+  assert.equal(inProgress.calls.authRequests.length, 0);
+  assert.equal(inProgress.calls.sdkUpdateUserCalls.length, 0);
 });
