@@ -433,3 +433,38 @@ td { color: #25433b; }
   .incident-card__reported { margin-right: 13px; margin-left: 13px; }
   .incident-card__form { padding: 0 13px 13px; }
 }
+
+
+/* Organization branding: owner editor and customer-visible provider identity. */
+.brand-mark img { width: 100%; height: 100%; padding: 4px; border-radius: inherit; background: #fff; object-fit: contain; }
+.brand-settings { margin-bottom: 16px; scroll-margin-top: 18px; }
+.brand-settings > .muted { margin: 0 0 8px; }
+.brand-settings__form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; margin-top: 16px; }
+.brand-settings__address { grid-column: 1 / -1; }
+.brand-settings__logo { align-content: start; }
+.brand-settings__logo input { padding: 8px; }
+.brand-settings__logo small { color: var(--muted); font-size: 11px; font-weight: 500; line-height: 1.5; }
+.brand-logo-preview { display: flex; min-height: 88px; align-items: center; justify-content: center; padding: 10px; border: 1px dashed #cbd9d2; border-radius: 12px; color: var(--muted); background: #f7faf8; font-size: 12px; }
+.brand-logo-preview img { max-width: min(100%, 220px); max-height: 120px; object-fit: contain; }
+.brand-settings__actions { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; }
+.brand-settings__form .form-message { grid-column: 1 / -1; }
+.provider-card { display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(230px, .8fr); align-items: center; gap: 18px; margin-bottom: 16px; }
+.provider-card__logo { width: 68px; height: 68px; padding: 5px; border: 1px solid var(--line); border-radius: 14px; background: #fff; object-fit: contain; }
+.provider-card__identity h2 { overflow-wrap: anywhere; }
+.provider-card__identity .eyebrow { margin-bottom: 5px; }
+.provider-card__contact { display: grid; gap: 8px; }
+.provider-card__contact p { display: grid; gap: 3px; margin: 0; overflow-wrap: anywhere; }
+.provider-card__contact span { color: var(--muted); font-size: 11px; font-weight: 750; }
+.provider-card__contact strong, .provider-card__contact a { color: var(--ink); font-size: 13px; font-weight: 700; overflow-wrap: anywhere; }
+@media (max-width: 760px) {
+  .provider-card { grid-template-columns: auto minmax(0, 1fr); }
+  .provider-card__contact { grid-column: 1 / -1; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 600px) {
+  .brand-settings__form { grid-template-columns: 1fr; }
+  .brand-settings__address, .brand-settings__form .form-message { grid-column: auto; }
+  .brand-settings__actions > button { flex: 1 1 auto; }
+  .provider-card { grid-template-columns: 1fr; gap: 12px; }
+  .provider-card__logo { width: 58px; height: 58px; }
+  .provider-card__contact { grid-column: auto; grid-template-columns: 1fr; }
+}
