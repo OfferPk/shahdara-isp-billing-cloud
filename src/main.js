@@ -1,7 +1,7 @@
 import { createPortalClient } from './supabase-client.js';
 import { hasPasswordRecoveryMarker, requestPasswordRecovery, setRecoveredPassword, signInWithEmailPassword } from './auth-flows.js';
 import { validatePakistanPhone } from './customer-input.js';
-import { createCustomer, invokeRpc, loadContexts, loadOrganizationBranding, loadPortalRows, manageServiceIncident } from './portal-data.js';
+import { createCustomer, invokeRpc, loadContexts, loadOrganizationBranding, loadPortalRows, manageServiceIncident, saveCustomerPppoeUsername } from './portal-data.js';
 import { getBillingCycleQuickDate, isValidBillingMonth, localDateString, localMonthString } from './bill-dates.js';
 import { amountToMinorUnits, calculateDashboard, formatMoney } from './ledger.js';
 import { renderDashboardMetrics } from './dashboard-metrics.js';
@@ -35,12 +35,14 @@ import { applyDocumentLanguage, formatUiMessage, getStoredLanguage, normalizeLan
 import { BRANDING_BUCKET, buildBrandLogoPath, getOrganizationBranding, getPublicBrandLogoUrl, isSafeBrandLogoPath, safeSupportPhoneHref, validateBrandLogoFile } from './organization-branding.js';
 import { renderPrintableBillHtml } from './customer-documents.js';
 import { renderCustomerUsageDashboard, renderCustomerUsageSkeleton } from './customer-usage.js';
+import { prepareSuccessSound } from './success-sound.js';
 import './styles.css';
 
 const app = document.querySelector('#app');
 const configMessage = document.querySelector('#configuration-message');
 const authPanel = document.querySelector('#auth-panel');
 const portalPanel = document.querySelector('#portal-panel');
+const appToast = document.querySelector('#app-toast');
 const loginForm = document.querySelector('#login-form');
 const loginMessage = document.querySelector('#login-message');
 const customerLoginForm = document.querySelector('#customer-login-form');
@@ -186,6 +188,18 @@ if (!supabase) {
     node.setAttribute('aria-atomic', 'true');
     node.classList.toggle('error-text', isError);
     node.classList.toggle('success-text', Boolean(message) && !isError);
+  }
+
+  let appToastTimeout = null;
+  function showAppToast(message) {
+    if (!appToast) return;
+    window.clearTimeout(appToastTimeout);
+    appToast.hidden = false;
+    setMessage(appToast, message, false);
+    appToastTimeout = window.setTimeout(() => {
+      appToast.hidden = true;
+      setMessage(appToast, '', false);
+    }, 7000);
   }
 
   function announceApp(message) {
@@ -909,6 +923,11 @@ if (!supabase) {
     const billOptions = bills.map((bill) => `<option value="${escapeHtml(bill.id)}">${escapeHtml(customerName(bill.customer_id))} · ${escapeHtml(bill.period.slice(0, 7))} · ${formatMoney(bill.amount_due_cents)}</option>`).join('');
     const inviteCustomers = customers.filter((customer) => !customer.archived);
     const inviteCustomerOptions = inviteCustomers.map((customer) => `<option value="${escapeHtml(customer.id)}">#${customer.customer_number} · ${escapeHtml(customer.name)}</option>`).join('');
+    const pppoeCustomerOptions = inviteCustomers.map((customer) => `<option value="${escapeHtml(customer.id)}" data-pppoe-username="${escapeHtml(customer.pppoe_username ?? '')}">#${customer.customer_number} · ${escapeHtml(customer.name)}</option>`).join('');
+    const initialPppoeUsername = inviteCustomers[0]?.pppoe_username ?? '';
+    const pppoeMappingPanel = rows.pppoeMappingAvailable === true
+      ? `<section class="panel pppoe-link-panel" aria-labelledby="pppoe-link-title"><p class="eyebrow">${escapeHtml(t('Service username mapping'))}</p><h2 id="pppoe-link-title">${escapeHtml(t('Link existing PPPoE username'))}</h2><p class="muted">${escapeHtml(t('Link an existing PPPoE username to a named cloud customer for usage matching only. This does not create a network account or change Overtake, RADIUS, or RouterOS. Never enter a PPPoE password here.'))}</p><form id="pppoe-link-form" class="stack"><label for="pppoe-link-customer">${escapeHtml(t('Existing customer'))}</label><select id="pppoe-link-customer" name="customer_id" required ${inviteCustomers.length ? '' : 'disabled'}>${pppoeCustomerOptions || `<option value="">${escapeHtml(t('No active customers available'))}</option>`}</select><label for="pppoe-link-username">${escapeHtml(t('Existing PPPoE username'))}</label><input id="pppoe-link-username" name="username" type="text" value="${escapeHtml(initialPppoeUsername)}" maxlength="255" autocomplete="off" autocapitalize="none" spellcheck="false" aria-describedby="pppoe-link-help" required ${inviteCustomers.length ? '' : 'disabled'}><p class="muted" id="pppoe-link-help">${escapeHtml(t('This links the cloud customer record only; the network username and password remain managed by Overtake/RADIUS.'))}</p><div class="form-actions"><button class="button primary" type="submit" ${inviteCustomers.length ? '' : 'disabled'}>${escapeHtml(t('Save PPPoE link'))}</button><button class="button secondary" id="remove-pppoe-link" type="button" ${initialPppoeUsername ? '' : 'disabled'}>${escapeHtml(t('Remove PPPoE link'))}</button></div></form><p class="form-message" id="pppoe-link-message" role="status" aria-live="polite" aria-atomic="true"></p></section>`
+      : `<section class="panel pppoe-link-panel" aria-labelledby="pppoe-link-title"><p class="eyebrow">${escapeHtml(t('Service username mapping'))}</p><h2 id="pppoe-link-title">${escapeHtml(t('Link existing PPPoE username'))}</h2><p class="usage-state" role="status">${escapeHtml(t('The customers.pppoe_username field is not available in this project yet. Ask the project administrator to review and apply the existing bandwidth-usage migration before linking usernames. No mapping or network credential was changed.'))}</p></section>`;
     const incidentCustomerOptions = renderIncidentCustomerOptions(customers);
     const incidents = [...rows.incidents].sort((a, b) => String(b.reported_at).localeCompare(String(a.reported_at)));
     const incidentCards = renderAdminIncidentCards({
@@ -962,6 +981,7 @@ if (!supabase) {
           </form><p class="form-message" id="invite-message" role="status" aria-live="polite">${inviteCustomers.length ? '' : escapeHtml(t('Add an active customer before requesting an invitation.'))}</p>
           <p class="muted">${escapeHtml(t('Customer-to-account links remain server-managed and cannot be written from the browser. If a result is uncertain, use the same customer and email to recover; unresolved account states stop for administrator review.'))}</p>
         </section>
+        ${pppoeMappingPanel}
         <section class="panel"><p class="eyebrow">${escapeHtml(t('Cash ledger'))}</p><h2>${escapeHtml(t('Record actual receipt'))}</h2>
           <form id="receipt-form" class="form-grid">
             <label>${escapeHtml(t('Customer'))}<select name="customer_id" id="receipt-customer" required>${monthOptions}</select></label>
@@ -1057,6 +1077,7 @@ if (!supabase) {
     }));
     portalPanel.querySelector('#receipt-customer')?.addEventListener('change', (event) => populateReceiptBills(event.target.value));
     bindAdminForms(context);
+    bindPppoeMappingActions(context);
     bindBrandingActions(context);
     bindAdminIncidentForms(context);
     bindAdminActions(context);
@@ -1085,6 +1106,81 @@ if (!supabase) {
       }
     } catch { /* Use the safe fallback for network and non-JSON errors. */ }
     return 'The invitation result could not be confirmed. Submit the same customer and email again to recover safely; no second invitation will be sent.';
+  }
+
+  function bindPppoeMappingActions(context) {
+    if (context.kind !== 'admin' || pageState.rows?.pppoeMappingAvailable !== true) return;
+    const form = portalPanel.querySelector('#pppoe-link-form');
+    if (!form) return;
+    const customerSelect = form.elements.customer_id;
+    const usernameInput = form.elements.username;
+    const saveButton = form.querySelector('button[type="submit"]');
+    const removeButton = form.querySelector('#remove-pppoe-link');
+    const message = portalPanel.querySelector('#pppoe-link-message');
+
+    customerSelect.addEventListener('change', () => {
+      usernameInput.value = customerSelect.selectedOptions[0]?.dataset.pppoeUsername ?? '';
+      removeButton.disabled = !usernameInput.value;
+      setMessage(message, '', false);
+    });
+
+    const saveMapping = async (username) => {
+      const customerId = String(customerSelect.value ?? '');
+      if (!customerId) return;
+      saveButton.disabled = true;
+      removeButton.disabled = true;
+      setMessage(message, 'Updating PPPoE mapping…');
+      try {
+        await saveCustomerPppoeUsername(supabase, {
+          organizationId: context.organizationId,
+          customerId,
+          username,
+        });
+        const announcement = username === null
+          ? 'Existing PPPoE username link removed.'
+          : 'Existing PPPoE username link saved.';
+        await refreshCurrentContext(announcement);
+        showAppToast(announcement);
+        const refreshedForm = portalPanel.querySelector('#pppoe-link-form');
+        if (refreshedForm) {
+          refreshedForm.elements.customer_id.value = customerId;
+          refreshedForm.elements.username.value = username ?? '';
+          const refreshedRemoveButton = refreshedForm.querySelector('#remove-pppoe-link');
+          if (refreshedRemoveButton) refreshedRemoveButton.disabled = username === null;
+          setMessage(portalPanel.querySelector('#pppoe-link-message'), announcement, false);
+        }
+      } catch (error) {
+        const errorMessage = error?.code === '23505'
+          ? 'This PPPoE username is already linked to another customer.'
+          : error?.code === '42501'
+            ? 'Only organization administrators can update a PPPoE mapping.'
+            : 'PPPoE username link could not be saved. Ask the project administrator to verify the mapping schema and your Admin access.';
+        setMessage(portalPanel.querySelector('#pppoe-link-message') ?? message, errorMessage, true);
+      } finally {
+        const currentForm = portalPanel.querySelector('#pppoe-link-form');
+        if (currentForm) {
+          currentForm.querySelector('button[type="submit"]').disabled = !currentForm.elements.customer_id.value;
+          const selected = currentForm.elements.customer_id.selectedOptions[0];
+          currentForm.querySelector('#remove-pppoe-link').disabled = !selected?.dataset.pppoeUsername;
+        }
+      }
+    };
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const username = String(usernameInput.value ?? '').trim();
+      if (!username) {
+        setMessage(message, 'Enter an existing PPPoE username or use Remove PPPoE link.', true);
+        return;
+      }
+      await saveMapping(username);
+    });
+
+    removeButton.addEventListener('click', async () => {
+      if (!customerSelect.selectedOptions[0]?.dataset.pppoeUsername) return;
+      if (!window.confirm(t('Remove the PPPoE link for this customer? Usage matching will stop until a new link is saved.'))) return;
+      await saveMapping(null);
+    });
   }
 
   function bindAdminForms(context) {
@@ -1789,27 +1885,41 @@ if (!supabase) {
       setMessage(passwordRecoveryMessage, 'Choose a password between 12 and 72 UTF-8 bytes.', true);
       return;
     }
+    const successSound = prepareSuccessSound(window);
     submitButton.disabled = true;
     setMessage(passwordRecoveryMessage, 'Updating password…');
+    let updateResult;
     try {
-      const { error } = await setRecoveredPassword(supabase.auth, newPassword);
-      newPasswordInput.value = '';
-      confirmPasswordInput.value = '';
-      newPassword = '';
-      if (error) {
-        setMessage(passwordRecoveryMessage, 'Password could not be updated. Check the recovery link and try again.', true);
-        return;
-      }
-      recoveryMode = false;
-      window.history.replaceState(null, document.title, window.location.pathname);
-      const { data: sessionData } = await supabase.auth.getSession();
-      if (sessionData.session) await handleSession(sessionData.session);
-      else showLogin('Your password was updated. Sign in with your email and new password.');
+      updateResult = await setRecoveredPassword(supabase.auth, newPassword);
     } catch {
+      updateResult = { error: true };
+    } finally {
       newPasswordInput.value = '';
       confirmPasswordInput.value = '';
       newPassword = '';
+    }
+    if (updateResult?.error || !updateResult?.data?.user?.id) {
+      successSound.cancel();
       setMessage(passwordRecoveryMessage, 'Password could not be updated. Check the recovery link and try again.', true);
+      submitButton.disabled = false;
+      return;
+    }
+
+    try {
+      recoveryMode = false;
+      try { window.history.replaceState(null, document.title, window.location.pathname); } catch { /* Password save already succeeded. */ }
+      showAppToast('Your password was updated successfully.');
+      successSound.play();
+      try {
+        const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+        if (sessionError) throw sessionError;
+        if (sessionData?.session) await handleSession(sessionData.session);
+        else showLogin('Your password was updated. Sign in with your email and new password.');
+      } catch {
+        showLogin('Your password was updated. Sign in with your email and new password.');
+      }
+    } catch {
+      showLogin('Your password was updated. Sign in with your email and new password.');
     } finally {
       submitButton.disabled = false;
     }

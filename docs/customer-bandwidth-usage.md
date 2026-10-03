@@ -15,7 +15,11 @@ This migration adds nullable, globally unique `customers.pppoe_username`. Organi
 - `service_role` has no direct table grants. A trusted server-side component may call `public.sync_customer_bandwidth_usage`; execute permission is granted only to `service_role`. Never put a service-role key in browser code or a frontend response.
 - The sync RPC updates counters, online status, last IP, and sync time. It initializes new-row quota to unlimited (`0`) and preserves quota configured by an admin on subsequent syncs.
 
-This phase adds the database contract only; it does not connect to RouterOS, add a deployed sync Edge Function, or add a profile-edit UI. An admin-facing UI can be added separately without changing the ownership boundary.
+The Admin portal now provides a mapping-only form for linking an existing PPPoE username to an existing customer record. It uses the signed-in client, scopes updates by organization and customer ID, and changes only `customers.pppoe_username`; the existing Admin RLS policy and unique constraint remain authoritative. It does not create a network login or change Overtake, RADIUS, RouterOS, or any password. Customer reads continue to rely on the existing ownership policies.
+
+The form appears only when the application can read the mapping column. If the project schema does not contain it, portal loading falls back to the core customer fields and the Admin sees an explicit setup notice rather than a broken portal or a failed write. Review and apply this migration through the approved database-change process before using the mapping form; the application never applies schema changes automatically.
+
+This phase does not connect directly to RouterOS or deploy a sync Edge Function. The app continues to display only server-synchronized usage snapshots from `customer_bandwidth_usage`.
 
 ## Local verification
 

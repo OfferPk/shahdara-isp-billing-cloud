@@ -13,6 +13,27 @@ async function rowsFor(supabase, table, columns, applyFilters, orderBy) {
   throw new Error('The current screen reached its safe paging limit. Narrow the date range and try again.');
 }
 
+export function isMissingPppoeUsernameColumn(error) {
+  const code = String(error?.code ?? '');
+  const message = String(error?.message ?? '');
+  return ['42703', 'PGRST204'].includes(code) && /pppoe_username/i.test(message);
+}
+
+async function loadCustomerRows(supabase, context, applyFilters) {
+  const coreColumns = 'id, customer_number, name, plan_name, service_address, service_status, monthly_fee_cents, archived';
+  try {
+    const rows = await rowsFor(supabase, 'customers', `${coreColumns}, pppoe_username`, applyFilters, { column: 'customer_number' });
+    return { rows, pppoeMappingAvailable: true };
+  } catch (error) {
+    if (!isMissingPppoeUsernameColumn(error)) throw error;
+    const rows = await rowsFor(supabase, 'customers', coreColumns, applyFilters, { column: 'customer_number' });
+    return {
+      rows: rows.map((customer) => ({ ...customer, pppoe_username: null })),
+      pppoeMappingAvailable: false,
+    };
+  }
+}
+
 export async function loadContexts(supabase, user) {
   const { data: memberships, error: membershipError } = await supabase
     .from('organization_memberships')
@@ -83,18 +104,19 @@ export async function loadPortalRows(supabase, context) {
   const billColumns = context.kind === 'admin'
     ? 'id, customer_id, period, amount_due_cents, issued_on, due_date, plan_snapshot'
     : 'id, customer_id, period, amount_due_cents, plan_snapshot';
-  const customerColumns = context.kind === 'admin'
-    ? 'id, customer_number, name, plan_name, service_address, service_status, monthly_fee_cents, archived'
-    : 'id, customer_number, name, plan_name, service_address, service_status, monthly_fee_cents, archived, pppoe_username';
+  const customerQuery = loadCustomerRows(
+    supabase,
+    context,
+    context.kind === 'admin' ? byOrganization : customerTableOnly,
+  );
   const customerBandwidthUsageQuery = context.kind === 'customer'
     ? rowsFor(supabase, 'customer_bandwidth_usage', 'username, total_quota_bytes, bytes_in, bytes_out, is_online, last_synced_at',
       (query) => query, { column: 'username' })
       .then((data) => ({ data, error: null }))
       .catch((error) => ({ data: [], error }))
     : Promise.resolve({ data: [], error: null });
-  const [customers, bills, receipts, allocations, incidents, privateCustomerDetails, privateIncidentDetails, branding, customerBandwidthUsage] = await Promise.all([
-    rowsFor(supabase, 'customers', customerColumns,
-      context.kind === 'admin' ? byOrganization : customerTableOnly, { column: 'customer_number' }),
+  const [customerResult, bills, receipts, allocations, incidents, privateCustomerDetails, privateIncidentDetails, branding, customerBandwidthUsage] = await Promise.all([
+    customerQuery,
     rowsFor(supabase, 'bills', billColumns,
       context.kind === 'admin' ? byOrganization : customerOnly, { column: 'period', ascending: false }),
     rowsFor(supabase, 'receipts', 'id, customer_id, origin_bill_id, received_on, amount_cents, method',
@@ -109,10 +131,33 @@ export async function loadPortalRows(supabase, context) {
     customerBandwidthUsageQuery,
   ]);
   return {
-    customers, bills, receipts, allocations, incidents, privateCustomerDetails, privateIncidentDetails, branding,
+    customers: customerResult.rows,
+    pppoeMappingAvailable: customerResult.pppoeMappingAvailable,
+    bills, receipts, allocations, incidents, privateCustomerDetails, privateIncidentDetails, branding,
     customerBandwidthUsage: customerBandwidthUsage.data,
     customerBandwidthUsageError: customerBandwidthUsage.error,
   };
+}
+
+export async function saveCustomerPppoeUsername(supabase, { organizationId, customerId, username }) {
+  if (!organizationId || !customerId) throw new Error('An organization and customer are required.');
+  const pppoeUsername = username === null ? null : String(username ?? '').trim();
+  if (username !== null && !pppoeUsername) {
+    throw new Error('Enter an existing PPPoE username or explicitly remove the link.');
+  }
+
+  const { data, error } = await supabase
+    .from('customers')
+    .update({ pppoe_username: pppoeUsername })
+    .eq('organization_id', organizationId)
+    .eq('id', customerId)
+    .select('id, pppoe_username')
+    .maybeSingle();
+  if (error) throw error;
+  if (!data || data.id !== customerId || (data.pppoe_username ?? null) !== pppoeUsername) {
+    throw new Error('The customer PPPoE mapping could not be confirmed.');
+  }
+  return data;
 }
 
 export async function createCustomer(supabase, customer) {

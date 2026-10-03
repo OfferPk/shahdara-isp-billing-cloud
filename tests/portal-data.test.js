@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { createCustomer, invokeRpc, loadContexts, loadPortalRows, manageServiceIncident } from '../src/portal-data.js';
+import { createCustomer, invokeRpc, isMissingPppoeUsernameColumn, loadContexts, loadPortalRows, manageServiceIncident, saveCustomerPppoeUsername } from '../src/portal-data.js';
 
 function mockClient(results = {}, rpcResult = { data: null, error: null }) {
   const calls = [];
@@ -10,21 +10,25 @@ function mockClient(results = {}, rpcResult = { data: null, error: null }) {
     from(table) {
       const query = { table, filters: [], selects: [], orders: [], ranges: [] };
       calls.push(query);
-      const result = results[table] ?? { data: [], error: null };
+      query.updates = [];
+      const configuredResult = results[table] ?? { data: [], error: null };
+      const result = () => typeof configuredResult === 'function' ? configuredResult(query) : configuredResult;
       const builder = {
         select(columns) { query.selects.push(columns); return builder; },
+        update(values) { query.updates.push(values); return builder; },
         eq(column, value) { query.filters.push(['eq', column, value]); return builder; },
         in(column, values) { query.filters.push(['in', column, values]); return builder; },
         order(column, options) { query.orders.push([column, options]); return builder; },
         range(start, end) {
           query.ranges.push([start, end]);
-          return Promise.resolve(result);
+          return Promise.resolve(result());
         },
         maybeSingle() {
           query.single = true;
-          return Promise.resolve({ data: result.data?.[0] ?? null, error: result.error ?? null });
+          const current = result();
+          return Promise.resolve({ data: current.data?.[0] ?? null, error: current.error ?? null });
         },
-        then(resolve, reject) { return Promise.resolve(result).then(resolve, reject); },
+        then(resolve, reject) { return Promise.resolve(result()).then(resolve, reject); },
       };
       return builder;
     },
@@ -78,7 +82,8 @@ test('portal row reads scope customer data and preserve safe paging', async () =
     kind: 'customer', organizationId: 'synthetic-org', customerId: 'synthetic-customer',
   });
 
-  assert.deepEqual(Object.keys(rows), ['customers', 'bills', 'receipts', 'allocations', 'incidents', 'privateCustomerDetails', 'privateIncidentDetails', 'branding', 'customerBandwidthUsage', 'customerBandwidthUsageError']);
+  assert.deepEqual(Object.keys(rows), ['customers', 'pppoeMappingAvailable', 'bills', 'receipts', 'allocations', 'incidents', 'privateCustomerDetails', 'privateIncidentDetails', 'branding', 'customerBandwidthUsage', 'customerBandwidthUsageError']);
+  assert.equal(rows.pppoeMappingAvailable, true);
   assert.equal(rows.branding, null);
   assert.deepEqual(rows.privateCustomerDetails, []);
   assert.equal(client.calls.some((query) => query.table === 'customer_private_details'), false);
@@ -218,7 +223,7 @@ test('collection monitoring uses only existing organization-scoped public billin
   await loadPortalRows(client, { kind: 'admin', organizationId: 'synthetic-org' });
 
   const expectedColumns = {
-    customers: 'id, customer_number, name, plan_name, service_address, service_status, monthly_fee_cents, archived',
+    customers: 'id, customer_number, name, plan_name, service_address, service_status, monthly_fee_cents, archived, pppoe_username',
     bills: 'id, customer_id, period, amount_due_cents, issued_on, due_date, plan_snapshot',
     receipts: 'id, customer_id, origin_bill_id, received_on, amount_cents, method',
     receipt_allocations: 'receipt_id, bill_id, customer_id, amount_cents, allocation_kind',
@@ -358,4 +363,53 @@ test('customer creation sends the private phone as text through a single RPC', a
       p_phone: '03001234567',
     },
   }]);
+});
+
+test('missing PPPoE schema falls back to customer records without breaking portal loading', async () => {
+  const client = mockClient({
+    customers: (query) => query.selects.at(-1).includes('pppoe_username')
+      ? { data: null, error: { code: 'PGRST204', message: "Could not find the 'pppoe_username' column of 'customers' in the schema cache" } }
+      : { data: [{ id: 'synthetic-customer', name: 'Synthetic Customer' }], error: null },
+    bills: { data: [], error: null }, receipts: { data: [], error: null },
+    receipt_allocations: { data: [], error: null }, incidents: { data: [], error: null },
+  });
+  const rows = await loadPortalRows(client, { kind: 'admin', organizationId: 'synthetic-org' });
+  assert.equal(rows.pppoeMappingAvailable, false);
+  assert.deepEqual(rows.customers, [{ id: 'synthetic-customer', name: 'Synthetic Customer', pppoe_username: null }]);
+  const customerQueries = client.calls.filter((query) => query.table === 'customers');
+  assert.equal(customerQueries.length, 2);
+  assert.match(customerQueries[0].selects[0], /pppoe_username/);
+  assert.doesNotMatch(customerQueries[1].selects[0], /pppoe_username/);
+  assert.ok(customerQueries.every((query) => query.filters.some(([kind, field, value]) => kind === 'eq' && field === 'organization_id' && value === 'synthetic-org')));
+});
+
+test('PPPoE mapping writes only the existing customer username and scopes by organization and customer', async () => {
+  const client = mockClient({ customers: { data: [{ id: 'synthetic-customer', pppoe_username: 'azeembajwa1' }], error: null } });
+  const result = await saveCustomerPppoeUsername(client, {
+    organizationId: 'synthetic-org', customerId: 'synthetic-customer', username: '  azeembajwa1  ',
+  });
+  assert.deepEqual(result, { id: 'synthetic-customer', pppoe_username: 'azeembajwa1' });
+  const query = client.calls.find((entry) => entry.table === 'customers');
+  assert.deepEqual(query.updates, [{ pppoe_username: 'azeembajwa1' }]);
+  assert.deepEqual(query.filters, [
+    ['eq', 'organization_id', 'synthetic-org'],
+    ['eq', 'id', 'synthetic-customer'],
+  ]);
+  assert.deepEqual(query.selects, ['id, pppoe_username']);
+  assert.equal(client.calls.some((entry) => entry.rpc), false);
+});
+
+test('PPPoE clearing is explicit, and an unconfirmed update is never treated as success', async () => {
+  const clearedClient = mockClient({ customers: { data: [{ id: 'synthetic-customer', pppoe_username: null }], error: null } });
+  await saveCustomerPppoeUsername(clearedClient, {
+    organizationId: 'synthetic-org', customerId: 'synthetic-customer', username: null,
+  });
+  assert.deepEqual(clearedClient.calls.find((entry) => entry.table === 'customers').updates, [{ pppoe_username: null }]);
+
+  const absentClient = mockClient({ customers: { data: [], error: null } });
+  await assert.rejects(saveCustomerPppoeUsername(absentClient, {
+    organizationId: 'synthetic-org', customerId: 'synthetic-customer', username: 'azeembajwa1',
+  }), /could not be confirmed/i);
+  assert.equal(isMissingPppoeUsernameColumn({ code: 'PGRST204', message: "Could not find 'pppoe_username' column" }), true);
+  assert.equal(isMissingPppoeUsernameColumn({ code: '42501', message: 'permission denied' }), false);
 });
