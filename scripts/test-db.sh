@@ -2,8 +2,10 @@
 set -Eeuo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-TEST_FILE_RELATIVE="supabase/tests/organization_branding.test.sql"
-TEST_FILE="$ROOT/$TEST_FILE_RELATIVE"
+TEST_FILES_RELATIVE=(
+  "supabase/tests/organization_branding.test.sql"
+  "supabase/tests/customer_bandwidth_usage.test.sql"
+)
 TEST_TMP=""
 PGDATA=""
 SOCKET_DIR=""
@@ -59,7 +61,7 @@ cleanup() {
         result=1
       fi
       ;;
-    *) echo "Refusing to remove unexpected temporary path: $TEST_TMP" >&2; result=1 ;;
+    *) echo "Refusing to remove unexpected temporary path: $TEST_TMP." >&2; result=1 ;;
   esac
   exit "$result"
 }
@@ -83,7 +85,7 @@ PG_CTL="$PG_BINDIR/pg_ctl"
 INITDB="$PG_BINDIR/initdb"
 for executable in "$PG_CTL" "$INITDB"; do
   if [[ ! -x "$executable" ]]; then
-    echo "Missing PostgreSQL server executable: $executable" >&2
+    echo "Missing PostgreSQL server executable: $executable." >&2
     exit 2
   fi
 done
@@ -97,10 +99,12 @@ if ! sudo -n -u postgres true >/dev/null 2>&1; then
   echo "This runner needs passwordless sudo access to the local postgres OS account to create its disposable cluster." >&2
   exit 2
 fi
-if [[ ! -f "$TEST_FILE" ]]; then
-  echo "Missing selected pgTAP suite: $TEST_FILE" >&2
-  exit 2
-fi
+for test_file_relative in "${TEST_FILES_RELATIVE[@]}"; do
+  if [[ ! -f "$ROOT/$test_file_relative" ]]; then
+    echo "Missing selected pgTAP suite: $ROOT/$test_file_relative." >&2
+    exit 2
+  fi
+done
 
 as_postgres() {
   sudo -n -u postgres env -i \
@@ -149,10 +153,13 @@ for migration in "${MIGRATIONS[@]}"; do
   run_psql < "$migration" >/dev/null
 done
 
-printf 'Running the current organization_branding pgTAP suite (35 planned assertions).\n'
+printf 'Running the disposable local pgTAP suites.\n'
 (
   cd "$ROOT"
-  as_postgres env PGDATABASE="$DB_NAME" PGOPTIONS='-c search_path=public,extensions' \
-    pg_prove --verbose "$TEST_FILE_RELATIVE"
+  for test_file_relative in "${TEST_FILES_RELATIVE[@]}"; do
+    printf 'Running pgTAP suite: %s\n' "$test_file_relative"
+    as_postgres env PGDATABASE="$DB_NAME" PGOPTIONS='-c search_path=public,extensions' \
+      pg_prove --verbose "$test_file_relative"
+  done
 )
-printf 'pgTAP suite passed; removing disposable database and PostgreSQL cluster.\n'
+printf 'pgTAP suites passed; removing disposable database and PostgreSQL cluster.\n'
