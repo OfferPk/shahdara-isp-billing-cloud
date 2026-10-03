@@ -4,10 +4,29 @@
 begin;
 
 alter table public.customers
-  add column pppoe_username text,
-  add constraint customers_pppoe_username_unique unique (pppoe_username),
-  add constraint customers_pppoe_username_nonempty
-    check (pppoe_username is null or length(btrim(pppoe_username)) > 0);
+  add column if not exists pppoe_username text;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.customers'::regclass
+      and conname = 'customers_pppoe_username_unique'
+  ) then
+    alter table public.customers
+      add constraint customers_pppoe_username_unique unique (pppoe_username);
+  end if;
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.customers'::regclass
+      and conname = 'customers_pppoe_username_nonempty'
+  ) then
+    alter table public.customers
+      add constraint customers_pppoe_username_nonempty
+        check (pppoe_username is null or length(btrim(pppoe_username)) > 0);
+  end if;
+end
+$$;
 
 -- Only the existing organization-admin RLS policy may change this ownership
 -- mapping. Customers can read their profile but cannot set or replace its username.
