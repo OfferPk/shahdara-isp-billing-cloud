@@ -974,7 +974,16 @@ if (!supabase) {
         <p class="muted">${escapeHtml(t('Summary cards above use the selected dashboard month: billed and pending follow bill periods, while collected follows actual receipt dates. Carry-forward credit reduces pending balances but is never counted as cash. WhatsApp opens a draft only; receipts can be printed only from existing receipt records.'))}</p>
       </section>
       <section id="admin-receipts" class="panel data-panel"><div class="section-heading"><div><p class="eyebrow">${escapeHtml(t('Dated cash entries'))}</p><h2>${escapeHtml(t('Receipts'))}</h2></div><span class="muted">${receipts.length} ${escapeHtml(t('actual receipts'))}</span></div>
-        <div class="table-wrap" role="region" tabindex="0" aria-label="${escapeHtml(t('Receipts table; scroll horizontally to view all columns'))}"><table><caption class="sr-only">${escapeHtml(t('Actual cash receipts with date, customer, method, amount, and available actions.'))}</caption><thead><tr><th scope="col">${escapeHtml(t('Date'))}</th><th scope="col">${escapeHtml(t('Customer'))}</th><th scope="col">${escapeHtml(t('Method'))}</th><th scope="col">${escapeHtml(t('Amount'))}</th><th scope="col">${escapeHtml(t('Actions'))}</th></tr></thead><tbody>${receipts.slice(0, 100).map((receipt) => `<tr><td>${escapeHtml(receipt.received_on)}</td><td>${escapeHtml(customerName(receipt.customer_id))}</td><td>${escapeHtml(receipt.method)}</td><td>${formatMoney(receipt.amount_cents)}</td><td><button class="text-button" type="button" data-action="edit-receipt" data-id="${escapeHtml(receipt.id)}" aria-label="${escapeHtml(t('Edit receipt for'))} ${escapeHtml(customerName(receipt.customer_id))}, ${escapeHtml(t('dated'))} ${escapeHtml(receipt.received_on)}">${escapeHtml(t('Edit'))}</button><button class="text-button danger" type="button" data-action="delete-receipt" data-id="${escapeHtml(receipt.id)}" aria-label="${escapeHtml(t('Delete receipt for'))} ${escapeHtml(customerName(receipt.customer_id))}, ${escapeHtml(t('dated'))} ${escapeHtml(receipt.received_on)}">${escapeHtml(t('Delete'))}</button></td></tr>`).join('') || `<tr><td colspan="5" class="empty-cell">${escapeHtml(t('No receipts recorded yet.'))}</td></tr>`}</tbody></table></div>
+        <ul class="record-card-grid admin-receipt-card-grid" aria-label="${escapeHtml(t('Actual receipts'))}">${receipts.slice(0, 100).map((receipt) => {
+          const receiptId = escapeHtml(receipt.id);
+          const receiptDate = escapeHtml(receipt.received_on);
+          const receiptCustomer = escapeHtml(customerName(receipt.customer_id));
+          return `<li><article class="record-card receipt-record-card">
+            <header class="record-card__top"><div><h3>${receiptCustomer}</h3><p class="record-card__subtitle"><time datetime="${receiptDate}">${receiptDate}</time></p></div></header>
+            <dl class="record-card__facts"><div><dt>${escapeHtml(t('Method'))}</dt><dd>${escapeHtml(receipt.method || t('Method not recorded'))}</dd></div><div><dt>${escapeHtml(t('Amount'))}</dt><dd>${escapeHtml(formatMoney(receipt.amount_cents))}</dd></div></dl>
+            <div class="record-card__actions" role="group" aria-label="${escapeHtml(t('Actions'))}"><button class="text-button" type="button" data-action="edit-receipt" data-id="${receiptId}" aria-label="${escapeHtml(t('Edit receipt for'))} ${receiptCustomer}, ${escapeHtml(t('dated'))} ${receiptDate}">${escapeHtml(t('Edit'))}</button><button class="text-button danger" type="button" data-action="delete-receipt" data-id="${receiptId}" aria-label="${escapeHtml(t('Delete receipt for'))} ${receiptCustomer}, ${escapeHtml(t('dated'))} ${receiptDate}">${escapeHtml(t('Delete'))}</button></div>
+          </article></li>`;
+        }).join('') || `<li class="record-card-empty" role="status">${escapeHtml(t('No receipts recorded yet.'))}</li>`}</ul>
       </section>
       <section id="admin-incidents" class="panel data-panel incident-management" aria-labelledby="admin-incidents-title">
         <div class="section-heading"><div><p class="eyebrow">${escapeHtml(t('Service operations'))}</p><h2 id="admin-incidents-title">${escapeHtml(t('Incident management'))}</h2></div><span class="muted">${rows.incidents.length} ${escapeHtml(t('records'))}</span></div>
@@ -1527,14 +1536,22 @@ if (!supabase) {
         ? `<small class="customer-history-note">${escapeHtml(t('Price not recorded; no balance is calculated.'))}</small>`
         : '';
       const printButton = `<button class="text-button" type="button" data-action="print-bill" data-id="${escapeHtml(bill.id)}" aria-label="${escapeHtml(t('Print or save PDF of this bill'))} ${escapeHtml(String(bill.period ?? '').slice(0, 7))}">${escapeHtml(t('Print bill'))}</button>`;
-      return `<tr><th scope="row"><strong>${escapeHtml(formatBillingMonth(String(bill.period ?? '').slice(0, 7), 'en-PK', t))}</strong><small>${planLabel}</small></th><td>${formatMoney(bill.amount_due_cents)}${priceNote}</td><td>${formatMoney(summary.receiptCashCents)}</td><td>${formatMoney(summary.creditAppliedCents)}</td><td>${formatMoney(summary.balanceCents)}</td><td><span class="status-pill status-pill--${summary.status}">${statusLabel}</span></td><td>${printButton}</td></tr>`;
+      return `<li><article class="record-card customer-billing-card">
+        <header class="record-card__top"><div><h4>${escapeHtml(formatBillingMonth(String(bill.period ?? '').slice(0, 7), 'en-PK', t))}</h4><p class="record-card__subtitle">${planLabel}</p></div><span class="status-pill status-pill--${escapeHtml(summary.status)}">${escapeHtml(statusLabel)}</span></header>
+        <dl class="record-card__facts"><div><dt>${escapeHtml(t('Bill amount'))}</dt><dd>${escapeHtml(formatMoney(bill.amount_due_cents))}${priceNote}</dd></div><div><dt>${escapeHtml(t('Cash receipts linked to bill'))}</dt><dd>${escapeHtml(formatMoney(summary.receiptCashCents))}</dd></div><div><dt>${escapeHtml(t('Credit applied'))}</dt><dd>${escapeHtml(formatMoney(summary.creditAppliedCents))}</dd></div><div><dt>${escapeHtml(t('Balance'))}</dt><dd>${escapeHtml(formatMoney(summary.balanceCents))}</dd></div></dl>
+        <div class="record-card__actions" role="group" aria-label="${escapeHtml(t('Actions'))}">${printButton}</div>
+      </article></li>`;
     }).join('');
     const receiptRows = view.receipts.map((receipt) => {
       const originPeriod = periodByBillId.get(receipt.origin_bill_id);
       const originMonth = originPeriod
         ? formatBillingMonth(String(originPeriod).slice(0, 7), 'en-PK', t)
         : t('Bill month not available');
-      return `<tr><td><time datetime="${escapeHtml(receipt.received_on)}">${escapeHtml(receipt.received_on)}</time></td><td>${escapeHtml(receipt.method || t('Method not recorded'))}</td><td>${escapeHtml(originMonth)}</td><td>${formatMoney(receipt.amount_cents)}</td></tr>`;
+      const receiptDate = escapeHtml(receipt.received_on);
+      return `<li><article class="record-card customer-billing-card">
+        <header class="record-card__top"><div><h4><time datetime="${receiptDate}">${receiptDate}</time></h4></div></header>
+        <dl class="record-card__facts"><div><dt>${escapeHtml(t('Method'))}</dt><dd>${escapeHtml(receipt.method || t('Method not recorded'))}</dd></div><div><dt>${escapeHtml(t('Origin bill month'))}</dt><dd>${escapeHtml(originMonth)}</dd></div><div><dt>${escapeHtml(t('Amount received'))}</dt><dd>${escapeHtml(formatMoney(receipt.amount_cents))}</dd></div></dl>
+      </article></li>`;
     }).join('');
     const countMessage = view.invalidDateRange
       ? t('Choose a receipt start date on or before the end date. Receipt entries are hidden until the range is corrected.')
@@ -1550,11 +1567,11 @@ if (!supabase) {
 
     results.innerHTML = `<p class="customer-history-count" role="${view.invalidDateRange ? 'alert' : 'status'}" aria-live="${view.invalidDateRange ? 'assertive' : 'polite'}" aria-atomic="true">${escapeHtml(countMessage)}</p>
       <section class="customer-history-block" aria-labelledby="customer-bills-title"><div class="section-heading"><div><p class="eyebrow">${escapeHtml(t('Monthly snapshots'))}</p><h3 id="customer-bills-title">${escapeHtml(t('Bills'))}</h3></div></div>
-        <div class="table-wrap" role="region" tabindex="0" aria-label="${escapeHtml(t('Bills table; scroll horizontally to view all columns'))}"><table><caption class="sr-only">${escapeHtml(t('Monthly bill amounts, cash receipts, credit, balance, and status.'))}</caption><thead><tr><th scope="col">${escapeHtml(t('Bill month / plan'))}</th><th scope="col">${escapeHtml(t('Bill amount'))}</th><th scope="col">${escapeHtml(t('Cash receipts linked to bill'))}</th><th scope="col">${escapeHtml(t('Credit applied'))}</th><th scope="col">${escapeHtml(t('Balance'))}</th><th scope="col">${escapeHtml(t('Status'))}</th><th scope="col">${escapeHtml(t('Actions'))}</th></tr></thead><tbody>${billRows || `<tr><td colspan="7" class="empty-cell">${escapeHtml(billEmpty)}</td></tr>`}</tbody></table></div>
+        <ul class="record-card-grid customer-billing-card-grid" aria-label="${escapeHtml(t('Bills'))}">${billRows || `<li class="record-card-empty" role="status">${escapeHtml(billEmpty)}</li>`}</ul>
         <p class="muted">${escapeHtml(t('Bill balances use the complete allocation history. Actual receipts are counted once; carry-forward credit is separate. A bill without a recorded price has no calculated balance.'))}</p>
       </section>
       <section class="customer-history-block" aria-labelledby="customer-receipts-title"><div class="section-heading"><div><p class="eyebrow">${escapeHtml(t('Actual cash entries'))}</p><h3 id="customer-receipts-title">${escapeHtml(t('Receipts'))}</h3></div><span class="muted">${view.receipts.length} ${escapeHtml(t('shown'))}</span></div>
-        <div class="table-wrap" role="region" tabindex="0" aria-label="${escapeHtml(t('Receipts table; scroll horizontally to view all columns'))}"><table><caption class="sr-only">${escapeHtml(t('Actual cash receipts with received date, method, origin bill month, and amount.'))}</caption><thead><tr><th scope="col">${escapeHtml(t('Received on'))}</th><th scope="col">${escapeHtml(t('Method'))}</th><th scope="col">${escapeHtml(t('Origin bill month'))}</th><th scope="col">${escapeHtml(t('Amount received'))}</th></tr></thead><tbody>${receiptRows || `<tr><td colspan="4" class="empty-cell">${escapeHtml(receiptEmpty)}</td></tr>`}</tbody></table></div>
+        <ul class="record-card-grid customer-billing-card-grid" aria-label="${escapeHtml(t('Receipts'))}">${receiptRows || `<li class="record-card-empty" role="status">${escapeHtml(receiptEmpty)}</li>`}</ul>
         <p class="muted">${escapeHtml(t('Receipt date filters apply only to this actual-cash list; they do not change bill balances or credit totals.'))}</p>
       </section>`;
   }

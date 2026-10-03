@@ -217,11 +217,18 @@ export function renderCustomerProfile(row, { bills = [], receipts = [], allocati
       const credit = allocations.filter((allocation) => allocation.bill_id === bill.id
           && allocation.customer_id === customer.id && allocation.allocation_kind === 'carry-forward')
         .reduce((total, allocation) => total + Number(allocation.amount_cents || 0), 0);
-      return `<tr><td>${escapeHtml(periodOf(bill))}${bill.due_date ? `<small>${escapeHtml(t('Due'))} ${escapeHtml(String(bill.due_date).slice(0, 10))}</small>` : ''}</td><td>${escapeHtml(formatMoney(bill.amount_due_cents))}</td><td>${escapeHtml(formatMoney(cash))}</td><td>${escapeHtml(formatMoney(credit))}</td><td>${escapeHtml(formatMoney(state.balanceCents))}</td><td><span class="status-pill">${escapeHtml(billingStatusLabel(state.status, t))}</span></td></tr>`;
+      const dueDate = bill.due_date ? String(bill.due_date).slice(0, 10) : '';
+      return `<li><article class="record-card customer-history-card">
+        <header class="record-card__top"><div><h4>${escapeHtml(periodOf(bill))}</h4>${dueDate ? `<p class="record-card__subtitle">${escapeHtml(t('Due'))} ${escapeHtml(dueDate)}</p>` : ''}</div><span class="status-pill status-pill--${escapeHtml(state.status)}">${escapeHtml(billingStatusLabel(state.status, t))}</span></header>
+        <dl class="record-card__facts"><div><dt>${escapeHtml(t('Bill'))}</dt><dd>${escapeHtml(formatMoney(bill.amount_due_cents))}</dd></div><div><dt>${escapeHtml(t('Cash received'))}</dt><dd>${escapeHtml(formatMoney(cash))}</dd></div><div><dt>${escapeHtml(t('Credit applied'))}</dt><dd>${escapeHtml(formatMoney(credit))}</dd></div><div><dt>${escapeHtml(t('Balance'))}</dt><dd>${escapeHtml(formatMoney(state.balanceCents))}</dd></div></dl>
+      </article></li>`;
     }).join('');
   const customerReceipts = receipts.filter((receipt) => receipt.customer_id === customer.id)
     .sort((left, right) => String(right.received_on).localeCompare(String(left.received_on)))
-    .map((receipt) => `<li><time datetime="${escapeHtml(receipt.received_on)}">${escapeHtml(receipt.received_on)}</time><span>${escapeHtml(receipt.method)}</span><strong>${escapeHtml(formatMoney(receipt.amount_cents))}</strong></li>`)
+    .map((receipt) => `<li><article class="record-card customer-history-card">
+      <header class="record-card__top"><div><h4><time datetime="${escapeHtml(receipt.received_on)}">${escapeHtml(receipt.received_on)}</time></h4></div></header>
+      <dl class="record-card__facts"><div><dt>${escapeHtml(t('Method'))}</dt><dd>${escapeHtml(receipt.method || t('Method not recorded'))}</dd></div><div><dt>${escapeHtml(t('Amount'))}</dt><dd>${escapeHtml(formatMoney(receipt.amount_cents))}</dd></div></dl>
+    </article></li>`)
     .join('');
   const statusLabel = billingStatusLabel(billing.status, t);
   const dueLabel = customerDueLabel(row.dueBill ?? row.bill, t);
@@ -236,8 +243,8 @@ export function renderCustomerProfile(row, { bills = [], receipts = [], allocati
       <div class="profile-field profile-field--wide"><span>${escapeHtml(t('Service address'))}</span><strong>${escapeHtml(area || t('Service address not recorded'))}</strong></div>
       <div class="profile-field profile-field--wide"><span>${escapeHtml(t('Admin-only phone'))}</span><strong>${phoneMarkup}</strong></div>
     </div>
-    <section class="customer-profile-history"><h3>${escapeHtml(t('Billing history'))}</h3><div class="table-wrap" role="region" tabindex="0" aria-label="${escapeHtml(t('Customer billing history table; scroll horizontally to view all columns'))}"><table><caption class="sr-only">${escapeHtml(t('Monthly bills and their cash receipts, credit, balance, and status.'))}</caption><thead><tr><th scope="col">${escapeHtml(t('Period / due'))}</th><th scope="col">${escapeHtml(t('Bill'))}</th><th scope="col">${escapeHtml(t('Cash received'))}</th><th scope="col">${escapeHtml(t('Credit applied'))}</th><th scope="col">${escapeHtml(t('Balance'))}</th><th scope="col">${escapeHtml(t('Status'))}</th></tr></thead><tbody>${billHistory || `<tr><td colspan="6" class="empty-cell">${escapeHtml(t('No bills recorded yet.'))}</td></tr>`}</tbody></table></div><p class="muted">${escapeHtml(t('Cash is counted only from actual receipts; allocations and carry-forward credits reduce balances but are not additional payments.'))}</p></section>
-    <section class="customer-profile-history"><h3>${escapeHtml(t('Receipt history'))}</h3><ul class="customer-receipt-list">${customerReceipts || `<li class="customer-receipt-list__empty">${escapeHtml(t('No receipts recorded yet.'))}</li>`}</ul></section>
+    <section class="customer-profile-history"><h3>${escapeHtml(t('Billing history'))}</h3><ul class="record-card-grid customer-profile-card-grid" aria-label="${escapeHtml(t('Billing history'))}">${billHistory || `<li class="record-card-empty" role="status">${escapeHtml(t('No bills recorded yet.'))}</li>`}</ul><p class="muted">${escapeHtml(t('Cash is counted only from actual receipts; allocations and carry-forward credits reduce balances but are not additional payments.'))}</p></section>
+    <section class="customer-profile-history"><h3>${escapeHtml(t('Receipt history'))}</h3><ul class="record-card-grid customer-profile-card-grid" aria-label="${escapeHtml(t('Receipt history'))}">${customerReceipts || `<li class="record-card-empty" role="status">${escapeHtml(t('No receipts recorded yet.'))}</li>`}</ul></section>
     <section class="customer-profile-history customer-credential-access">
       <h3>${escapeHtml(t('Username + temporary password'))}</h3>
       <p class="muted">${escapeHtml(t('Issue or reset a separate customer username and temporary password. Customer data stays blocked until the password is changed. The password is shown once; closing this profile clears it. The internal synthetic address is not an inbox and never proves inbox ownership.'))}</p>
