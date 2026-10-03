@@ -110,9 +110,16 @@ test('timeout is bounded and no fallback or broker request is attempted', async 
   let requestCount = 0;
   const fetchImpl = (_url, { signal }) => new Promise((_resolve, reject) => {
     requestCount += 1;
+    // Node 22 may unref AbortSignal.timeout's timer; keep this mock request
+    // pending in the event loop until the abort event is observed.
+    const keepAlive = setTimeout(() => {}, 1_000);
     const rejectOnAbort = () => reject(signal.reason);
-    if (signal.aborted) rejectOnAbort();
-    else signal.addEventListener('abort', rejectOnAbort, { once: true });
+    const finishOnAbort = () => {
+      clearTimeout(keepAlive);
+      rejectOnAbort();
+    };
+    if (signal.aborted) finishOnAbort();
+    else signal.addEventListener('abort', finishOnAbort, { once: true });
   });
 
   await assert.rejects(
