@@ -219,7 +219,10 @@ test('profile history keeps bill balance, cash receipts, and carry-forward credi
   assert.match(markup, /Billing history/);
   assert.match(markup, /Receipt history/);
   assert.match(markup, /Due 2026-10-20/);
-  assert.match(markup, /<td>4000<\/td><td>6000<\/td><td>0<\/td>/);
+  assert.match(markup, /<dt>Cash received<\/dt><dd>4000<\/dd>/);
+  assert.match(markup, /<dt>Credit applied<\/dt><dd>6000<\/dd>/);
+  assert.match(markup, /<dt>Balance<\/dt><dd>0<\/dd>/);
+  assert.match(markup, /class="record-card-grid customer-profile-card-grid"/);
   assert.match(markup, /Admin-only phone/);
   assert.match(markup, /href="tel:03001234567"/);
   assert.doesNotMatch(markup, /staff_notes|recorded_by|email/);

@@ -42,20 +42,26 @@ test('portal route and data refreshes provide a focus destination and announce c
   }
 });
 
-test('all wide billing tables are named, keyboard-scrollable regions with captions and column headers', () => {
+test('billing and receipt collections use named semantic card lists instead of wide tables', () => {
   const tableRegions = (source) => [...source.matchAll(/class="table-wrap" role="region" tabindex="0" aria-label=/g)].length;
-  assert.equal(tableRegions(main), 3, 'remaining Admin and Customer portal tables have named keyboard-scroll regions');
-  assert.equal(tableRegions(customerList), 1, 'Admin customer-profile billing table has a named keyboard-scroll region');
+  const cardLists = (source) => [...source.matchAll(/<ul class="record-card-grid[^\"]*" aria-label=/g)].length;
+  assert.equal(tableRegions(main), 0, 'Admin receipts and Customer billing history no longer need horizontal table scrolling');
+  assert.equal(tableRegions(customerList), 0, 'customer-profile history no longer needs horizontal table scrolling');
+  assert.equal(cardLists(main), 3, 'Admin receipts plus Customer bill and receipt history use named lists');
+  assert.equal(cardLists(customerList), 2, 'customer-profile bills and receipts use named lists');
   for (const [name, source] of [['portal', main], ['customer profile', customerList]]) {
-    const tables = [...source.matchAll(/<table>([\s\S]*?)<\/table>/g)].map((match) => match[1]);
-    assert.ok(tables.length > 0, `${name} has tables to review`);
-    for (const table of tables) {
-      assert.match(table, /<caption class="sr-only">/);
-      assert.match(table, /<th scope="col">/);
-    }
+    assert.match(source, /<li><article class="record-card/ , `${name} records are articles within native lists`);
+    assert.match(source, /class="record-card__facts"/, `${name} card fields use definition lists`);
+    assert.match(source, /class="record-card-empty" role="status"/, `${name} empty states remain announced`);
   }
+  assert.match(main, /class="record-card-grid admin-receipt-card-grid" aria-label=/);
+  assert.match(main, /data-action="edit-receipt"/);
+  assert.match(main, /data-action="delete-receipt"/);
+  assert.match(main, /data-action="print-bill"/);
+  assert.match(styles, /\.record-card-grid \{ display: grid; grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
+  assert.match(styles, /@media \(max-width: 760px\) \{\s+\.record-card-grid \{ grid-template-columns: 1fr; \}/);
   assert.match(adminBills, /aria-label="\$\{escapeHtml\(t\('Correct bill for'\)\)\} \$\{customerName\}/);
-  assert.match(main, /aria-label="\$\{escapeHtml\(t\('Edit receipt for'\)\)\} \$\{escapeHtml\(customerName\(receipt\.customer_id\)\)\}/);
+  assert.match(main, /aria-label="\$\{escapeHtml\(t\('Edit receipt for'\)\)\} \$\{receiptCustomer\}, \$\{escapeHtml\(t\('dated'\)\)\} \$\{receiptDate\}/);
   assert.match(main, /aria-label="\$\{escapeHtml\(t\('Filter bills by payment status'\)\)\}"/);
   assert.match(main, /id="admin-bill-count" class="bill-list-count" role="status" aria-live="\$\{billDrilldown \? 'off' : 'polite'\}"/);
   assert.match(main, /id="admin-bill-drilldown-message" role="status" aria-live="polite" aria-atomic="true"/);

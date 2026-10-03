@@ -151,10 +151,7 @@ td { color: #25433b; }
 .customer-history-block + .customer-history-block { margin-top: 22px; padding-top: 20px; border-top: 1px solid var(--line); }
 .customer-history-block .section-heading { margin-bottom: 10px; }
 .customer-history-block h3 { font-size: 16px; }
-.customer-history-block th, .customer-history-block td { white-space: normal; vertical-align: top; }
-.customer-history-block tbody th { min-width: 155px; color: #25433b; text-align: left; }
-.customer-history-block tbody th strong, .customer-history-block tbody th small, .customer-history-note { display: block; }
-.customer-history-block tbody th small, .customer-history-note { margin-top: 4px; color: var(--muted); font-size: 11px; font-weight: 500; line-height: 1.45; }
+.customer-history-note { display: block; margin-top: 4px; color: var(--muted); font-size: 11px; font-weight: 500; line-height: 1.45; }
 .customer-history-block .muted { margin: 11px 0 0; }
 .status-pill--not-priced, .status-pill--unknown { color: #52655e; background: #edf2ef; }
 .status-pill--partial { color: #80520d; background: #fff3df; }
@@ -286,12 +283,6 @@ td { color: #25433b; }
 .customer-profile-history { display: grid; gap: 10px; margin-top: 19px; }
 .customer-profile-history h3 { font-size: 17px; }
 .customer-profile-history .muted { margin: 0; }
-.customer-profile-history th, .customer-profile-history td { white-space: normal; }
-.customer-profile-history td small { display: block; margin-top: 3px; color: var(--muted); }
-.customer-receipt-list { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
-.customer-receipt-list li { display: grid; grid-template-columns: minmax(95px, .7fr) minmax(90px, 1fr) minmax(120px, 1fr); gap: 10px; padding: 10px 12px; border: 1px solid #e4ece7; border-radius: 10px; font-size: 12px; }
-.customer-receipt-list li strong { text-align: right; }
-.customer-receipt-list__empty { color: var(--muted); }
 .customer-fab { position: fixed; z-index: 20; right: max(22px, env(safe-area-inset-right)); bottom: max(22px, env(safe-area-inset-bottom)); display: grid; width: 58px; height: 58px; place-items: center; border: 0; border-radius: 50%; color: #fff; background: linear-gradient(145deg, #1a926a, #0b5941); box-shadow: 0 10px 26px rgba(11, 89, 65, .32); font-size: 31px; font-weight: 400; }
 .customer-fab:hover { transform: translateY(-2px); }
 .customer-fab:focus-visible, .customer-filter-pill:focus-visible, .customer-action:focus-visible { outline: 3px solid #102e27; outline-offset: 3px; box-shadow: 0 0 0 6px #fff; }
@@ -318,9 +309,6 @@ td { color: #25433b; }
   .customer-action { flex: 1 1 auto; padding: 7px 8px; font-size: 10px; }
   .customer-profile-dialog { padding: 17px; }
   .customer-profile-grid { grid-template-columns: 1fr; }
-  .customer-receipt-list li { grid-template-columns: 1fr auto; }
-  .customer-receipt-list li span { grid-column: 1; }
-  .customer-receipt-list li strong { grid-column: 2; grid-row: 1 / span 2; align-self: center; }
   .customer-fab { right: max(15px, env(safe-area-inset-right)); bottom: max(15px, env(safe-area-inset-bottom)); width: 54px; height: 54px; }
 }
 
@@ -541,6 +529,38 @@ td { color: #25433b; }
 @media (prefers-reduced-motion: reduce) {
   .usage-skeleton__heading span, .usage-skeleton__card span, .usage-skeleton__quota span, .usage-skeleton__expiry span { animation: none; }
   .usage-progress > span { transition: none; }
+}
+
+/* Shared record cards for receipts and billing history across Admin and Customer views. */
+.record-card-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; margin: 0; padding: 0; list-style: none; }
+.record-card-grid > li { min-width: 0; }
+.record-card { min-width: 0; height: 100%; overflow: hidden; border: 1px solid #dfe9e3; border-radius: 16px; background: linear-gradient(145deg, #fff, #f9fcfa); box-shadow: 0 8px 22px rgba(24, 54, 45, .045); }
+.record-card__top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 16px 16px 0; }
+.record-card__top > div { min-width: 0; }
+.record-card__top h3, .record-card__top h4 { color: var(--ink); font-size: 16px; font-weight: 800; line-height: 1.35; overflow-wrap: anywhere; }
+.record-card__top .status-pill { flex: none; }
+.record-card__subtitle { margin: 5px 0 0; color: var(--muted); font-size: 11px; font-weight: 650; line-height: 1.45; overflow-wrap: anywhere; }
+.record-card__facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 0; padding: 12px 15px 14px; }
+.record-card__facts > div { display: grid; min-width: 0; align-content: start; gap: 4px; padding: 9px 10px; border: 1px solid #e4ece7; border-radius: 11px; background: rgba(255,255,255,.84); }
+.record-card__facts dt { color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: .045em; line-height: 1.35; text-transform: uppercase; overflow-wrap: anywhere; }
+.record-card__facts dd { margin: 0; color: var(--ink); font-size: 12px; font-weight: 700; line-height: 1.4; overflow-wrap: anywhere; }
+.record-card__facts dd small { display: block; margin-top: 4px; color: var(--muted); font-size: 10px; font-weight: 500; line-height: 1.45; }
+.record-card__actions { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; padding: 0 12px 11px; }
+.record-card__actions .text-button { min-height: 44px; }
+.record-card-empty { grid-column: 1 / -1; margin: 0; padding: 22px 14px; border: 1px dashed #ceddd4; border-radius: 13px; color: var(--muted); text-align: center; }
+.customer-profile-history .record-card-grid { margin-top: 2px; }
+.customer-billing-card-grid .record-card__facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (min-width: 1180px) {
+  .record-card-grid:not(.customer-profile-card-grid) { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 760px) {
+  .record-card-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 600px) {
+  .record-card__top { padding: 14px 13px 0; }
+  .record-card__facts { padding: 11px 12px 12px; }
+  .record-card__actions { padding: 0 10px 10px; }
+  .record-card__actions .text-button { flex: 1 1 auto; }
 }
 
 /* Quota meter colors track consumed percentage: green <75%, orange 75-90%, red >90%. */
