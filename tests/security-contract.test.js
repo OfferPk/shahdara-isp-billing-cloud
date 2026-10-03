@@ -143,11 +143,12 @@ test('customer phone creation is atomic, server-authorized, and writes only to p
 test('customer portal queries and rendering never select or expose customer phone data', async () => {
   const portalData = await readFile(resolve(root, 'src/portal-data.js'), 'utf8');
   const main = await readFile(resolve(root, 'src/main.js'), 'utf8');
-  const customerSelection = portalData.match(/rowsFor\(supabase, 'customers', '([^']+)'/i)?.[1] ?? '';
+  const customerSelection = portalData.match(/const customerColumns = context\.kind === 'admin'\s*\? '([^']+)'\s*:\s*'([^']+)'/i);
   const customerPortal = main.slice(main.indexOf('function renderCustomer()'), main.indexOf('async function refreshCurrentContext('));
 
   assert.ok(customerSelection, 'customer portal selection is explicit');
-  assert.doesNotMatch(customerSelection, /phone/i);
+  assert.doesNotMatch(`${customerSelection[1]} ${customerSelection[2]}`, /phone/i);
+  assert.match(customerSelection[2], /pppoe_username/i, 'only the customer profile selection includes its own usage mapping');
   assert.match(portalData, /context\.kind === 'admin'[\s\S]*rowsFor\(supabase, 'customer_private_details', 'customer_id, phone'/i);
   assert.match(portalData, /: Promise\.resolve\(\[\]\)/);
   assert.doesNotMatch(customerPortal, /phone|email|staff_notes|created_by|recorded_by/i);

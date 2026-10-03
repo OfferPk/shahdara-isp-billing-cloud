@@ -6,6 +6,11 @@ const migration = await readFile(
   new URL('../supabase/migrations/20261003170000_customer_bandwidth_usage.sql', import.meta.url),
   'utf8',
 );
+const [portalData, main, usageUi] = await Promise.all([
+  readFile(new URL('../src/portal-data.js', import.meta.url), 'utf8'),
+  readFile(new URL('../src/main.js', import.meta.url), 'utf8'),
+  readFile(new URL('../src/customer-usage.js', import.meta.url), 'utf8'),
+]);
 
  test('bandwidth rows retain the requested globally unique schema and trusted profile mapping', () => {
   assert.match(migration, /alter table public\.customers[\s\S]*add column pppoe_username text[\s\S]*unique \(pppoe_username\)/i);
@@ -29,4 +34,12 @@ test('the server sync path is a service-role-only security-definer upsert and pr
   assert.match(migration, /revoke all on function public\.sync_customer_bandwidth_usage\(text, bigint, bigint, boolean, text\)\s*from public, anon, authenticated, service_role/i);
   assert.match(migration, /grant execute on function public\.sync_customer_bandwidth_usage\(text, bigint, bigint, boolean, text\)\s*to service_role/i);
   assert.doesNotMatch(migration, /grant\s+(?:select|insert|update|delete|all)[^;]*customer_bandwidth_usage[^;]*to service_role/i);
+});
+
+test('customer browser usage reads rely on RLS and never request last IP or perform privileged writes', () => {
+  assert.match(portalData, /rowsFor\(supabase, 'customer_bandwidth_usage', 'username, total_quota_bytes, bytes_in, bytes_out, is_online, last_synced_at',[\s\S]*?\(query\) => query/);
+  assert.match(portalData, /context\.kind === 'customer'[\s\S]*?customerBandwidthUsageQuery/);
+  assert.doesNotMatch(portalData, /customer_bandwidth_usage[^;]{0,500}(?:last_ip|\.insert\(|\.update\(|\.upsert\(|\.delete\()/i);
+  assert.doesNotMatch(`${main}\n${usageUi}`, /last_ip|sync_customer_bandwidth_usage|service_role|SUPABASE_SERVICE_ROLE_KEY/i);
+  assert.doesNotMatch(`${main}\n${portalData}`, /customer_bandwidth_usage[^;]{0,500}\.(?:insert|update|upsert|delete)\(/i);
 });
