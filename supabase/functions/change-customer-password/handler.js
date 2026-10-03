@@ -14,6 +14,8 @@ function clientsFor(env, createClient, token) {
   if (parsed.protocol !== 'https:' || !publicKey || !serviceKey || !token) return null;
   const options = { auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false } };
   return {
+    authUserUrl: new URL('/auth/v1/user', parsed).toString(),
+    publicKey,
     userClient: createClient(url, publicKey, {
       ...options,
       global: { headers: { Authorization: `Bearer ${token}` } },
@@ -30,7 +32,7 @@ async function releaseChangeLease(serverClient, userId) {
   }
 }
 
-export function createChangeCustomerPasswordHandler({ env, createClient }) {
+export function createChangeCustomerPasswordHandler({ env, createClient, fetchImpl = fetch }) {
   return async (request) => {
     const origin = exactOrigin(request, env);
     if (!origin) return jsonResponse(403, { error: 'Request is not allowed.' });
@@ -74,10 +76,19 @@ export function createChangeCustomerPasswordHandler({ env, createClient }) {
     if (started !== 'ok') return jsonResponse(403, { error: 'This account is not eligible for a temporary-password change.' }, origin);
 
     try {
-      // Use the signed-in user's normal Auth password-update API, not an Admin API
-      // password override. Supabase Auth project password/re-auth policies remain active.
-      const { error: updateError } = await clients.userClient.auth.updateUser({ password: newPassword });
-      if (updateError) {
+      // getUser(token) verifies this bearer but does not create an SDK session.
+      // Use Auth's user-scoped endpoint with that same bearer, never an Admin override.
+      const authResponse = await fetchImpl(clients.authUserUrl, {
+        method: 'PUT',
+        headers: {
+          apikey: clients.publicKey,
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ password: newPassword }),
+        redirect: 'manual',
+      });
+      if (!authResponse?.ok) {
         await releaseChangeLease(clients.serverClient, userId);
         return jsonResponse(400, { error: 'Password could not be changed. Check the account password policy and try again, or contact an administrator.' }, origin);
       }
