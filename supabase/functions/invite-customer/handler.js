@@ -23,6 +23,7 @@ async function sha256Hex(value) {
 }
 
 const genericRecoveryError = 'The invitation result is uncertain. Submit the same customer and email again to recover safely; the server will not send a second invitation. If recovery cannot be confirmed, an administrator must review the account state.';
+const authEmailRateLimitError = 'Supabase Auth rejected the invitation because its email-send rate limit was reached. This request is locked for safe review; ask a Shahdara administrator to check the same customer/email request before any retry. Email delivery is not confirmed.';
 
 export function createInviteHandler({ env, createClient }) {
   return async (request) => {
@@ -172,6 +173,9 @@ export function createInviteHandler({ env, createClient }) {
         // for review rather than risking a duplicate email on a retry.
         const result = await finishLink();
         if (result?.status === 'linked') return linkedResponse(true);
+        if (inviteError && (Number(inviteError.status) === 429 || inviteError.code === 'over_email_send_rate_limit')) {
+          return response(429, { error: authEmailRateLimitError }, appOrigin);
+        }
         return recoveryRequired();
       }
 

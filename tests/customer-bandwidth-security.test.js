@@ -6,17 +6,31 @@ const migration = await readFile(
   new URL('../supabase/migrations/20261003170000_customer_bandwidth_usage.sql', import.meta.url),
   'utf8',
 );
+const mappingMigration = await readFile(
+  new URL('../supabase/migrations/20261003200536_add_customer_pppoe_username_mapping.sql', import.meta.url),
+  'utf8',
+);
 const [portalData, main, usageUi] = await Promise.all([
   readFile(new URL('../src/portal-data.js', import.meta.url), 'utf8'),
   readFile(new URL('../src/main.js', import.meta.url), 'utf8'),
   readFile(new URL('../src/customer-usage.js', import.meta.url), 'utf8'),
 ]);
 
- test('bandwidth rows retain the requested globally unique schema and trusted profile mapping', () => {
-  assert.match(migration, /alter table public\.customers[\s\S]*add column pppoe_username text[\s\S]*unique \(pppoe_username\)/i);
-  assert.match(migration, /create table public\.customer_bandwidth_usage\s*\([\s\S]*id uuid primary key default gen_random_uuid\(\)[\s\S]*username text not null unique[\s\S]*total_quota_bytes bigint not null default 0[\s\S]*bytes_in bigint not null default 0[\s\S]*bytes_out bigint not null default 0[\s\S]*is_online boolean not null default false[\s\S]*last_ip text[\s\S]*last_synced_at timestamptz not null default now\(\)[\s\S]*created_at timestamptz not null default now\(\)/i);
+test('bandwidth rows retain the requested globally unique schema and trusted profile mapping', () => {
+  assert.match(migration, /alter table public\.customers[\s\S]*add column if not exists pppoe_username text/i);
+  assert.match(migration, /create table public\.customer_bandwidth_usage\s*\([\s\S]*id uuid primary key default gen_random_uuid\(\)[\s\S]*username text not null unique[\s\S]*total_quota_bytes bigint not null default 0[\s\S]*bytes_in bigint not null[\s\S]*bytes_out bigint not null[\s\S]*is_online boolean not null default false[\s\S]*last_ip text[\s\S]*last_synced_at timestamptz not null default now\(\)[\s\S]*created_at timestamptz not null default now\(\)/i);
   assert.match(migration, /foreign key \(username\)\s*references public\.customers \(pppoe_username\)/i);
   assert.match(migration, /grant update \(pppoe_username\) on public\.customers to authenticated/i);
+});
+
+test('staging mapping migration is mapping-only and both migration orders tolerate its existing column', () => {
+  for (const source of [migration, mappingMigration]) {
+    assert.match(source, /add column if not exists pppoe_username text/i);
+    assert.match(source, /conname = 'customers_pppoe_username_unique'[\s\S]*?unique \(pppoe_username\)/i);
+    assert.match(source, /conname = 'customers_pppoe_username_nonempty'[\s\S]*?check \(pppoe_username is null or length\(btrim\(pppoe_username\)\) > 0\)/i);
+    assert.match(source, /grant update \(pppoe_username\) on public\.customers to authenticated/i);
+  }
+  assert.doesNotMatch(mappingMigration, /create table public\.customer_bandwidth_usage|create policy|create or replace function/i);
 });
 
 test('authenticated row access is mediated by existing tenant and customer ownership helpers', () => {

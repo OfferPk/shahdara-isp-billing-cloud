@@ -147,3 +147,29 @@ test('Admin incident reporting and updates use labeled fields, explicit statuses
   assert.match(styles, /@media \(max-width: 760px\) \{\s+\.incident-card-grid \{ grid-template-columns: 1fr; \}/);
   assert.match(styles, /@media \(max-width: 600px\) \{\s+\.incident-create-form \{ grid-template-columns: 1fr;/);
 });
+
+test('password recovery announces confirmed saves and tries sound only after Auth returns a user', () => {
+  assert.match(index, /id="app-toast" class="app-toast" role="status" aria-live="polite" aria-atomic="true" hidden/);
+  assert.match(styles, /\.app-toast\[hidden\] \{ display: none; \}/);
+  assert.match(styles, /safe-area-inset-bottom/);
+  const handler = main.match(/passwordRecoveryForm\?\.addEventListener\('submit', async \(event\) => \{([\s\S]*?)\n  \}\);/)?.[1];
+  assert.ok(handler, 'password recovery handler exists');
+  const confirmation = handler.indexOf('if (updateResult?.error || !updateResult?.data?.user?.id)');
+  const toast = handler.indexOf("showAppToast('Your password was updated successfully.')");
+  const sound = handler.indexOf('successSound.play()');
+  assert.ok(confirmation >= 0 && toast > confirmation, 'the confirmed Auth user check precedes the success toast');
+  assert.ok(sound > toast, 'sound follows the visible success confirmation');
+  assert.match(handler.slice(confirmation, toast), /successSound\.cancel\(\)/);
+  assert.match(handler, /Password could not be updated\. Check the recovery link and try again\./);
+});
+
+test('Admin PPPoE controls are schema-gated and explicitly mapping-only', async () => {
+  const portalData = await readFile(new URL('../src/portal-data.js', import.meta.url), 'utf8');
+  assert.match(main, /context\.kind !== 'admin' \|\| pageState\.rows\?\.pppoeMappingAvailable !== true/);
+  assert.match(main, /The customers\.pppoe_username field is not available in this project yet/);
+  assert.match(main, /Never enter a PPPoE password here/);
+  assert.match(main, /does not create a network account or change Overtake, RADIUS, or RouterOS/);
+  assert.match(portalData, /\.update\(\{ pppoe_username: pppoeUsername \}\)/);
+  assert.match(portalData, /\.eq\('organization_id', organizationId\)[\s\S]*?\.eq\('id', customerId\)/);
+  assert.doesNotMatch(portalData, /service_role|change-password|ppp secret|radius.*write/i);
+});

@@ -326,3 +326,25 @@ test('provider and database errors do not disclose email, Auth IDs, or backend d
   assert.equal(retry.status, 409);
   assert.equal(calls.invitations.length, 1);
 });
+
+test('Supabase Auth email-send rate limits are identified while the reservation stays locked against resend', async () => {
+  const providerLimit = Object.assign(new Error('synthetic private provider detail for hidden@example.test'), {
+    status: 429,
+    code: 'over_email_send_rate_limit',
+  });
+  const { handler, calls, state } = makeHarness({ inviteError: providerLimit });
+  const first = await handler(request());
+  assert.equal(first.status, 429);
+  const body = await json(first);
+  assert.match(body.error, /Supabase Auth.*email-send rate limit/i);
+  assert.match(body.error, /locked for safe review/i);
+  assert.match(body.error, /Email delivery is not confirmed/i);
+  assert.doesNotMatch(body.error, /test\.customer|hidden@example|30000000-0000|private provider detail/i);
+  assert.equal(first.headers.get('retry-after'), null, 'the provider did not supply a verified reset time');
+  assert.equal(state.status, 'needs_review');
+  assert.equal(calls.invitations.length, 1);
+
+  const retry = await handler(request());
+  assert.equal(retry.status, 409);
+  assert.equal(calls.invitations.length, 1, 'a repeated request recovers or asks for review but never resends');
+});

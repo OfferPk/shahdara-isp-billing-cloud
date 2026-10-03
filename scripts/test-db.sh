@@ -148,8 +148,18 @@ if ((${#MIGRATIONS[@]} == 0)); then
   echo "No repository migrations found under supabase/migrations." >&2
   exit 1
 fi
+BANDWIDTH_MIGRATION="$ROOT/supabase/migrations/20261003170000_customer_bandwidth_usage.sql"
+MAPPING_MIGRATION="$ROOT/supabase/migrations/20261003200536_add_customer_pppoe_username_mapping.sql"
 for migration in "${MIGRATIONS[@]}"; do
+  if [[ "$migration" == "$BANDWIDTH_MIGRATION" && -f "$MAPPING_MIGRATION" ]]; then
+    # Staging records the mapping-only migration while this older full migration
+    # remains pending. Exercise that order before applying the full bandwidth DDL.
+    printf 'Applying the staging-recorded mapping migration before the pending full migration.\n'
+    run_psql < "$MAPPING_MIGRATION" >/dev/null
+  fi
   printf 'Applying repository migration locally: %s\n' "${migration##*/}"
+  # The later mapping migration is replayed here after the full migration, testing
+  # both migration orders against this disposable database.
   run_psql < "$migration" >/dev/null
 done
 
