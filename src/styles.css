@@ -468,3 +468,89 @@ td { color: #25433b; }
   .provider-card__logo { width: 58px; height: 58px; }
   .provider-card__contact { grid-column: auto; grid-template-columns: 1fr; }
 }
+
+
+/* Customer-only cumulative bandwidth dashboard and service-expiry placeholder. */
+.usage-panel { scroll-margin-top: 18px; }
+.usage-snapshot { display: grid; gap: 15px; }
+.usage-snapshot__heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.usage-status { display: inline-flex; align-items: center; gap: 7px; min-height: 30px; padding: 5px 11px; border: 1px solid transparent; border-radius: 999px; font-size: 12px; font-weight: 800; }
+.usage-status--online { color: #145c3e; border-color: #bfe0cc; background: #e9f6ee; }
+.usage-status--offline { color: #7c302b; border-color: #edc8c3; background: #fff0ed; }
+.usage-status--unknown { color: #4d6059; border-color: #d5e0da; background: #f0f4f1; }
+.usage-status__dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.usage-snapshot__label { color: #536960; font-size: 11px; font-weight: 750; }
+.usage-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 11px; }
+.usage-metric { display: grid; min-width: 0; gap: 8px; padding: 16px; border: 1px solid #dce8e1; border-radius: 14px; background: linear-gradient(145deg, #fff, #f5faf7); }
+.usage-metric span { color: #4f655d; font-size: 12px; font-weight: 750; }
+.usage-metric strong { color: #17342f; font-size: clamp(17px, 2.5vw, 23px); font-variant-numeric: tabular-nums; line-height: 1.2; overflow-wrap: anywhere; }
+.usage-metric--total { border-color: #bfdccc; background: linear-gradient(145deg, #f8fcf9, #eaf5ee); }
+.usage-quota { display: grid; gap: 11px; padding: 16px; border: 1px solid #dce8e1; border-radius: 14px; background: #fbfdfb; }
+.usage-quota__facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
+.usage-quota__facts > div { display: grid; min-width: 0; gap: 5px; }
+.usage-quota__facts span { color: #4f655d; font-size: 11px; font-weight: 750; }
+.usage-quota__facts strong { color: #17342f; font-size: 17px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.usage-progress { height: 12px; overflow: hidden; border: 1px solid #bfd5ca; border-radius: 999px; background: #e9efeb; }
+.usage-progress > span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #177b59, #32a778); transition: width .2s ease; }
+.usage-note, .usage-sync, .usage-stale-note, .usage-over-quota { margin: 0; font-size: 12px; line-height: 1.55; }
+.usage-note, .usage-sync { color: #52675f; }
+.usage-stale-note { padding: 9px 11px; border: 1px solid #eed7aa; border-radius: 10px; color: #744b12; background: #fff7e8; }
+.usage-sync--stale { color: #744b12; }
+.usage-sync--unknown { color: #5c6f68; }
+.usage-over-quota { color: #8f3f35; font-weight: 750; }
+.usage-footer { display: grid; gap: 7px; padding-top: 11px; border-top: 1px solid #e3ebe7; }
+.usage-state { padding: 16px; border: 1px dashed #cbdad2; border-radius: 13px; color: #435e56; background: #f8fbf9; }
+.usage-state p { margin: 0; font-size: 13px; line-height: 1.55; }
+.usage-state--empty { border-color: #cad9d1; }
+.usage-state--error { border-style: solid; border-color: #e4c1bc; color: #7c302b; background: #fff6f4; }
+.usage-expiry { display: grid; gap: 8px; margin-top: 3px; padding: 15px 16px; border: 1px solid #d8e2dd; border-radius: 14px; background: #f7faf8; scroll-margin-top: 18px; }
+.usage-expiry__heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.usage-expiry__heading .eyebrow { margin-bottom: 4px; }
+.usage-expiry__heading h3 { font-size: 16px; }
+.usage-expiry > p { margin: 0; color: #435e56; font-size: 12px; line-height: 1.55; }
+.usage-expiry > p.muted { color: #5f706a; }
+.usage-skeleton { display: grid; gap: 15px; }
+.usage-skeleton__heading { display: flex; justify-content: space-between; gap: 20px; }
+.usage-skeleton__heading span, .usage-skeleton__card span, .usage-skeleton__quota span, .usage-skeleton__expiry span { display: block; height: 14px; border-radius: 999px; background: linear-gradient(90deg, #e8efeb 25%, #f5f8f6 50%, #e8efeb 75%); background-size: 220% 100%; animation: usage-shimmer 1.5s ease-in-out infinite; }
+.usage-skeleton__heading span:first-child { width: 190px; height: 24px; }
+.usage-skeleton__heading span:last-child { width: 80px; }
+.usage-skeleton__grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 11px; }
+.usage-skeleton__card { display: grid; gap: 12px; min-height: 94px; padding: 15px; border: 1px solid #e0e9e4; border-radius: 14px; }
+.usage-skeleton__card span:first-child { width: 45%; }
+.usage-skeleton__card span:nth-child(2) { width: 72%; height: 22px; }
+.usage-skeleton__card span:last-child { width: 56%; }
+.usage-skeleton__quota { display: grid; gap: 12px; padding: 15px; border: 1px solid #e0e9e4; border-radius: 14px; }
+.usage-skeleton__quota span:first-child { width: 34%; }
+.usage-skeleton__quota span:last-child { width: 100%; height: 11px; }
+.usage-skeleton__expiry { min-height: 80px; align-content: center; }
+.usage-skeleton__expiry span:first-child { width: 36%; }
+.usage-skeleton__expiry span:last-child { width: 75%; }
+@keyframes usage-shimmer { to { background-position: -220% 0; } }
+@media (max-width: 600px) {
+  .usage-metrics { grid-template-columns: 1fr; }
+  .usage-metric { grid-template-columns: 1fr auto; align-items: center; gap: 10px; padding: 12px 13px; }
+  .usage-metric strong { font-size: 17px; text-align: right; }
+  .usage-quota { padding: 13px; }
+  .usage-quota__facts { gap: 9px; }
+  .usage-quota__facts strong { font-size: 15px; }
+  .usage-snapshot__heading { align-items: flex-start; flex-direction: column; }
+  .usage-expiry__heading { flex-direction: column; }
+  .usage-skeleton__grid { grid-template-columns: 1fr; }
+  .usage-skeleton__card { min-height: 68px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .usage-skeleton__heading span, .usage-skeleton__card span, .usage-skeleton__quota span, .usage-skeleton__expiry span { animation: none; }
+  .usage-progress > span { transition: none; }
+}
+
+/* Quota meter colors track consumed percentage: green <75%, orange 75-90%, red >90%. */
+.usage-progress--good > span { background: linear-gradient(90deg, #177b59, #32a778); }
+.usage-progress--warning > span { background: linear-gradient(90deg, #a66a12, #c18418); }
+.usage-progress--critical > span { background: linear-gradient(90deg, #a63f39, #c04c43); }
+.usage-expiry--upcoming { border-color: #c7dfd1; background: #f4faf6; }
+.usage-expiry--warning { border-color: #e6cc98; background: #fff8eb; }
+.usage-expiry--expired { border-color: #e5c0bb; background: #fff5f3; }
+.usage-expiry__badge--upcoming { color: #145c3e; background: #e9f6ee; }
+.usage-expiry__badge--warning { color: #744b12; background: #fff0cf; }
+.usage-expiry__badge--expired { color: #7c302b; background: #ffe8e4; }
+.usage-expiry__date { color: #435e56; font-size: 12px; font-variant-numeric: tabular-nums; }

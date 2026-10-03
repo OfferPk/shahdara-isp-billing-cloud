@@ -33,6 +33,7 @@ import { renderAdminIncidentCards, renderIncidentCustomerOptions } from './admin
 import { applyDocumentLanguage, formatUiMessage, getStoredLanguage, normalizeLanguage, setLanguagePreference, translateUi } from './language.js';
 import { BRANDING_BUCKET, buildBrandLogoPath, getOrganizationBranding, getPublicBrandLogoUrl, isSafeBrandLogoPath, safeSupportPhoneHref, validateBrandLogoFile } from './organization-branding.js';
 import { renderPrintableBillHtml } from './customer-documents.js';
+import { renderCustomerUsageDashboard, renderCustomerUsageSkeleton } from './customer-usage.js';
 import './styles.css';
 
 const app = document.querySelector('#app');
@@ -193,11 +194,11 @@ if (!supabase) {
     setMessage(customerLoginMessage, '', false);
   }
 
-  function showPortalLoading() {
+  function showPortalLoading(includeCustomerUsage = false) {
     configMessage.hidden = true;
     authPanel.hidden = true;
     portalPanel.hidden = false;
-    portalPanel.innerHTML = `<div class="panel loading-panel" role="status" aria-live="polite" aria-busy="true"><span class="spinner" aria-hidden="true"></span><p>${escapeHtml(t('Loading records allowed for this account…'))}</p></div>`;
+    portalPanel.innerHTML = `<div class="panel loading-panel" role="status" aria-live="polite" aria-busy="true"><span class="spinner" aria-hidden="true"></span><p>${escapeHtml(t('Loading records allowed for this account…'))}</p></div>${includeCustomerUsage ? renderCustomerUsageSkeleton(t) : ''}`;
   }
 
   async function selectContext(context) {
@@ -220,7 +221,7 @@ if (!supabase) {
       pageState.customerReceiptThrough = '';
     }
     pageState.context = context;
-    showPortalLoading();
+    showPortalLoading(context.kind === 'customer');
     try {
       pageState.rows = await loadPortalRows(supabase, context);
       applyDashboardDrilldown(parseDashboardDrilldownHash(window.location.hash));
@@ -487,7 +488,7 @@ if (!supabase) {
   function renderPortalNavigation(kind) {
     const links = kind === 'admin'
       ? [['#admin-overview', 'Overview'], ['#customer-list', 'Customers'], ['#admin-bills', 'Bills'], ['#admin-receipts', 'Receipts'], ['#admin-incidents', 'Service incidents'], ...(pageState.context?.role === 'owner' ? [['#company-branding', 'Company profile']] : [])]
-      : [['#customer-account', 'My account'], ['#customer-billing', 'Billing history'], ['#customer-incidents', 'Service updates']];
+      : [['#customer-account', 'My account'], ['#customer-usage', 'Usage dashboard'], ['#customer-expiry', 'Service expiry'], ['#customer-billing', 'Billing history'], ['#customer-incidents', 'Service updates']];
     return `<nav class="portal-nav" aria-label="${escapeHtml(t('Portal navigation'))}">${links.map(([href, label]) => `<a href="${href}">${escapeHtml(t(label))}</a>`).join('')}</nav>`;
   }
 
@@ -1584,6 +1585,7 @@ if (!supabase) {
         <div class="profile-card__details"><div class="profile-field"><span>${escapeHtml(t('Plan'))}</span><strong>${escapeHtml(customer.plan_name || t('Plan not set'))}</strong></div><div class="profile-field"><span>${escapeHtml(t('Monthly fee'))}</span><strong>${formatMoney(customer.monthly_fee_cents)}</strong></div><div class="profile-field profile-field--wide"><span>${escapeHtml(t('Service address'))}</span><strong>${escapeHtml(customer.service_address || t('Service address not recorded'))}</strong></div></div>
         <div class="profile-card__status"><span class="status-pill">${escapeHtml(customer.archived ? t('Archived') : ({ active: t('Active'), offline: t('Offline'), 'not-set': t('Not set') }[customer.service_status] ?? customer.service_status ?? t('Not set')))}</span><p>${escapeHtml(t('Service status'))}</p></div>
       </section>
+      ${renderCustomerUsageDashboard({ customer, usageRows: rows.customerBandwidthUsage ?? [], error: Boolean(rows.customerBandwidthUsageError), expiryDate: null, t, locale: currentLanguage === 'ur-Latn' ? 'ur-Latn-PK' : 'en-PK' })}
       <section class="metric-grid customer-metrics"><article class="metric"><span>${escapeHtml(t('Total receipts'))}</span><strong>${formatMoney(totalCash)}</strong><small>${customerReceipts.length} ${escapeHtml(t('actual payments'))}</small></article><article class="metric"><span>${escapeHtml(t('Billing history'))}</span><strong>${customerBills.length}</strong><small>${escapeHtml(t('Monthly snapshots'))}</small></article></section>
       <section id="customer-billing" class="panel data-panel customer-billing-panel" aria-labelledby="customer-billing-title"><div class="section-heading"><div><p class="eyebrow">${escapeHtml(t('Your billing history'))}</p><h2 id="customer-billing-title">${escapeHtml(t('Bills and receipts'))}</h2></div></div>
         <div id="customer-billing-filters" class="customer-billing-filters" aria-describedby="customer-billing-filter-help">
@@ -1628,7 +1630,7 @@ if (!supabase) {
 
   async function refreshCurrentContext(announcement = 'Portal data updated.') {
     if (!pageState.context) return;
-    showPortalLoading();
+    showPortalLoading(pageState.context.kind === 'customer');
     try {
       pageState.rows = await loadPortalRows(supabase, pageState.context);
       renderPortal();

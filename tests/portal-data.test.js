@@ -78,13 +78,18 @@ test('portal row reads scope customer data and preserve safe paging', async () =
     kind: 'customer', organizationId: 'synthetic-org', customerId: 'synthetic-customer',
   });
 
-  assert.deepEqual(Object.keys(rows), ['customers', 'bills', 'receipts', 'allocations', 'incidents', 'privateCustomerDetails', 'privateIncidentDetails', 'branding']);
+  assert.deepEqual(Object.keys(rows), ['customers', 'bills', 'receipts', 'allocations', 'incidents', 'privateCustomerDetails', 'privateIncidentDetails', 'branding', 'customerBandwidthUsage', 'customerBandwidthUsageError']);
   assert.equal(rows.branding, null);
   assert.deepEqual(rows.privateCustomerDetails, []);
   assert.equal(client.calls.some((query) => query.table === 'customer_private_details'), false);
   assert.deepEqual(rows.privateIncidentDetails, []);
   assert.equal(client.calls.some((query) => query.table === 'incident_private_details'), false);
   for (const query of client.calls) {
+    if (query.table === 'customer_bandwidth_usage') {
+      assert.deepEqual(query.filters, [], 'RLS, not a client-supplied identity filter, controls usage rows');
+      assert.deepEqual(query.ranges, [[0, 999]]);
+      continue;
+    }
     assert.ok(query.filters.some((filter) => filter[0] === 'eq' && filter[1] === 'organization_id' && filter[2] === 'synthetic-org'));
     if (query.table !== 'organization_branding') assert.deepEqual(query.ranges, [[0, 999]]);
   }
@@ -108,9 +113,45 @@ test('customer profile query selects only approved public profile fields', async
   });
 
   const profileQuery = client.calls.find((query) => query.table === 'customers');
-  assert.deepEqual(profileQuery.selects, ['id, customer_number, name, plan_name, service_address, service_status, monthly_fee_cents, archived']);
+  assert.deepEqual(profileQuery.selects, ['id, customer_number, name, plan_name, service_address, service_status, monthly_fee_cents, archived, pppoe_username']);
   assert.doesNotMatch(profileQuery.selects.join(' '), /phone|staff_notes|created_by|recorded_by|email/i);
   assert.ok(profileQuery.filters.some((filter) => filter[1] === 'id' && filter[2] === 'synthetic-customer'));
+});
+
+test('customer bandwidth usage selects only safe fields and relies on RLS without customer-supplied filters', async () => {
+  const fixture = {
+    username: 'synthetic-pppoe', total_quota_bytes: '9000', bytes_in: '3000', bytes_out: '1000',
+    is_online: true, last_synced_at: '2026-10-03T10:00:00Z',
+  };
+  const client = mockClient({
+    customers: { data: [{ id: 'synthetic-customer', pppoe_username: 'synthetic-pppoe' }], error: null },
+    customer_bandwidth_usage: { data: [fixture], error: null },
+    bills: { data: [], error: null }, receipts: { data: [], error: null },
+    receipt_allocations: { data: [], error: null }, incidents: { data: [], error: null },
+  });
+  const rows = await loadPortalRows(client, {
+    kind: 'customer', organizationId: 'synthetic-org', customerId: 'synthetic-customer',
+  });
+  const query = client.calls.find((entry) => entry.table === 'customer_bandwidth_usage');
+
+  assert.deepEqual(query.selects, ['username, total_quota_bytes, bytes_in, bytes_out, is_online, last_synced_at']);
+  assert.deepEqual(query.filters, [], 'the client does not send a username, customer ID, or organization ID to the usage query');
+  assert.deepEqual(rows.customerBandwidthUsage, [fixture]);
+  assert.equal(rows.customerBandwidthUsageError, null);
+  assert.doesNotMatch(query.selects.join(' '), /last_ip|service_role|secret/i);
+
+  const failedClient = mockClient({
+    customers: { data: [{ id: 'synthetic-customer', pppoe_username: 'synthetic-pppoe' }], error: null },
+    customer_bandwidth_usage: { data: null, error: new Error('synthetic RLS/table denial') },
+    bills: { data: [], error: null }, receipts: { data: [], error: null },
+    receipt_allocations: { data: [], error: null }, incidents: { data: [], error: null },
+  });
+  const failedRows = await loadPortalRows(failedClient, {
+    kind: 'customer', organizationId: 'synthetic-org', customerId: 'synthetic-customer',
+  });
+  assert.deepEqual(failedRows.customerBandwidthUsage, []);
+  assert.match(failedRows.customerBandwidthUsageError.message, /synthetic RLS\/table denial/);
+  assert.equal(failedRows.customers.length, 1, 'a usage-only query error does not hide the rest of the customer portal');
 });
 
 test('customer billing and incident reads are limited to approved fields and the linked account', async () => {

@@ -83,8 +83,17 @@ export async function loadPortalRows(supabase, context) {
   const billColumns = context.kind === 'admin'
     ? 'id, customer_id, period, amount_due_cents, issued_on, due_date, plan_snapshot'
     : 'id, customer_id, period, amount_due_cents, plan_snapshot';
-  const [customers, bills, receipts, allocations, incidents, privateCustomerDetails, privateIncidentDetails, branding] = await Promise.all([
-    rowsFor(supabase, 'customers', 'id, customer_number, name, plan_name, service_address, service_status, monthly_fee_cents, archived',
+  const customerColumns = context.kind === 'admin'
+    ? 'id, customer_number, name, plan_name, service_address, service_status, monthly_fee_cents, archived'
+    : 'id, customer_number, name, plan_name, service_address, service_status, monthly_fee_cents, archived, pppoe_username';
+  const customerBandwidthUsageQuery = context.kind === 'customer'
+    ? rowsFor(supabase, 'customer_bandwidth_usage', 'username, total_quota_bytes, bytes_in, bytes_out, is_online, last_synced_at',
+      (query) => query, { column: 'username' })
+      .then((data) => ({ data, error: null }))
+      .catch((error) => ({ data: [], error }))
+    : Promise.resolve({ data: [], error: null });
+  const [customers, bills, receipts, allocations, incidents, privateCustomerDetails, privateIncidentDetails, branding, customerBandwidthUsage] = await Promise.all([
+    rowsFor(supabase, 'customers', customerColumns,
       context.kind === 'admin' ? byOrganization : customerTableOnly, { column: 'customer_number' }),
     rowsFor(supabase, 'bills', billColumns,
       context.kind === 'admin' ? byOrganization : customerOnly, { column: 'period', ascending: false }),
@@ -97,8 +106,13 @@ export async function loadPortalRows(supabase, context) {
     privateCustomerDetailsQuery,
     privateIncidentDetailsQuery,
     loadOrganizationBranding(supabase, context.organizationId),
+    customerBandwidthUsageQuery,
   ]);
-  return { customers, bills, receipts, allocations, incidents, privateCustomerDetails, privateIncidentDetails, branding };
+  return {
+    customers, bills, receipts, allocations, incidents, privateCustomerDetails, privateIncidentDetails, branding,
+    customerBandwidthUsage: customerBandwidthUsage.data,
+    customerBandwidthUsageError: customerBandwidthUsage.error,
+  };
 }
 
 export async function createCustomer(supabase, customer) {

@@ -92,6 +92,25 @@ test('keyboard focus, reduced motion and small-phone layout remain explicit', ()
   assert.match(styles, /\.customer-filter-pill \{ min-height: 44px;/);
 });
 
+test('customer usage meter is responsive, accessible, color-coded, and keeps status text at WCAG AA contrast', async () => {
+  const usageUi = await readFile(new URL('../src/customer-usage.js', import.meta.url), 'utf8');
+  assert.match(usageUi, /role="progressbar" aria-label=/);
+  assert.match(usageUi, /aria-valuetext=/);
+  assert.match(usageUi, /usage-progress--\$\{summary\.quotaTone\}/);
+  assert.match(styles, /\.usage-progress--good > span/);
+  assert.match(styles, /\.usage-progress--warning > span/);
+  assert.match(styles, /\.usage-progress--critical > span/);
+  assert.match(styles, /@media \(max-width: 600px\)[\s\S]*?\.usage-metrics \{ grid-template-columns: 1fr; \}/);
+  assert.match(main, /expiryDate: null/);
+  for (const [foreground, background] of [
+    ['#145c3e', '#e9f6ee'],
+    ['#744b12', '#fff0cf'],
+    ['#7c302b', '#ffe8e4'],
+  ]) {
+    assert.ok(contrastRatio(foreground, background) >= 4.5, `${foreground} on ${background} must meet WCAG AA`);
+  }
+});
+
 test('billing date pickers are labeled, use native inputs, and provide accessible touch-sized presets', () => {
   assert.match(main, /Billing Cycle Month/);
   assert.match(main, /id="bill-issued-on" name="issued_on" type="date"/);
