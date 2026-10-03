@@ -1,4 +1,5 @@
 import { createPortalClient } from './supabase-client.js';
+import { hasPasswordRecoveryMarker, requestPasswordRecovery, setRecoveredPassword, signInWithEmailPassword } from './auth-flows.js';
 import { validatePakistanPhone } from './customer-input.js';
 import { createCustomer, invokeRpc, loadContexts, loadOrganizationBranding, loadPortalRows, manageServiceIncident } from './portal-data.js';
 import { getBillingCycleQuickDate, isValidBillingMonth, localDateString, localMonthString } from './bill-dates.js';
@@ -44,8 +45,17 @@ const loginForm = document.querySelector('#login-form');
 const loginMessage = document.querySelector('#login-message');
 const customerLoginForm = document.querySelector('#customer-login-form');
 const customerLoginMessage = document.querySelector('#customer-login-message');
+const loginOptions = document.querySelector('#login-options');
+const emailPasswordLoginForm = document.querySelector('#email-password-login-form');
+const emailPasswordLoginMessage = document.querySelector('#email-password-login-message');
+const requestPasswordRecoveryButton = document.querySelector('#request-password-recovery');
+const passwordRecoveryPanel = document.querySelector('#password-recovery-panel');
+const passwordRecoveryForm = document.querySelector('#password-recovery-form');
+const passwordRecoveryMessage = document.querySelector('#password-recovery-message');
+const cancelPasswordRecoveryButton = document.querySelector('#cancel-password-recovery');
 let currentLanguage = getStoredLanguage();
 const t = (message) => translateUi(message, currentLanguage);
+let recoveryMode = hasPasswordRecoveryMarker(window.location.search, window.location.hash);
 let rerenderForLanguage = () => {};
 
 function applyStaticTranslations(root = document) {
@@ -186,12 +196,27 @@ if (!supabase) {
     }
   }
 
-  function showLogin(message = '') {
+  function showLogin(message = '', isError = false) {
+    recoveryMode = false;
     configMessage.hidden = true;
     portalPanel.hidden = true;
     authPanel.hidden = false;
-    setMessage(loginMessage, message, false);
+    loginOptions.hidden = false;
+    passwordRecoveryPanel.hidden = true;
+    setMessage(loginMessage, message, isError);
     setMessage(customerLoginMessage, '', false);
+    setMessage(emailPasswordLoginMessage, '', false);
+    setMessage(passwordRecoveryMessage, '', false);
+  }
+
+  function showPasswordRecovery() {
+    configMessage.hidden = true;
+    portalPanel.hidden = true;
+    authPanel.hidden = false;
+    loginOptions.hidden = true;
+    passwordRecoveryPanel.hidden = false;
+    setMessage(passwordRecoveryMessage, '', false);
+    passwordRecoveryForm?.querySelector('input[name="new_password"]')?.focus();
   }
 
   function showPortalLoading(includeCustomerUsage = false) {
@@ -237,12 +262,17 @@ if (!supabase) {
 
   async function handleSession(session) {
     if (!session) {
+      const recoveryLinkWasPresent = recoveryMode;
       pageState.user = null;
       pageState.contexts = [];
       pageState.context = null;
       pageState.rows = null;
       pendingReceiptAttempt = null;
-      showLogin();
+      showLogin(recoveryLinkWasPresent ? 'Recovery link could not be verified or has expired. Request a new one.' : '', recoveryLinkWasPresent);
+      return;
+    }
+    if (recoveryMode) {
+      showPasswordRecovery();
       return;
     }
     if (pageState.loadingUserId === session.user.id) return;
@@ -1701,6 +1731,99 @@ if (!supabase) {
     }
   });
 
+  emailPasswordLoginForm?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const submitButton = emailPasswordLoginForm.querySelector('button[type="submit"]');
+    const email = String(new FormData(emailPasswordLoginForm).get('email') ?? '').trim();
+    const passwordInput = emailPasswordLoginForm.elements.password;
+    const password = String(passwordInput.value ?? '');
+    submitButton.disabled = true;
+    setMessage(emailPasswordLoginMessage, 'Signing in…');
+    try {
+      const { error } = await signInWithEmailPassword(supabase.auth, email, password);
+      if (error) setMessage(emailPasswordLoginMessage, 'Email or password is incorrect or unavailable.', true);
+    } catch {
+      setMessage(emailPasswordLoginMessage, 'Email or password is incorrect or unavailable.', true);
+    } finally {
+      passwordInput.value = '';
+      submitButton.disabled = false;
+    }
+  });
+
+  requestPasswordRecoveryButton?.addEventListener('click', async () => {
+    const emailInput = emailPasswordLoginForm.elements.email;
+    if (!emailInput.checkValidity()) {
+      emailInput.reportValidity();
+      return;
+    }
+    requestPasswordRecoveryButton.disabled = true;
+    setMessage(emailPasswordLoginMessage, 'Sending a recovery email…');
+    try {
+      const email = String(emailInput.value ?? '').trim();
+      const redirectTo = window.location.origin + window.location.pathname;
+      const { error } = await requestPasswordRecovery(supabase.auth, email, redirectTo);
+      if (error) {
+        setMessage(emailPasswordLoginMessage, 'Recovery email could not be requested. Try again later.', true);
+      } else {
+        setMessage(emailPasswordLoginMessage, 'If this email belongs to an invited account, a recovery email has been requested. Email delivery is not confirmed by this page.');
+      }
+    } catch {
+      setMessage(emailPasswordLoginMessage, 'Recovery email could not be requested. Try again later.', true);
+    } finally {
+      requestPasswordRecoveryButton.disabled = false;
+    }
+  });
+
+  passwordRecoveryForm?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const submitButton = passwordRecoveryForm.querySelector('button[type="submit"]');
+    const newPasswordInput = passwordRecoveryForm.elements.new_password;
+    const confirmPasswordInput = passwordRecoveryForm.elements.confirm_password;
+    let newPassword = String(newPasswordInput.value ?? '');
+    if (newPassword !== String(confirmPasswordInput.value ?? '')) {
+      setMessage(passwordRecoveryMessage, 'The new passwords do not match.', true);
+      return;
+    }
+    const passwordBytes = new TextEncoder().encode(newPassword).byteLength;
+    if (passwordBytes < 12 || passwordBytes > 72) {
+      setMessage(passwordRecoveryMessage, 'Choose a password between 12 and 72 UTF-8 bytes.', true);
+      return;
+    }
+    submitButton.disabled = true;
+    setMessage(passwordRecoveryMessage, 'Updating password…');
+    try {
+      const { error } = await setRecoveredPassword(supabase.auth, newPassword);
+      newPasswordInput.value = '';
+      confirmPasswordInput.value = '';
+      newPassword = '';
+      if (error) {
+        setMessage(passwordRecoveryMessage, 'Password could not be updated. Check the recovery link and try again.', true);
+        return;
+      }
+      recoveryMode = false;
+      window.history.replaceState(null, document.title, window.location.pathname);
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (sessionData.session) await handleSession(sessionData.session);
+      else showLogin('Your password was updated. Sign in with your email and new password.');
+    } catch {
+      newPasswordInput.value = '';
+      confirmPasswordInput.value = '';
+      newPassword = '';
+      setMessage(passwordRecoveryMessage, 'Password could not be updated. Check the recovery link and try again.', true);
+    } finally {
+      submitButton.disabled = false;
+    }
+  });
+
+  cancelPasswordRecoveryButton?.addEventListener('click', async () => {
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      setMessage(passwordRecoveryMessage, 'Could not exit password recovery. Try again.', true);
+      return;
+    }
+    showLogin('Password recovery was canceled.');
+  });
+
   loginForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const submitButton = loginForm.querySelector('button[type="submit"]');
@@ -1724,10 +1847,16 @@ if (!supabase) {
     }
   });
 
-  supabase.auth.onAuthStateChange((_event, session) => {
+  supabase.auth.onAuthStateChange((event, session) => {
+    if (event === 'PASSWORD_RECOVERY') {
+      recoveryMode = true;
+      showPasswordRecovery();
+      return;
+    }
+    if (recoveryMode) return;
     queueMicrotask(() => { void handleSession(session); });
   });
   const { data: sessionData } = await supabase.auth.getSession();
   if (sessionData.session) await handleSession(sessionData.session);
-  else showLogin();
+  else await handleSession(null);
 }

@@ -76,11 +76,16 @@ test('customer-account linking is not writable by authenticated clients', () => 
 
 test('portal sign-in remains auth-first with self-service sign-up disabled', async () => {
   const main = await readFile(resolve(root, 'src/main.js'), 'utf8');
+  const authFlows = await readFile(resolve(root, 'src/auth-flows.js'), 'utf8');
   assert.match(main, /signInWithOtp/);
   assert.match(main, /shouldCreateUser:\s*false/);
   assert.match(main, /onAuthStateChange/);
   assert.match(main, /getSession\(\)/);
-  assert.doesNotMatch(main, /auth\.signUp\s*\(/);
+  assert.match(main, /event === 'PASSWORD_RECOVERY'/);
+  assert.match(authFlows, /auth\.signInWithPassword\(/);
+  assert.match(authFlows, /auth\.resetPasswordForEmail\(/);
+  assert.match(authFlows, /auth\.updateUser\(/);
+  assert.doesNotMatch(`${main}\n${authFlows}`, /auth\.signUp\s*\(/);
 });
 
 test('customer-readable ledger rows contain no staff notes or creator identifiers', () => {

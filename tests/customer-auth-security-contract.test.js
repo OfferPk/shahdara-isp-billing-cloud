@@ -42,14 +42,21 @@ test('customer RLS is server-gated and portal contexts return only IDs from a sa
 
 test('username login coexists with invite-only email fallback and never enables public signup', async () => {
   const main = await read('src/main.js');
+  const authFlows = await read('src/auth-flows.js');
   const html = await read('index.html');
   assert.match(html, /id="customer-login-form"/);
+  assert.match(html, /id="email-password-login-form"/);
   assert.match(html, /id="login-form"/);
+  assert.match(html, /id="password-recovery-form"/);
   assert.match(html, /self-service sign-up is disabled/i);
   assert.match(main, /functions\.invoke\('customer-login'/);
   assert.match(main, /signInWithOtp/);
+  assert.match(main, /event === 'PASSWORD_RECOVERY'/);
   assert.match(main, /shouldCreateUser:\s*false/);
-  assert.doesNotMatch(main, /auth\.signUp\s*\(/);
+  assert.match(authFlows, /auth\.signInWithPassword\(/);
+  assert.match(authFlows, /auth\.resetPasswordForEmail\(/);
+  assert.match(authFlows, /auth\.updateUser\(/);
+  assert.doesNotMatch(`${main}\n${authFlows}`, /auth\.signUp\s*\(/);
   assert.match(main, /Username or password is incorrect or unavailable\./);
 });
 

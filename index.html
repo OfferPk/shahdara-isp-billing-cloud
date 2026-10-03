@@ -33,28 +33,53 @@
         <section class="panel auth-panel" id="auth-panel" hidden>
           <p class="eyebrow" data-i18n="Private sign-in">Private sign-in</p>
           <h1 data-i18n="Sign in to your account">Sign in to your account</h1>
-          <p data-i18n="Customer usernames and temporary passwords are issued by an authorized Shahdara administrator. Temporary passwords must be changed at first sign-in. Email-invited accounts can continue using a secure sign-in link. Self-service sign-up is disabled.">Customer usernames and temporary passwords are issued by an authorized Shahdara administrator. Temporary passwords must be changed at first sign-in. Email-invited accounts can continue using a secure sign-in link. Self-service sign-up is disabled.</p>
-          <h2 data-i18n="Customer username sign-in">Customer username sign-in</h2>
-          <form id="customer-login-form" class="stack">
-            <label for="customer-login-username" data-i18n="Username">Username</label>
-            <input id="customer-login-username" name="username" type="text" autocomplete="username" required maxlength="64" />
-            <label for="customer-login-password" data-i18n="Password">Password</label>
-            <input id="customer-login-password" name="password" type="password" autocomplete="current-password" required maxlength="512" />
-            <button class="button primary" type="submit" data-i18n="Sign in with username">Sign in with username</button>
-          </form>
-          <p class="form-message" id="customer-login-message" role="status"></p>
-          <h2 data-i18n="Email sign-in for invited accounts">Email sign-in for invited accounts</h2>
-          <form id="login-form" class="stack">
-            <label for="login-email" data-i18n="Email address">Email address</label>
-            <input id="login-email" name="email" type="email" autocomplete="email" required maxlength="254" />
-            <button class="button primary" type="submit" data-i18n="Email me a secure sign-in link">Email me a secure sign-in link</button>
-          </form>
-          <p class="form-message" id="login-message" role="status"></p>
-          <p class="muted" data-i18n="A Shahdara administrator can request a customer portal invitation. This page cannot confirm email delivery.">A Shahdara administrator can request a customer portal invitation. This page cannot confirm email delivery.</p>
+          <p data-i18n="Customer usernames and temporary passwords are issued by an authorized Shahdara administrator. Temporary passwords must be changed at first sign-in. Email-invited accounts can sign in with a password or a secure sign-in link. Use Forgot password once to choose an initial password. Self-service sign-up is disabled.">Customer usernames and temporary passwords are issued by an authorized Shahdara administrator. Temporary passwords must be changed at first sign-in. Email-invited accounts can sign in with a password or a secure sign-in link. Use Forgot password once to choose an initial password. Self-service sign-up is disabled.</p>
+          <div id="login-options">
+            <h2 data-i18n="Customer username sign-in">Customer username sign-in</h2>
+            <form id="customer-login-form" class="stack">
+              <label for="customer-login-username" data-i18n="Username">Username</label>
+              <input id="customer-login-username" name="username" type="text" autocomplete="username" required maxlength="64" />
+              <label for="customer-login-password" data-i18n="Password">Password</label>
+              <input id="customer-login-password" name="password" type="password" autocomplete="current-password" required maxlength="512" />
+              <button class="button primary" type="submit" data-i18n="Sign in with username">Sign in with username</button>
+            </form>
+            <p class="form-message" id="customer-login-message" role="status"></p>
+            <h2 data-i18n="Email and password sign-in">Email and password sign-in</h2>
+            <form id="email-password-login-form" class="stack">
+              <label for="email-password-email" data-i18n="Email address">Email address</label>
+              <input id="email-password-email" name="email" type="email" autocomplete="username" required maxlength="254" />
+              <label for="email-password" data-i18n="Password">Password</label>
+              <input id="email-password" name="password" type="password" autocomplete="current-password" required maxlength="512" />
+              <button class="button primary" type="submit" data-i18n="Sign in with email and password">Sign in with email and password</button>
+              <button class="button secondary" id="request-password-recovery" type="button" data-i18n="Forgot password? Send a recovery email">Forgot password? Send a recovery email</button>
+            </form>
+            <p class="form-message" id="email-password-login-message" role="status"></p>
+            <h2 data-i18n="Email sign-in for invited accounts">Email sign-in for invited accounts</h2>
+            <form id="login-form" class="stack">
+              <label for="login-email" data-i18n="Email address">Email address</label>
+              <input id="login-email" name="email" type="email" autocomplete="email" required maxlength="254" />
+              <button class="button primary" type="submit" data-i18n="Email me a secure sign-in link">Email me a secure sign-in link</button>
+            </form>
+            <p class="form-message" id="login-message" role="status"></p>
+            <p class="muted" data-i18n="A Shahdara administrator can request a customer portal invitation. This page cannot confirm email delivery.">A Shahdara administrator can request a customer portal invitation. This page cannot confirm email delivery.</p>
+          </div>
+          <section id="password-recovery-panel" aria-labelledby="password-recovery-title" hidden>
+            <h2 id="password-recovery-title" data-i18n="Choose a new password">Choose a new password</h2>
+            <p data-i18n="The recovery link is for this app. Set a password here; future sign-ins can use email and password without another email.">The recovery link is for this app. Set a password here; future sign-ins can use email and password without another email.</p>
+            <form id="password-recovery-form" class="stack">
+              <label for="recovery-new-password" data-i18n="New password">New password</label>
+              <input id="recovery-new-password" name="new_password" type="password" autocomplete="new-password" required minlength="12" maxlength="72" />
+              <label for="recovery-confirm-password" data-i18n="Confirm new password">Confirm new password</label>
+              <input id="recovery-confirm-password" name="confirm_password" type="password" autocomplete="new-password" required minlength="12" maxlength="72" />
+              <button class="button primary" type="submit" data-i18n="Save new password">Save new password</button>
+            </form>
+            <p class="form-message" id="password-recovery-message" role="status"></p>
+            <button class="button secondary" id="cancel-password-recovery" type="button" data-i18n="Cancel and return to sign in">Cancel and return to sign in</button>
+          </section>
         </section>
         <section class="panel portal-panel" id="portal-panel" hidden></section>
       </main>
-      <footer class="site-footer" data-i18n="Private customer and billing records are protected by Supabase Auth and database row-level security. The first-owner invitation is awaiting acceptance. Customer invitations are managed by the server-side invite-customer function; email delivery is not confirmed here.">Private customer and billing records are protected by Supabase Auth and database row-level security. The first-owner invitation is awaiting acceptance. Customer invitations are managed by the server-side invite-customer function; email delivery is not confirmed here.</footer>
+      <footer class="site-footer" data-i18n="Private customer and billing records are protected by Supabase Auth and database row-level security. Customer invitations are managed by the server-side invite-customer function; email delivery is not confirmed here.">Private customer and billing records are protected by Supabase Auth and database row-level security. Customer invitations are managed by the server-side invite-customer function; email delivery is not confirmed here.</footer>
     </div>
     <script type="module" src="/src/main.js"></script>
   </body>
