@@ -41,6 +41,8 @@ The systemd template is `agent/mikrotik-sync.service`. It runs as a dedicated un
 5. Set the dedicated edge bearer secret and server-side service role only in the approved secret store. Never copy the service-role key to the Mini PC.
 6. Deploy and canary separately in an approved non-production environment. This PR and the Pages workflow do not deploy the Edge Function, alter database state, or enable a router.
 
+The separate read-only RADIUS adapter, closed-period aggregation constraints, and reasons standard `radacct` snapshots cannot supply monthly billing totals are documented in [FreeRADIUS accounting adapter](radius-accounting-adapter.md). That adapter does not change this guide's cumulative-only ingest contract.
+
 ## Offline checks
 
 `npm test` includes the handler and daemon mock tests. They cover authenticated RPC invocation, prevalidation before writes, auth/size/scope guards, empty polls, timeout, normalization, no logging of subscriber identifiers, and rejection of session-scoped counters. No test contacts a real router or Supabase project.
