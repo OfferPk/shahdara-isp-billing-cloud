@@ -333,7 +333,7 @@ test('Admin credentials require exact origin, verified session, completed identi
   assert.equal(badOrigin.calls.keys.length, 0);
 });
 
-test('password change works without an SDK session by PATCHing Auth as the verified bearer user', async () => {
+test('password change works without an SDK session by PUTting Auth as the verified bearer user', async () => {
   const password = 'Synthetic-permanent-Password-2026!';
   const harness = passwordChangeHarness({
     sdkUpdateError: Object.assign(new Error('synthetic missing SDK session'), { code: 'session_not_found' }),
@@ -349,7 +349,10 @@ test('password change works without an SDK session by PATCHing Auth as the verif
   assert.equal(harness.calls.authRequests.length, 1);
   const [{ url, init }] = harness.calls.authRequests;
   assert.equal(url, 'https://synthetic-project.supabase.co/auth/v1/user');
-  assert.equal(init.method, 'PATCH');
+  assert.equal(init.method, 'PUT');
+  assert.deepEqual(harness.calls.authRequests.map(({ init: authInit }) => authInit.method), ['PUT']);
+  assert.equal(harness.calls.authRequests.some(({ url: authUrl, init: authInit }) =>
+    new URL(authUrl).pathname === '/auth/v1/user' && authInit.method === 'PATCH'), false);
   assert.equal(init.headers.apikey, 'synthetic-publishable-key');
   assert.equal(init.headers.Authorization, 'Bearer synthetic-customer-jwt');
   assert.equal(init.headers['Content-Type'], 'application/json');

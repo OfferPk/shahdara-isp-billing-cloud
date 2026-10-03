@@ -68,7 +68,8 @@ test('temporary passwords are cryptographic, short-lived, and password changes s
   assert.match(migration, /expires_at = clock_timestamp\(\) \+ interval '24 hours'/);
   assert.match(migration, /first_login_claimed_at is null/);
   assert.match(change, /new URL\('\/auth\/v1\/user', parsed\)/);
-  assert.match(change, /method: 'PATCH'/);
+  assert.match(change, /method: 'PUT'/);
+  assert.doesNotMatch(change, /method:\s*'PATCH'/);
   assert.match(change, /apikey: clients\.publicKey/);
   assert.match(change, /Authorization: `Bearer \$\{token\}`/);
   assert.doesNotMatch(change, /\.auth\.updateUser\(/);

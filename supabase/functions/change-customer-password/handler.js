@@ -79,7 +79,7 @@ export function createChangeCustomerPasswordHandler({ env, createClient, fetchIm
       // getUser(token) verifies this bearer but does not create an SDK session.
       // Use Auth's user-scoped endpoint with that same bearer, never an Admin override.
       const authResponse = await fetchImpl(clients.authUserUrl, {
-        method: 'PATCH',
+        method: 'PUT',
         headers: {
           apikey: clients.publicKey,
           Authorization: `Bearer ${token}`,
