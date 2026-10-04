@@ -37,6 +37,7 @@ import { renderPrintableBillHtml } from './customer-documents.js';
 import { renderCustomerUsageDashboard, renderCustomerUsageSkeleton } from './customer-usage.js';
 import { prepareSuccessSound } from './success-sound.js';
 import { initializeFeatureToggles, refreshFeatureToggleLabels, ALL_FEATURE_SELECTOR } from './feature-toggles.js';
+import { initializeTheme } from './theme.js';
 import './styles.css';
 
 const app = document.querySelector('#app');
@@ -58,6 +59,13 @@ const passwordRecoveryMessage = document.querySelector('#password-recovery-messa
 const cancelPasswordRecoveryButton = document.querySelector('#cancel-password-recovery');
 let currentLanguage = getStoredLanguage();
 const t = (message) => translateUi(message, currentLanguage);
+const themeControl = initializeTheme({
+  root: document.documentElement,
+  button: document.querySelector('#theme-toggle'),
+  announcement: document.querySelector('#app-announcement'),
+  themeColorMeta: document.querySelector('meta[name="theme-color"]'),
+  translate: t,
+});
 let recoveryMode = hasPasswordRecoveryMarker(window.location.search, window.location.hash);
 let rerenderForLanguage = () => {};
 
@@ -93,6 +101,7 @@ document.querySelector('#language-toggle')?.addEventListener('click', (event) =>
   const nextLanguage = normalizeLanguage(button.dataset.language);
   if (nextLanguage === currentLanguage) return;
   currentLanguage = setLanguagePreference(nextLanguage).language;
+  themeControl.refreshLabels();
   applyStaticTranslations();
   for (const message of document.querySelectorAll('[data-message-source]')) {
     let values = {};

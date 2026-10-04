@@ -3,6 +3,12 @@ export const LANGUAGE_STORAGE_KEY = 'shahdara-cloud-ui-language';
 const ROMAN_URDU = Object.freeze({
   'Skip to main content': 'Asal mazmoon par jayen',
   'Language': 'Zaban',
+  'Dark mode': 'Dark mode',
+  'Light mode': 'Light mode',
+  'Switch to dark mode': 'Dark mode lagayen',
+  'Switch to light mode': 'Light mode lagayen',
+  'Dark mode enabled.': 'Dark mode on hai.',
+  'Light mode enabled.': 'Light mode on hai.',
   'Show {feature}': '{feature} dikhayein',
   'Hide {feature}': '{feature} chhupayein',
   'Customer account metrics': 'Customer account ke hisaab',
