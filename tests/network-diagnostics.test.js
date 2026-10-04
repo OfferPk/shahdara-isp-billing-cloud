@@ -5,6 +5,7 @@ import {
   MAX_RECENT_SIMULATIONS,
   MAX_SYNTHETIC_IDENTIFIER_LENGTH,
   LIVE_ONLY_DIAGNOSTIC_CHECKS,
+  LIVE_NETWORK_CAPABILITIES,
   MOCK_DIAGNOSTIC_FIXTURES,
   MockDiagnosticsProvider,
   NETWORK_ACTION_POLICY,
@@ -16,6 +17,7 @@ import {
   classifySyntheticComplaint,
   createRecentSimulationHistory,
   previewNetworkActionPolicy,
+  renderNetworkCapabilityOverview,
   renderNetworkActionPolicyPreview,
   renderRecentSimulations,
   renderSyntheticDiagnosticResult,
@@ -333,6 +335,49 @@ test('Admin risk preview explains current blockers and future confirmations with
   assert.doesNotMatch(markup, /<button|<form|data-action=/i);
 });
 
+test('capability overview separates unavailable live state from the synthetic-only simulator without invented metrics', () => {
+  assert.deepEqual(LIVE_NETWORK_CAPABILITIES.map(({ id, label, value }) => ({ id, label, value })), [
+    { id: 'device-connection', label: 'Device connection', value: 'Not connected' },
+    { id: 'network-health', label: 'Live network health', value: 'Unavailable' },
+    { id: 'active-pppoe-sessions', label: 'Active PPPoE sessions', value: 'Unavailable' },
+    { id: 'current-issues', label: 'Live issues', value: 'Unavailable' },
+    { id: 'resolved-today', label: 'Resolved today', value: 'Unavailable' },
+    { id: 'admin-attention', label: 'Admin attention', value: 'Unavailable' },
+    { id: 'alerts', label: 'Alerts', value: 'Unavailable' },
+    { id: 'network-actions', label: 'Network actions', value: 'Unavailable' },
+  ]);
+  const markup = renderNetworkCapabilityOverview();
+  const romanUrdu = renderNetworkCapabilityOverview((copy) => translateUi(copy, 'ur-Latn'));
+  assert.match(markup, /aria-labelledby="network-diagnostics-capabilities-title"/);
+  assert.match(markup, /data-state-source="live" aria-labelledby="network-diagnostics-live-state-title"/);
+  assert.match(markup, /data-state-source="synthetic" aria-labelledby="network-diagnostics-synthetic-state-title"/);
+  for (const { label, value } of LIVE_NETWORK_CAPABILITIES) {
+    assert.ok(markup.includes(`<dt>${label}</dt><dd>${value}</dd>`), `${label} reports ${value}`);
+  }
+  assert.match(markup, /<dt>Simulator<\/dt><dd>Available · synthetic only<\/dd>/);
+  assert.match(markup, /no live customer base for diagnostics/);
+  assert.match(markup, /No live monitoring or AI automation is running/);
+  assert.match(markup, /never stands in for live network status/);
+  const visibleText = markup.replace(/<[^>]*>/g, '');
+  assert.doesNotMatch(visibleText, /\d|last updated|last checked|last synced|Ali Khan|Ahmed Raza|SIM-DEVICE|demo-/i);
+  assert.doesNotMatch(markup, /<button\b|<form\b|data-action=/i);
+  assert.match(main, /import\('\.\/network-diagnostics\.js'\)/);
+  assert.doesNotMatch(main, /network-diagnostics__capabilities/);
+  assert.match(styles, /\.network-diagnostics__capability-group dd \{[^}]*overflow-wrap: anywhere;/);
+  assert.match(styles, /@media \(max-width: 760px\)[\s\S]*?\.network-diagnostics__capability-groups \{ grid-template-columns: 1fr;/);
+  assert.match(styles, /@media \(max-width: 460px\)[\s\S]*?\.network-diagnostics__capability-group dl \{ grid-template-columns: 1fr;/);
+  for (const copy of [
+    'Network capability overview', 'No network device is connected and there is no live customer base for diagnostics. Live statuses are unavailable, not measured counts. No live monitoring or AI automation is running.',
+    'Live network state', 'Device connection', 'Not connected', 'Live network health', 'Active PPPoE sessions',
+    'Live issues', 'Resolved today', 'Admin attention', 'Alerts', 'Network actions',
+    'Synthetic demo state · separate from live network', 'Simulator', 'Available · synthetic only',
+    'The local simulator uses fictional examples only. Its state never stands in for live network status.',
+  ]) assert.notEqual(translateUi(copy, 'ur-Latn'), copy, `capability overview copy has Roman Urdu: ${copy}`);
+  assert.match(romanUrdu, /Khayali demo ki halat · live network se alag/);
+  assert.match(romanUrdu, /Device ka rabta/);
+  assert.match(romanUrdu, /Dastiyab · sirf khayali/);
+});
+
 test('result rendering escapes input and rejects results without explicit no-change guarantees', () => {
   const result = runSyntheticDiagnostics(provider, 'demo-ahmed-a', '<script>alert("x")</script> Ahmed internet is slow');
   const markup = renderSyntheticDiagnosticResult({ ...result, displayName: '<img src=x onerror=alert(1)>' });
@@ -508,6 +553,11 @@ test('diagnostics is keyboard usable, responsive, state-labeled, and translated 
     'Its fake dependency and symptom do not match the shared demo group; it is not included.',
     'Synthetic incident groups', 'No incident was created, nothing was saved, and no remediation or network action is offered.',
     ...NETWORK_ACTION_POLICY.map(({ futureRequirement }) => futureRequirement),
+    'Network capability overview', 'No network device is connected and there is no live customer base for diagnostics. Live statuses are unavailable, not measured counts. No live monitoring or AI automation is running.',
+    'Live network state', 'Device connection', 'Not connected', 'Live network health', 'Active PPPoE sessions',
+    'Live issues', 'Resolved today', 'Admin attention', 'Alerts', 'Network actions',
+    'Synthetic demo state · separate from live network', 'Simulator', 'Available · synthetic only',
+    'The local simulator uses fictional examples only. Its state never stands in for live network status.',
   ];
   for (const copy of translatedCopy) assert.notEqual(translateUi(copy, 'ur-Latn'), copy, `diagnostics copy has Roman Urdu: ${copy}`);
 });

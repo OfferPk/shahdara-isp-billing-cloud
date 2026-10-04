@@ -122,6 +122,17 @@ export const LIVE_ONLY_DIAGNOSTIC_CHECKS = Object.freeze([
   Object.freeze({ id: 'live-pppoe-session-history', label: 'Live PPPoE session history', value: 'Unavailable · no live device is connected' }),
 ]);
 
+export const LIVE_NETWORK_CAPABILITIES = Object.freeze([
+  Object.freeze({ id: 'device-connection', label: 'Device connection', value: 'Not connected' }),
+  Object.freeze({ id: 'network-health', label: 'Live network health', value: 'Unavailable' }),
+  Object.freeze({ id: 'active-pppoe-sessions', label: 'Active PPPoE sessions', value: 'Unavailable' }),
+  Object.freeze({ id: 'current-issues', label: 'Live issues', value: 'Unavailable' }),
+  Object.freeze({ id: 'resolved-today', label: 'Resolved today', value: 'Unavailable' }),
+  Object.freeze({ id: 'admin-attention', label: 'Admin attention', value: 'Unavailable' }),
+  Object.freeze({ id: 'alerts', label: 'Alerts', value: 'Unavailable' }),
+  Object.freeze({ id: 'network-actions', label: 'Network actions', value: 'Unavailable' }),
+]);
+
 export const SIMULATION_EXAMPLES = Object.freeze([
   Object.freeze({ id: 'roman-ali', label: 'Roman Urdu: Ali ka internet nahi chal raha', identifierType: 'name', identifier: 'Ali Khan', complaint: 'Ali ka internet nahi chal raha' }),
   Object.freeze({ id: 'english-ahmed', label: "English: Ahmed's internet is slow", identifierType: 'name', identifier: 'Ahmed Raza', complaint: "Ahmed's internet is slow" }),
@@ -397,6 +408,13 @@ function translated(t, message) {
   return escapeHtml(t(message));
 }
 
+export function renderNetworkCapabilityOverview(t = (message) => message) {
+  const liveRows = LIVE_NETWORK_CAPABILITIES.map(({ label, value }) => (
+    `<div><dt>${translated(t, label)}</dt><dd>${translated(t, value)}</dd></div>`
+  )).join('');
+  return `<section class="network-diagnostics__capabilities" aria-labelledby="network-diagnostics-capabilities-title"><h3 id="network-diagnostics-capabilities-title">${translated(t, 'Network capability overview')}</h3><p class="network-diagnostics__capabilities-note">${translated(t, 'No network device is connected and there is no live customer base for diagnostics. Live statuses are unavailable, not measured counts. No live monitoring or AI automation is running.')}</p><div class="network-diagnostics__capability-groups"><section class="network-diagnostics__capability-group network-diagnostics__capability-group--live" data-state-source="live" aria-labelledby="network-diagnostics-live-state-title"><h4 id="network-diagnostics-live-state-title">${translated(t, 'Live network state')}</h4><dl>${liveRows}</dl></section><section class="network-diagnostics__capability-group network-diagnostics__capability-group--synthetic" data-state-source="synthetic" aria-labelledby="network-diagnostics-synthetic-state-title"><h4 id="network-diagnostics-synthetic-state-title">${translated(t, 'Synthetic demo state · separate from live network')}</h4><dl><div><dt>${translated(t, 'Simulator')}</dt><dd>${translated(t, 'Available · synthetic only')}</dd></div></dl><p>${translated(t, 'The local simulator uses fictional examples only. Its state never stands in for live network status.')}</p></section></div></section>`;
+}
+
 export function renderRecentSimulations(entries, t = (message) => message) {
   if (!Array.isArray(entries) || entries.length > MAX_RECENT_SIMULATIONS
       || !entries.every((entry) => entry && typeof entry === 'object'
@@ -476,7 +494,7 @@ export function mountNetworkDiagnosticsPanel(root, { t = (message) => message } 
   if (!root || root.id !== 'admin-network-diagnostics') return false;
   const content = root.querySelector('.network-diagnostics__content');
   if (!content) return false;
-  content.innerHTML = `${renderNetworkActionPolicyPreview(t)}${renderSyntheticIncidentCorrelationDemo(t)}${renderExperience(t)}`;
+  content.innerHTML = `${renderNetworkCapabilityOverview(t)}${renderNetworkActionPolicyPreview(t)}${renderSyntheticIncidentCorrelationDemo(t)}${renderExperience(t)}`;
   const provider = new MockDiagnosticsProvider();
   const recentSimulationHistory = createRecentSimulationHistory();
   const form = content.querySelector('#network-diagnostics-form');
