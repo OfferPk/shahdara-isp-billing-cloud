@@ -184,6 +184,7 @@ if (!supabase) {
   const dashboardControlRoots = new WeakSet();
   let portalRetryActionsBound = false;
   let dashboardAnalyticsModulePromise = null;
+  let networkDiagnosticsModulePromise = null;
   let dashboardAnalyticsRenderGeneration = 0;
 
   function loadDashboardAnalyticsModule() {
@@ -194,6 +195,46 @@ if (!supabase) {
       });
     }
     return dashboardAnalyticsModulePromise;
+  }
+
+  function loadNetworkDiagnosticsModule() {
+    if (!networkDiagnosticsModulePromise) {
+      networkDiagnosticsModulePromise = import('./network-diagnostics.js').catch((error) => {
+        networkDiagnosticsModulePromise = null;
+        throw error;
+      });
+    }
+    return networkDiagnosticsModulePromise;
+  }
+
+  function requestNetworkDiagnostics() {
+    const context = pageState.context;
+    if (context?.kind !== 'admin' || !['owner', 'admin'].includes(context.role)) return;
+    const section = portalPanel.querySelector('#admin-network-diagnostics');
+    const content = section?.querySelector('.network-diagnostics__content');
+    if (!section || !content || section.dataset.simulationLoaded === 'true' || section.dataset.simulationLoading === 'true') return;
+    section.dataset.simulationLoading = 'true';
+    content.setAttribute('aria-busy', 'true');
+    content.innerHTML = `<p class="network-diagnostics__loading" role="status">${escapeHtml(t('Loading local simulation…'))}</p>`;
+    loadNetworkDiagnosticsModule().then(({ mountNetworkDiagnosticsPanel }) => {
+      if (pageState.context?.kind !== 'admin' || !['owner', 'admin'].includes(pageState.context.role)) return;
+      const currentSection = portalPanel.querySelector('#admin-network-diagnostics');
+      if (!currentSection || currentSection !== section || !portalPanel.contains(section)) return;
+      if (!mountNetworkDiagnosticsPanel(section, { t })) throw new Error('Simulation panel could not be mounted.');
+      delete section.dataset.simulationLoading;
+      section.dataset.simulationLoaded = 'true';
+      content.removeAttribute('aria-busy');
+    }).catch(() => {
+      delete section.dataset.simulationLoading;
+      content.removeAttribute('aria-busy');
+      content.innerHTML = `<p class="network-diagnostics__error" role="alert">${escapeHtml(t('Could not load the local simulation. No network integration was attempted.'))}</p>`;
+    });
+  }
+
+  function bindNetworkDiagnostics(context) {
+    if (context.kind !== 'admin' || !['owner', 'admin'].includes(context.role)) return;
+    portalPanel.querySelector('.portal-nav a[href="#admin-network-diagnostics"]')?.addEventListener('click', requestNetworkDiagnostics);
+    if (window.location.hash === '#admin-network-diagnostics') requestNetworkDiagnostics();
   }
 
   function requestDashboardAnalytics() {
@@ -712,7 +753,7 @@ if (!supabase) {
 
   function renderPortalNavigation(kind) {
     const links = kind === 'admin'
-      ? [['#admin-overview', 'Overview'], ['#customer-list', 'Customers'], ['#admin-bills', 'Bills'], ['#admin-receipts', 'Receipts'], ['#admin-incidents', 'Service incidents'], ...(pageState.context?.role === 'owner' ? [['#company-branding', 'Company profile']] : [])]
+      ? [['#admin-overview', 'Overview'], ['#customer-list', 'Customers'], ['#admin-bills', 'Bills'], ['#admin-receipts', 'Receipts'], ['#admin-incidents', 'Service incidents'], ['#admin-network-diagnostics', 'AI Network Engineer · Simulation'], ...(pageState.context?.role === 'owner' ? [['#company-branding', 'Company profile']] : [])]
       : [['#customer-account', 'My account'], ['#customer-usage', 'Usage dashboard'], ['#customer-expiry', 'Service expiry'], ['#customer-billing', 'Billing history'], ['#customer-incidents', 'Service updates']];
     return `<nav class="portal-nav" aria-label="${escapeHtml(t('Portal navigation'))}">${links.map(([href, label]) => `<a href="${href}">${escapeHtml(t(label))}</a>`).join('')}</nav>`;
   }
@@ -1621,6 +1662,12 @@ if (!supabase) {
       ${renderDashboardMetrics({ month: pageState.selectedMonth, today: dashboardToday, totals, previousTotals, trendSeries: dashboardTrendSeries, t })}
       <section class="panel month-panel" data-feature-key="admin-month-controls" data-feature-default-expanded="true"><div class="month-panel__row"><label for="dashboard-month">${escapeHtml(t('Dashboard month'))}<input type="month" id="dashboard-month" value="${escapeHtml(pageState.selectedMonth)}"></label><div class="dashboard-month-shortcuts" role="group" aria-label="${escapeHtml(t('Dashboard month shortcuts'))}"><button class="button secondary small" type="button" data-dashboard-month-target="previous">${escapeHtml(t('Previous month'))}</button><button class="button secondary small" type="button" data-dashboard-month-target="current">${escapeHtml(t('This month'))}</button><button class="button secondary small" type="button" data-dashboard-month-target="last">${escapeHtml(t('Last month'))}</button><button class="button secondary small" type="button" data-dashboard-month-target="next" ${pageState.selectedMonth >= localMonth() ? 'disabled' : ''}>${escapeHtml(t('Next month'))}</button></div></div><p class="muted">${escapeHtml(t('Cash totals follow receipt dates. Credit allocation is shown separately and is never counted as another payment.'))}</p></section>
       ${dashboardAnalyticsMarkup}
+      <section id="admin-network-diagnostics" class="panel data-panel network-diagnostics" aria-labelledby="admin-network-diagnostics-title" data-simulation-mode="local-only">
+        <div class="section-heading"><div><p class="eyebrow">${escapeHtml(t('SIMULATION ONLY'))}</p><h2 id="admin-network-diagnostics-title" tabindex="-1">${escapeHtml(t('AI Network Engineer'))}</h2></div><span class="network-diagnostics__badge">${escapeHtml(t('Fictional examples'))}</span></div>
+        <p class="network-diagnostics__notice" role="note"><strong>${escapeHtml(t('No live router is connected.'))}</strong> ${escapeHtml(t('This deterministic local demo uses fictional fixtures only. It does not read portal customer or billing records, query network devices, call an external AI, or apply changes.'))}</p>
+        <p class="muted">${escapeHtml(t('This simulator never verifies a real customer issue. All router changes and customer or profile changes are unavailable.'))}</p>
+        <div class="network-diagnostics__content" aria-live="polite"><p class="network-diagnostics__loading" role="status">${escapeHtml(t('Open this section to load the local simulation.'))}</p></div>
+      </section>
       <div class="admin-grid">
         <section class="panel"><p class="eyebrow">${escapeHtml(t('Customer records'))}</p><h2>${escapeHtml(t('Add customer'))}</h2>
           <form id="customer-form" class="form-grid">
@@ -1793,6 +1840,7 @@ if (!supabase) {
     }));
     portalPanel.querySelector('#receipt-customer')?.addEventListener('change', (event) => populateReceiptBills(event.target.value));
     updateAdminReceiptResults();
+    bindNetworkDiagnostics(context);
     bindAdminReceiptActions(context);
     bindAdminForms(context);
     bindAdminCashflowActions(context);
