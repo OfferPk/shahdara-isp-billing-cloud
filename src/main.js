@@ -47,6 +47,7 @@ import { renderCustomerUsageDashboard, renderCustomerUsageSkeleton } from './cus
 import { prepareSuccessSound } from './success-sound.js';
 import { initializeFeatureToggles, refreshFeatureToggleLabels, ALL_FEATURE_SELECTOR } from './feature-toggles.js';
 import { initializeTheme } from './theme.js';
+import { initializeAppInstall } from './app-install.js';
 import './styles.css';
 
 const app = document.querySelector('#app');
@@ -98,6 +99,12 @@ function applyStaticTranslations(root = document) {
 
 applyDocumentLanguage(document, currentLanguage);
 applyStaticTranslations();
+const appInstallControl = initializeAppInstall({
+  windowObject: window,
+  button: document.querySelector('#install-app-button'),
+  status: document.querySelector('#install-app-status'),
+  translate: t,
+});
 const formatFeatureToggleMessage = (message, values = {}) => formatUiMessage(message, currentLanguage, values);
 initializeFeatureToggles(document, {
   selector: ALL_FEATURE_SELECTOR,
@@ -112,6 +119,7 @@ document.querySelector('#language-toggle')?.addEventListener('click', (event) =>
   currentLanguage = setLanguagePreference(nextLanguage).language;
   themeControl.refreshLabels();
   applyStaticTranslations();
+  appInstallControl.refresh();
   for (const message of document.querySelectorAll('[data-message-source]')) {
     let values = {};
     try { values = JSON.parse(message.dataset.messageValues || '{}'); } catch { /* Ignore invalid optional toast parameters. */ }

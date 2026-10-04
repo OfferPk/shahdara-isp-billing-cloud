@@ -6,6 +6,10 @@ This repository contains only the isolated Supabase cloud edition of the Shahdar
 
 The GitHub Actions workflow tests the cloud app, validates its frontend configuration, builds the Vite app, and deploys only `dist/` to GitHub Pages. It uses the approved non-production project URL `https://qkdsuvmlutkatcqoewkh.supabase.co` and the repository Actions variable `VITE_SUPABASE_PUBLISHABLE_KEY`. That publishable/anon key is public frontend configuration and is embedded in the browser bundle. Never place database passwords, service-role keys, or admin API keys in the repository or build configuration.
 
+## Web app installation
+
+The header's **Install app** button opens the browser's native PWA install prompt when that browser offers `beforeinstallprompt`; otherwise it displays instructions for the current platform. On Android, open this Pages site in Chrome if it was opened inside Cue. On iPhone or iPad, use the browser's **Share → Add to Home Screen** option (Safari is the fallback if the option is absent). This is a browser-managed web app or home-screen shortcut, not an APK download. The manifest and icons use paths relative to the GitHub Pages project subpath. No service worker or offline cache is configured, so installing the portal does not make it available offline.
+
 ## Owner access and sign-in
 
 The isolated non-production project has the cloud schema and price-history trigger correction applied. The Shahdara Fiber Net organization and its existing owner membership are provisioned. This frontend change does not create a user, change a role, or modify Supabase Auth or database settings.
