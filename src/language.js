@@ -753,6 +753,7 @@ const ROMAN_URDU = Object.freeze({
   'These counts use customer-record creation dates; service activation dates are not recorded.': 'Yeh ginti customer record banne ki tareekhon par hai; service activation ki tareekhein record nahin.',
   'Status options reflect the current database model; archived accounts are shown separately.': 'Status ke options mojooda database model ke mutabiq hain; archive accounts alag dikhaye gaye hain.',
   'Customer collections and balances': 'Customer wasooli aur baqaya',
+  'Loading dashboard analytics.': 'Dashboard analytics load ho rahi hain.',
   'Largest recorded balances': 'Sab se zyada darj baqaya',
   'Most collected this month': 'Is mahine sab se zyada wasooli',
   'Recently paid customers': 'Haal hi mein adaigi karne walay customers',
