@@ -31,6 +31,7 @@ import {
   renderSyntheticIncidentCorrelationDemo,
 } from '../src/network-incident-correlation.js';
 import { translateUi } from '../src/language.js';
+import './helpers/load-roman-urdu.js';
 
 const [main, styles, moduleSource] = await Promise.all([
   readFile(new URL('../src/main.js', import.meta.url), 'utf8'),

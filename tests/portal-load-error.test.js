@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { renderPortalLoadError, safePortalErrorDetails } from '../src/portal-load-error.js';
 import { translateUi } from '../src/language.js';
+import './helpers/load-roman-urdu.js';
 
 const main = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
 

@@ -15,6 +15,7 @@ import {
 import { buildDashboardTrendSeries } from '../src/dashboard-trend.js';
 import { calculateDashboard } from '../src/ledger.js';
 import { translateUi } from '../src/language.js';
+import './helpers/load-roman-urdu.js';
 
 const organizationId = 'synthetic-org';
 const customers = [

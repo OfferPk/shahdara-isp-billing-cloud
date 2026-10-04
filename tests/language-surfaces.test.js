@@ -7,6 +7,7 @@ import { formatBillingMonth, formatIncidentTimestamp, buildIncidentTimeline } fr
 import { renderAdminIncidentCards } from '../src/admin-incidents.js';
 import { renderCustomerCards, renderCustomerProfile } from '../src/customer-list.js';
 import { formatMoney } from '../src/ledger.js';
+import './helpers/load-roman-urdu.js';
 
 const romanUrdu = (message) => translateUi(message, 'ur-Latn');
 const INTERNAL_ENUM_VALUES = new Set(['admin', 'customer', 'resolved', 'open', 'not-priced', 'paid', 'unpaid', 'active', 'offline', 'not-set', 'unknown', 'ur-Latn', 'en', 'all']);

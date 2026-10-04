@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { renderDashboardAnalyticsSkeleton } from '../src/dashboard-analytics-loading.js';
 import { translateUi } from '../src/language.js';
+import './helpers/load-roman-urdu.js';
 
 const main = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
 const styles = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
