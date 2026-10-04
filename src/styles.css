@@ -1052,9 +1052,14 @@ td { color: #25433b; }
 .network-diagnostics__form .muted { margin: 0; }
 .network-diagnostics__form .button { justify-self: start; min-height: 44px; }
 .network-diagnostics__status { min-height: 22px; margin: 0; color: var(--ink); font-size: 13px; font-weight: 700; }
-.network-diagnostics__matches, .network-diagnostics__unknown, .network-diagnostics__result { min-width: 0; padding: 16px; border: 1px solid var(--line); border-radius: 14px; background: var(--paper); }
+.network-diagnostics__matches, .network-diagnostics__unknown, .network-diagnostics__symptom-state, .network-diagnostics__result { min-width: 0; padding: 16px; border: 1px solid var(--line); border-radius: 14px; background: var(--paper); }
 .network-diagnostics__matches h3, .network-diagnostics__unknown h3, .network-diagnostics__result h3, .network-diagnostics__risk h3 { margin-bottom: 8px; font-size: 17px; }
-.network-diagnostics__matches > p, .network-diagnostics__unknown > p { margin: 0 0 10px; }
+.network-diagnostics__matches > p, .network-diagnostics__unknown > p, .network-diagnostics__symptom-state > p { margin: 0 0 10px; }
+.network-diagnostics__symptom-state { border-color: #ddc27f; background: color-mix(in srgb, var(--paper) 92%, #fff2d5); }
+.network-diagnostics__symptom-state dl { display: grid; gap: 6px; margin: 0; }
+.network-diagnostics__symptom-state dl > div { display: flex; flex-wrap: wrap; gap: 5px 10px; }
+.network-diagnostics__symptom-state dt { font-weight: 800; }
+.network-diagnostics__symptom-state dd { margin: 0; }
 .network-diagnostics__matches ul, .network-diagnostics__risk ul { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
 .network-diagnostics__match { width: 100%; }
 .network-diagnostics__result { display: grid; gap: 13px; border-top: 4px solid #6b78a8; }
