@@ -109,6 +109,57 @@ export function filterCustomerRows(rows, { search = '', status = 'all', area = '
   });
 }
 
+function compareCustomerNumber(left, right) {
+  const leftNumber = Number(left.customer.customer_number);
+  const rightNumber = Number(right.customer.customer_number);
+  if (Number.isFinite(leftNumber) && Number.isFinite(rightNumber) && leftNumber !== rightNumber) {
+    return leftNumber - rightNumber;
+  }
+  return String(left.customer.customer_number ?? '').localeCompare(
+    String(right.customer.customer_number ?? ''), 'en-PK', { numeric: true },
+  );
+}
+
+export function sortCustomerRows(rows, sort = 'account-number') {
+  return rows.map((row, index) => ({ row, index })).sort((left, right) => {
+    let result = 0;
+    if (sort === 'name') {
+      result = normalizeText(left.row.customer.name).localeCompare(normalizeText(right.row.customer.name), 'en-PK');
+    } else if (sort === 'balance') {
+      const leftBalance = left.row.billing.balanceCents;
+      const rightBalance = right.row.billing.balanceCents;
+      const leftKnown = leftBalance !== null && leftBalance !== undefined && Number.isFinite(Number(leftBalance));
+      const rightKnown = rightBalance !== null && rightBalance !== undefined && Number.isFinite(Number(rightBalance));
+      if (leftKnown && rightKnown) result = Number(rightBalance) - Number(leftBalance);
+      else if (leftKnown) result = -1;
+      else if (rightKnown) result = 1;
+    } else {
+      result = compareCustomerNumber(left.row, right.row);
+    }
+    if (result === 0 && sort !== 'account-number') result = compareCustomerNumber(left.row, right.row);
+    if (result === 0) result = left.index - right.index;
+    return result;
+  }).map(({ row }) => row);
+}
+
+export function paginateCustomerRows(rows, { page = 1, pageSize = 10 } = {}) {
+  const size = Number.isSafeInteger(pageSize) && pageSize > 0 ? pageSize : 10;
+  const pageCount = Math.max(1, Math.ceil(rows.length / size));
+  const requestedPage = Number.isFinite(Number(page)) ? Math.trunc(Number(page)) : 1;
+  const currentPage = Math.min(Math.max(requestedPage, 1), pageCount);
+  const offset = (currentPage - 1) * size;
+  const items = rows.slice(offset, offset + size);
+  return {
+    items,
+    page: currentPage,
+    pageSize: size,
+    pageCount,
+    start: items.length ? offset + 1 : 0,
+    end: offset + items.length,
+    total: rows.length,
+  };
+}
+
 export function filterCustomersWithoutBillSnapshot(rows, bills, period) {
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(String(period))) return [];
   const customersWithSnapshot = new Set(bills

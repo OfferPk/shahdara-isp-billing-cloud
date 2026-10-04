@@ -7,10 +7,13 @@ import {
   filterCustomerRows,
   filterCustomersWithoutBillSnapshot,
   getCustomerAreaOptions,
+  paginateCustomerRows,
   renderCustomerCards,
   renderCustomerProfile,
+  sortCustomerRows,
   summarizeCustomerRows,
 } from '../src/customer-list.js';
+import { formatUiMessage, translateUi } from '../src/language.js';
 
 const customers = [
   {
@@ -134,6 +137,52 @@ test('Paid and Unpaid filters follow allocated balance and Area filters use only
     { value: '__address_not_recorded__', label: 'Address not recorded' },
   ]);
   assert.doesNotMatch(JSON.stringify(getCustomerAreaOptions(rows)), /Private Mohalla|Private Zone/);
+});
+
+test('customer sorting is deterministic, keeps unknown balances last, and applies after filters', () => {
+  const rows = rowsForTests();
+  assert.deepEqual(sortCustomerRows(rows, 'account-number').map((row) => row.customer.id), [
+    'synthetic-a', 'synthetic-b', 'synthetic-c',
+  ]);
+  assert.deepEqual(sortCustomerRows(rows, 'name').map((row) => row.customer.id), [
+    'synthetic-a', 'synthetic-c', 'synthetic-b',
+  ]);
+  assert.deepEqual(sortCustomerRows(rows, 'balance').map((row) => row.customer.id), [
+    'synthetic-b', 'synthetic-a', 'synthetic-c',
+  ]);
+  const filtered = filterCustomerRows(rows, { area: 'Sector 2, Street 3' });
+  const [selected] = sortCustomerRows(filtered, 'name');
+  assert.equal(selected.customer.id, 'synthetic-b');
+  assert.match(renderCustomerCards([selected], () => 'PKR 0'), /data-customer-id="synthetic-b"/);
+});
+
+test('customer pagination returns every row once, clamps requests, and handles an empty result', () => {
+  const rows = Array.from({ length: 23 }, (_, index) => ({
+    customer: { id: `synthetic-${index + 1}`, customer_number: index + 1 },
+  }));
+  const second = paginateCustomerRows(rows, { page: 2 });
+  assert.deepEqual(second.items.map((row) => row.customer.id), Array.from({ length: 10 }, (_, index) => `synthetic-${index + 11}`));
+  assert.equal(second.start, 11);
+  assert.equal(second.end, 20);
+  assert.equal(second.pageCount, 3);
+  const last = paginateCustomerRows(rows, { page: 99 });
+  assert.equal(last.page, 3);
+  assert.equal(last.items.length, 3);
+  assert.equal(paginateCustomerRows(rows, { page: -4 }).page, 1);
+  assert.deepEqual(paginateCustomerRows([]), {
+    items: [], page: 1, pageSize: 10, pageCount: 1, start: 0, end: 0, total: 0,
+  });
+});
+
+test('customer directory sort, visible-range count, and page labels are Roman Urdu', () => {
+  assert.equal(translateUi('Sort customers', 'ur-Latn'), 'Customers ki tartib chunein');
+  assert.equal(translateUi('Name (A to Z)', 'ur-Latn'), 'Naam (A se Z)');
+  assert.equal(translateUi('Customer directory pages', 'ur-Latn'), 'Customers ki fehrist ke safhay');
+  assert.equal(formatUiMessage(
+    'Showing {shownStart}–{shownEnd} of {matching} matching customers; {total} total customers.',
+    'ur-Latn',
+    { shownStart: 11, shownEnd: 20, matching: 23, total: 41 },
+  ), 'Kul 41 customers mein se 23 mutabiq customer entries 11–20 dikhayi ja rahi hain.');
 });
 
 test('missing-snapshot drill-down returns only active non-archived customers missing the exact selected month', () => {
@@ -309,6 +358,9 @@ test('list controls and mobile CSS provide labelled, keyboard-operable status an
   const main = await readFile(new URL('../src/main.js', import.meta.url), 'utf8');
   const styles = await readFile(new URL('../src/styles.css', import.meta.url), 'utf8');
   assert.match(main, /id="customer-search" type="search"/);
+  assert.match(main, /id="customer-list-sort"/);
+  assert.match(main, /data-customer-page="-1"/);
+  assert.match(main, /aria-label="\$\{escapeHtml\(t\('Customer directory pages'\)\)\}"/);
   assert.match(main, /role="group" aria-label="\$\{escapeHtml\(t\('Filter customers by payment status or area'\)\)\}"/);
   assert.match(main, /aria-pressed="\$\{pageState\.customerListStatus === 'paid'\}"/);
   assert.match(main, /id="customer-list-count" class="customer-list-count" role="status" aria-live="\$\{customerDrilldown \? 'off' : 'polite'\}"/);
@@ -316,6 +368,9 @@ test('list controls and mobile CSS provide labelled, keyboard-operable status an
   assert.match(main, /data-action="clear-dashboard-drilldown" data-target="customer-list"/);
   assert.match(main, /<dialog id="customer-profile-dialog"/);
   assert.match(styles, /\.customer-card-grid\s*\{[^}]*display: grid/s);
+  assert.match(styles, /\.customer-list-sort select \{[^}]*min-height: 44px;/);
+  assert.match(styles, /\.customer-list-pagination button \{[^}]*min-height: 44px;/);
+  assert.match(styles, /@media \(max-width: 600px\) \{\s+\.customer-list-panel \.customer-list-pagination \{ gap: 6px; \}/);
   assert.match(styles, /@media \(max-width: 760px\)[\s\S]*?\.customer-card-grid \{ grid-template-columns: 1fr; \}/);
   assert.match(styles, /\.customer-fab:focus-visible/);
 });

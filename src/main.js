@@ -11,8 +11,10 @@ import {
   filterCustomerRows,
   filterCustomersWithoutBillSnapshot,
   getCustomerAreaOptions,
+  paginateCustomerRows,
   renderCustomerCards,
   renderCustomerProfile,
+  sortCustomerRows,
   summarizeCustomerRows,
 } from './customer-list.js';
 import {
@@ -139,6 +141,8 @@ if (!supabase) {
     customerListSearch: '',
     customerListStatus: 'all',
     customerListArea: '',
+    customerListSort: 'account-number',
+    customerListPage: 1,
     customerAreaOpen: false,
     cashflowMonthCount: 3,
     cashflowSearch: '',
@@ -307,6 +311,8 @@ if (!supabase) {
       pageState.customerListSearch = '';
       pageState.customerListStatus = 'all';
       pageState.customerListArea = '';
+      pageState.customerListSort = 'account-number';
+      pageState.customerListPage = 1;
       pageState.customerAreaOpen = false;
       pageState.billSearch = '';
       pageState.billStatus = 'all';
@@ -615,6 +621,11 @@ if (!supabase) {
     });
   }
 
+  function renderCustomerListPagination(page) {
+    if (page.pageCount <= 1) return `<nav id="customer-list-pagination" hidden></nav>`;
+    return `<nav id="customer-list-pagination" class="customer-list-pagination" aria-label="${escapeHtml(t('Customer directory pages'))}"><button class="button secondary small" type="button" data-customer-page="-1" aria-label="${escapeHtml(t('Previous page'))}" ${page.page <= 1 ? 'disabled' : ''}>${escapeHtml(t('Previous page'))}</button><span class="customer-list-pagination__current" aria-live="polite">${escapeHtml(formatUiMessage('Page {page} of {pageCount}.', currentLanguage, { page: page.page, pageCount: page.pageCount }))}</span><button class="button secondary small" type="button" data-customer-page="1" aria-label="${escapeHtml(t('Next page'))}" ${page.page >= page.pageCount ? 'disabled' : ''}>${escapeHtml(t('Next page'))}</button></nav>`;
+  }
+
   function updateCustomerListResults() {
     const listRows = currentCustomerListRows();
     const drilldown = pageState.dashboardDrilldown?.target === 'customer-list' ? pageState.dashboardDrilldown : null;
@@ -626,15 +637,27 @@ if (!supabase) {
       status: pageState.customerListStatus,
       area: pageState.customerListArea,
     });
+    const sortedRows = sortCustomerRows(filteredRows, pageState.customerListSort);
+    const page = paginateCustomerRows(sortedRows, { page: pageState.customerListPage, pageSize: 10 });
+    pageState.customerListPage = page.page;
     const grid = portalPanel.querySelector('#customer-card-grid');
     const count = portalPanel.querySelector('#customer-list-count');
     if (count) count.setAttribute('aria-live', drilldown ? 'off' : 'polite');
     if (grid) {
       grid.innerHTML = listRows.length
-        ? renderCustomerCards(filteredRows, formatMoney, t)
+        ? renderCustomerCards(page.items, formatMoney, t)
         : `<p class="customer-list-empty" role="status">${escapeHtml(t('No customer records yet.'))}</p>`;
     }
-    if (count) count.textContent = formatUiMessage('Showing {shown} of {total} customers.', currentLanguage, { shown: filteredRows.length, total: scopedRows.length });
+    if (count) count.textContent = formatUiMessage('Showing {shownStart}–{shownEnd} of {matching} matching customers; {total} total customers.', currentLanguage, {
+      shownStart: page.start,
+      shownEnd: page.end,
+      matching: sortedRows.length,
+      total: scopedRows.length,
+    });
+    const sortSelect = portalPanel.querySelector('#customer-list-sort');
+    if (sortSelect) sortSelect.value = pageState.customerListSort;
+    const pagination = portalPanel.querySelector('#customer-list-pagination');
+    if (pagination) pagination.outerHTML = renderCustomerListPagination(page);
     const summary = portalPanel.querySelector('#customer-list-drilldown-summary');
     const summaryMessage = portalPanel.querySelector('#customer-list-drilldown-message');
     if (summary && summaryMessage) {
@@ -844,6 +867,7 @@ if (!supabase) {
     if (current?.hash === nextRoute?.hash && current?.card === nextRoute?.card) return;
 
     pageState.dashboardDrilldown = nextRoute;
+    pageState.customerListPage = 1;
     if (nextRoute) {
       pageState.selectedMonth = nextRoute.period;
       pageState.billSearch = '';
@@ -1203,6 +1227,11 @@ if (!supabase) {
       status: pageState.customerListStatus,
       area: pageState.customerListArea,
     });
+    const initialCustomerPage = paginateCustomerRows(
+      sortCustomerRows(filteredCustomerRows, pageState.customerListSort),
+      { page: pageState.customerListPage, pageSize: 10 },
+    );
+    pageState.customerListPage = initialCustomerPage.page;
     const customerAreaOptions = getCustomerAreaOptions(customerListRows)
       .map((option) => `<option value="${escapeHtml(option.value)}">${escapeHtml(option.label)}</option>`).join('');
     const customerName = (id) => rows.customers.find((customer) => customer.id === id)?.name ?? t('Customer');
@@ -1322,9 +1351,11 @@ if (!supabase) {
           <button class="customer-filter-pill ${pageState.customerListArea ? 'is-active' : ''}" type="button" data-action="toggle-area-filter" aria-expanded="${pageState.customerAreaOpen}" aria-pressed="${Boolean(pageState.customerListArea)}">${escapeHtml(t('Area'))}</button>
           <label class="sr-only" for="customer-area-filter">${escapeHtml(t('Filter by saved service address'))}</label><select id="customer-area-filter" aria-label="${escapeHtml(t('Filter by saved service address'))}" ${pageState.customerAreaOpen ? '' : 'hidden'}><option value="" disabled ${pageState.customerListArea ? '' : 'selected'}>${escapeHtml(t('Choose an area / address'))}</option>${customerAreaOptions}</select>
         </div>
+        <div class="customer-list-sort"><label for="customer-list-sort">${escapeHtml(t('Sort customers'))}</label><select id="customer-list-sort"><option value="account-number" ${pageState.customerListSort === 'account-number' ? 'selected' : ''}>${escapeHtml(t('Account number (low to high)'))}</option><option value="name" ${pageState.customerListSort === 'name' ? 'selected' : ''}>${escapeHtml(t('Name (A to Z)'))}</option><option value="balance" ${pageState.customerListSort === 'balance' ? 'selected' : ''}>${escapeHtml(t('Outstanding balance (high to low)'))}</option></select></div>
         <div id="customer-list-drilldown-summary" class="filter-summary" ${customerDrilldown ? '' : 'hidden'}><p id="customer-list-drilldown-message" role="status" aria-live="polite" aria-atomic="true">${customerDrilldown ? formatUiMessage('Showing active customers without a bill snapshot for {period}. {count} customers match.', currentLanguage, { period: customerDrilldown.period, count: scopedCustomerListRows.length }) : ''}</p><button class="button secondary small" type="button" data-action="clear-dashboard-drilldown" data-target="customer-list">${escapeHtml(t('Clear dashboard filter'))}</button></div>
-        <p id="customer-list-count" class="customer-list-count" role="status" aria-live="${customerDrilldown ? 'off' : 'polite'}">${formatUiMessage('Showing {shown} of {total} customers.', currentLanguage, { shown: filteredCustomerRows.length, total: scopedCustomerListRows.length })}</p>
-        <div id="customer-card-grid" class="customer-card-grid">${customerSummary.total ? renderCustomerCards(filteredCustomerRows, formatMoney, t) : `<p class="customer-list-empty" role="status">${escapeHtml(t('No customer records yet.'))}</p>`}</div>
+        <p id="customer-list-count" class="customer-list-count" role="status" aria-live="${customerDrilldown ? 'off' : 'polite'}">${formatUiMessage('Showing {shownStart}–{shownEnd} of {matching} matching customers; {total} total customers.', currentLanguage, { shownStart: initialCustomerPage.start, shownEnd: initialCustomerPage.end, matching: filteredCustomerRows.length, total: scopedCustomerListRows.length })}</p>
+        <div id="customer-card-grid" class="customer-card-grid">${customerSummary.total ? renderCustomerCards(initialCustomerPage.items, formatMoney, t) : `<p class="customer-list-empty" role="status">${escapeHtml(t('No customer records yet.'))}</p>`}</div>
+        ${renderCustomerListPagination(initialCustomerPage)}
         <dialog id="customer-profile-dialog" class="edit-dialog customer-profile-dialog" aria-labelledby="customer-profile-title"><div id="customer-profile-content"></div></dialog>
       </section>
       <button class="customer-fab" type="button" data-action="open-add-customer" aria-label="${escapeHtml(t('Add customer'))}" title="${escapeHtml(t('Add customer'))}"><span aria-hidden="true">+</span></button>
@@ -1987,12 +2018,17 @@ if (!supabase) {
     listRoot?.addEventListener('input', (event) => {
       if (event.target.id !== 'customer-search') return;
       pageState.customerListSearch = event.target.value;
+      pageState.customerListPage = 1;
       updateCustomerListResults();
     });
     listRoot?.addEventListener('change', (event) => {
-      if (event.target.id !== 'customer-area-filter') return;
-      pageState.customerListArea = event.target.value;
-      pageState.customerListStatus = 'all';
+      if (event.target.id === 'customer-area-filter') {
+        pageState.customerListArea = event.target.value;
+        pageState.customerListStatus = 'all';
+      } else if (event.target.id === 'customer-list-sort') {
+        pageState.customerListSort = event.target.value;
+      } else return;
+      pageState.customerListPage = 1;
       updateCustomerListResults();
     });
     listRoot?.addEventListener('click', (event) => {
@@ -2003,7 +2039,18 @@ if (!supabase) {
         pageState.customerListStatus = filterButton.dataset.billingFilter;
         pageState.customerListArea = '';
         pageState.customerAreaOpen = false;
+        pageState.customerListPage = 1;
         updateCustomerListResults();
+        return;
+      }
+      const pageButton = target.closest('[data-customer-page]');
+      if (pageButton) {
+        const direction = Number(pageButton.dataset.customerPage);
+        if (direction !== -1 && direction !== 1) return;
+        pageState.customerListPage += direction;
+        updateCustomerListResults();
+        (portalPanel.querySelector(`#customer-list-pagination [data-customer-page="${direction}"]:not(:disabled)`)
+          ?? portalPanel.querySelector('#customer-list-pagination button:not(:disabled)'))?.focus();
         return;
       }
       const clearFilter = target.closest('[data-action="clear-dashboard-drilldown"]');
@@ -2015,6 +2062,7 @@ if (!supabase) {
       if (!action) return;
       if (action.dataset.action === 'toggle-area-filter') {
         pageState.customerListStatus = 'all';
+        pageState.customerListPage = 1;
         pageState.customerAreaOpen = !pageState.customerAreaOpen;
         updateCustomerListResults();
         if (pageState.customerAreaOpen) portalPanel.querySelector('#customer-area-filter')?.focus();
