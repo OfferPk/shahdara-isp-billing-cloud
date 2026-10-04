@@ -65,6 +65,17 @@ test('three- and six-month windows use calendar months and exclude older activit
   assert.throws(() => summarizeCashflow({ monthCount: 2, now }), /1-, 3-, or 6-month/);
 });
 
+test('selected-period rows reconcile to cashflow totals without changing receipt, cost, or distribution definitions', () => {
+  for (const monthCount of [1, 3, 6]) {
+    const { months, totals } = summarizeCashflow({ receipts, expenses, monthCount, now });
+    for (const key of ['incomePaisa', 'operatingCostsPaisa', 'partnerDistributionsPaisa', 'operatingProfitPaisa', 'netCashflowPaisa']) {
+      assert.equal(totals[key], months.reduce((sum, month) => sum + month[key], 0), `${monthCount}-month ${key} equals its monthly rows`);
+    }
+    assert.equal(totals.operatingProfitPaisa, totals.incomePaisa - totals.operatingCostsPaisa);
+    assert.equal(totals.netCashflowPaisa, totals.operatingProfitPaisa - totals.partnerDistributionsPaisa);
+  }
+});
+
 test('duplicate receipt and expense rows do not double-count after page overlap or retries', () => {
   const result = summarizeCashflow({ receipts, expenses, monthCount: 3, now });
   assert.equal(result.totals.incomePaisa, 800000);

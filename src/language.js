@@ -611,6 +611,8 @@ const ROMAN_URDU = Object.freeze({
   'Cashflow chart legend': 'Cashflow graph ki nishaniyan',
   'Cashflow over selected months': 'Chunay huay mahinon ka cashflow',
   'Income includes posted cash receipts only; issued or unpaid bills and allocations are not income. Operating costs exclude partner distributions.': 'Aamdani mein sirf darj shuda cash receipts shamil hain; jari shuda ya unpaid bills aur allocations aamdani nahin. Amli kharchon se partner distributions alag hain.',
+  'Selected-period cashflow reconciliation: cash receipts {income} − operating costs {costs} = operating profit {profit}; operating profit {profit} − partner distributions {distributions} = net cashflow {net}.': 'Chunay huay arsay ka cashflow hisaab: wasool shuda cash {income} − amli kharchay {costs} = amli munafa {profit}; amli munafa {profit} − partner ko taqseem {distributions} = net cashflow {net}.',
+  'History search and date filters only narrow this list; they do not change the selected-period cashflow summary above.': 'Record ki search aur tareekh ke filters sirf is fehrist ko mehdood karte hain; yeh upar diye gaye cashflow totals ko nahin badalte.',
   'Zero': 'Sifar',
   'Record a cash expense': 'Naqd kharch record karein',
   'Expense category': 'Kharch ki category',

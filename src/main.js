@@ -1130,6 +1130,11 @@ if (!supabase) {
       </div>
       <p class="muted">${escapeHtml(t('Income includes posted cash receipts only; issued or unpaid bills and allocations are not income. Operating costs exclude partner distributions.'))}</p>
       <div class="cashflow-summary-grid admin-metrics">${metrics}</div>
+      <p class="cashflow-reconciliation" role="note">${escapeHtml(formatUiMessage('Selected-period cashflow reconciliation: cash receipts {income} − operating costs {costs} = operating profit {profit}; operating profit {profit} − partner distributions {distributions} = net cashflow {net}.', currentLanguage, {
+        income: formatMoney(totals.incomePaisa), costs: formatMoney(totals.operatingCostsPaisa),
+        profit: formatMoney(totals.operatingProfitPaisa), distributions: formatMoney(totals.partnerDistributionsPaisa),
+        net: formatMoney(totals.netCashflowPaisa),
+      }))}</p>
       <div class="cashflow-chart-legend" role="list" aria-label="${escapeHtml(t('Cashflow chart legend'))}">
         <span role="listitem"><i class="cashflow-swatch cashflow-swatch--income"></i>${escapeHtml(t('Receipts'))}</span>
         <span role="listitem"><i class="cashflow-swatch cashflow-swatch--costs"></i>${escapeHtml(t('Operating costs'))}</span>
@@ -1351,6 +1356,7 @@ if (!supabase) {
           </section>
           <section class="cashflow-history-panel" aria-labelledby="cashflow-history-title">
             <h3 id="cashflow-history-title">${escapeHtml(t('Searchable expense history'))}</h3>
+            <p class="muted cashflow-filter-scope">${escapeHtml(t('History search and date filters only narrow this list; they do not change the selected-period cashflow summary above.'))}</p>
             <div class="cashflow-history-filters">
               <label for="cashflow-expense-search">${escapeHtml(t('Search category, note, or amount'))}<input id="cashflow-expense-search" type="search" autocomplete="off" value="${escapeHtml(pageState.cashflowSearch)}"></label>
               <label for="cashflow-expense-filter-category">${escapeHtml(t('Category'))}<select id="cashflow-expense-filter-category"><option value="all">${escapeHtml(t('All categories'))}</option>${CASHFLOW_CATEGORIES.map((item) => `<option value="${escapeHtml(item.value)}" ${pageState.cashflowCategory === item.value ? 'selected' : ''}>${escapeHtml(t(item.label))}</option>`).join('')}</select></label>
