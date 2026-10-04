@@ -3,15 +3,18 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import {
   MAX_SYNTHETIC_IDENTIFIER_LENGTH,
+  LIVE_ONLY_DIAGNOSTIC_CHECKS,
   MOCK_DIAGNOSTIC_FIXTURES,
   MockDiagnosticsProvider,
   RISK_PREVIEW_POLICY,
   SIMULATION_EXAMPLES,
+  SYNTHETIC_DIAGNOSTIC_STEPS,
   SYNTHETIC_IDENTIFIER_TYPES,
   SYNTHETIC_SYMPTOM_SCENARIOS,
   classifySyntheticComplaint,
   renderSyntheticDiagnosticResult,
   renderSyntheticSymptomDecision,
+  runSyntheticDiagnosticSteps,
   runSyntheticDiagnostics,
 } from '../src/network-diagnostics.js';
 import { translateUi } from '../src/language.js';
@@ -50,6 +53,55 @@ test('every listed supported phrase maps exactly to its own deterministic scenar
         liveCheckPerformed: false,
       }, `phrase should route only to ${scenario.id}: ${phrase}`);
     }
+  }
+});
+
+test('the controlled engine runs only allowlisted synthetic steps and rejects unknown or live tool identifiers', () => {
+  const classification = classifySyntheticComplaint('Ahmed internet slow hai');
+  const findings = runSyntheticDiagnosticSteps(provider, 'demo-ahmed-a', classification);
+  const permittedIds = SYNTHETIC_DIAGNOSTIC_STEPS.map(({ id }) => id);
+  const syntheticFindings = findings.filter(({ state }) => state === 'mock');
+  assert.deepEqual([...new Set(syntheticFindings.map(({ stepId }) => stepId))], permittedIds);
+  assert.ok(syntheticFindings.every(({ state }) => state === 'mock'));
+  assert.ok(syntheticFindings.some(({ label }) => label === 'Synthetic profile fixture'));
+  assert.ok(syntheticFindings.some(({ label }) => label === 'Symptom classification'));
+  assert.ok(syntheticFindings.some(({ label }) => label === 'Example package'));
+  const profileOnly = runSyntheticDiagnosticSteps(provider, 'demo-ahmed-a', classification, ['profile-fixture']);
+  assert.deepEqual(profileOnly.filter(({ state }) => state === 'mock').map(({ stepId }) => stepId), ['profile-fixture']);
+  assert.deepEqual(profileOnly.filter(({ state }) => state === 'unavailable').map(({ stepId }) => stepId), LIVE_ONLY_DIAGNOSTIC_CHECKS.map(({ id }) => id));
+  assert.throws(
+    () => runSyntheticDiagnosticSteps(provider, 'demo-ahmed-a', classification, ['execute-router-command']),
+    /Unknown synthetic diagnostic step; live network tools are unavailable/,
+  );
+  assert.throws(
+    () => runSyntheticDiagnosticSteps(provider, 'demo-ahmed-a', classification, ['router-status']),
+    /Unknown synthetic diagnostic step; live network tools are unavailable/,
+  );
+  assert.throws(
+    () => runSyntheticDiagnosticSteps(provider, 'demo-ahmed-a', { ...classification, liveCheckPerformed: true }),
+    /locally supported synthetic symptom classification/,
+  );
+});
+
+test('every live-only diagnostic check is propagated as unavailable in each synthetic result', () => {
+  assert.deepEqual(LIVE_ONLY_DIAGNOSTIC_CHECKS.map(({ id }) => id), [
+    'router-status', 'router-management-ip-address', 'subscriber-ip-address', 'wan-link-status', 'dns-resolution',
+    'routing-table', 'live-traffic', 'packet-loss', 'measured-throughput', 'live-pppoe-session-history',
+  ]);
+  for (const [fixtureId, complaint] of [
+    ['demo-ali-a', 'Ali ka internet nahi chal raha'],
+    ['demo-ahmed-a', 'Ahmed internet slow hai'],
+    ['demo-ali-b', 'internet ruk ruk kar chalta hai'],
+  ]) {
+    const result = runSyntheticDiagnostics(provider, fixtureId, complaint);
+    const propagated = result.findings.filter(({ stepId }) => LIVE_ONLY_DIAGNOSTIC_CHECKS.some(({ id }) => id === stepId));
+    assert.deepEqual(propagated.map(({ stepId }) => stepId), LIVE_ONLY_DIAGNOSTIC_CHECKS.map(({ id }) => id));
+    assert.ok(propagated.every(({ state, synthetic, value }) => state === 'unavailable' && synthetic === true && value.startsWith('Unavailable ·')));
+    assert.ok(result.findings.every(({ synthetic }) => synthetic === true));
+    const markup = renderSyntheticDiagnosticResult(result);
+    assert.match(markup, /Synthetic · unavailable/);
+    for (const { label } of LIVE_ONLY_DIAGNOSTIC_CHECKS) assert.ok(markup.includes(`<h4>${label}</h4>`), label);
+    assert.match(markup, /SIMULATION ONLY · NOT LIVE NETWORK DATA/);
   }
 });
 
@@ -159,8 +211,10 @@ test('all simulation output carries fictional source, state, no-change, and no-v
     assert.equal(result.liveCheckPerformed, false);
     assert.equal(result.changesApplied, false);
     assert.equal(result.serviceVerified, false);
-    assert.ok(result.findings.every(({ state, value }) => ['mock', 'unavailable'].includes(state)
-      && (/fictional demo scenario|no live device|no speed test/i.test(value))));
+    assert.ok(result.findings.every(({ synthetic }) => synthetic === true));
+    assert.ok(result.findings.every(({ state, value }) => (
+      state === 'mock' ? value.length > 0 : state === 'unavailable' && /^Unavailable ·/.test(value)
+    )));
     const markup = renderSyntheticDiagnosticResult(result);
     assert.match(markup, /SIMULATION ONLY · NOT LIVE NETWORK DATA/);
     assert.match(markup, /Symptom scenario/);
@@ -189,6 +243,7 @@ test('result rendering escapes input and rejects results without explicit no-cha
   assert.throws(() => renderSyntheticDiagnosticResult({ ...result, fictional: false }));
   assert.throws(() => renderSyntheticDiagnosticResult({ ...result, changesApplied: true }));
   assert.throws(() => renderSyntheticDiagnosticResult({ ...result, serviceVerified: true }));
+  assert.throws(() => renderSyntheticDiagnosticResult({ ...result, findings: result.findings.map((finding, index) => index === 0 ? { ...finding, synthetic: false } : finding) }), /explicitly synthetic/);
 });
 
 test('bounds, malformed identities, and provider restrictions remain in force', () => {
@@ -259,6 +314,8 @@ test('diagnostics is keyboard usable, responsive, state-labeled, and translated 
     'Complaint is not covered by the demo; no real check was run.', 'Output state', 'Ambiguous · no check run',
     'Not covered · no check run', 'Decision source', 'Deterministic local phrase rules', 'Fictional local symptom scenario',
     'Classification source', 'Identity source', 'Fictional local profile fixture',
+    ...SYNTHETIC_DIAGNOSTIC_STEPS.map(({ label }) => label),
+    ...LIVE_ONLY_DIAGNOSTIC_CHECKS.flatMap(({ label, value }) => [label, value]), 'Synthetic · unavailable',
     ...SYNTHETIC_SYMPTOM_SCENARIOS.flatMap(({ label, diagnosis, findings }) => [label, diagnosis, ...findings.flatMap(({ label: findingLabel, value }) => [findingLabel, value])]),
     ...SIMULATION_EXAMPLES.map(({ label }) => label),
   ];
