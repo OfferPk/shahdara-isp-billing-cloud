@@ -68,6 +68,7 @@ export function renderDashboardMetrics({ month, today, totals, t = (value) => va
       icon: 'outstanding',
       value: formatMoney(totals.outstandingCents),
       detail: `${t('Outstanding on')} ${month} ${t('bills')}; ${formatMoney(totals.creditAppliedCents)} ${t('credit applied separately')}`,
+      drilldown: makeDrilldown('unpaid', 'View unpaid bills', `${t('Pending')}, ${formatMoney(totals.outstandingCents)}, ${t('for bill period')} ${month}. ${t('View unpaid bills for')} ${month}.`),
     },
     {
       tone: 'overdue',

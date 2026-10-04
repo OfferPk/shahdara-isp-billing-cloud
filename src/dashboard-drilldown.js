@@ -1,6 +1,7 @@
 import { isValidBillingMonth } from './bill-dates.js';
 
 const DRILLDOWNS = Object.freeze({
+  unpaid: Object.freeze({ target: 'admin-bills', scope: 'unpaid' }),
   overdue: Object.freeze({ target: 'admin-bills', scope: 'overdue' }),
   unpriced: Object.freeze({ target: 'admin-bills', scope: 'unpriced' }),
   'missing-snapshot': Object.freeze({ target: 'customer-list', scope: 'missing-snapshot' }),

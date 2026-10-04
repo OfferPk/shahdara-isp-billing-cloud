@@ -86,6 +86,12 @@ export function filterCollectionBillRows(rows, { scope = '', period = '' } = {})
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(String(period))) return [];
   return rows.filter((row) => {
     if (row.period !== period) return false;
+    if (scope === 'unpaid') {
+      return row.status === 'unpaid'
+        && row.amountDueCents !== null
+        && Number.isFinite(Number(row.amountDueCents))
+        && row.balanceCents > 0;
+    }
     if (scope === 'overdue') {
       return row.status === 'unpaid'
         && row.amountDueCents !== null
