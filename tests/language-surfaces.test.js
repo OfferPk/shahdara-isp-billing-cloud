@@ -91,6 +91,7 @@ test('scoped hardcoded UI copy is enumerated, Roman Urdu is complete, and no non
     '../src/admin-incidents.js',
     '../src/customer-list.js',
     '../src/dashboard-metrics.js',
+    '../src/app-install.js',
   ];
   const sources = await Promise.all(paths.map((path) => readFile(new URL(path, import.meta.url), 'utf8')));
   const keys = new Set(sources.flatMap((source) => [...collectStaticCopyKeys(source)]));

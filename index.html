@@ -5,6 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#123c35" />
     <meta name="description" content="Private Shahdara ISP cloud billing portal." />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" type="image/png" sizes="192x192" href="./icons/shahdara-app-192.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="./icons/shahdara-app-180.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
     <script>
       try {
         if (window.localStorage.getItem('shahdara-cloud-ui-theme') === 'dark') {
@@ -23,6 +27,10 @@
           <span><strong>Shahdara Fiber Net</strong><small data-i18n="Cloud billing portal">Cloud billing portal</small></span>
         </a>
         <div class="header-tools">
+          <div class="install-control">
+            <button id="install-app-button" class="button secondary" type="button" data-i18n="Install app" aria-describedby="install-app-status">Install app</button>
+            <p id="install-app-status" class="install-app-status" role="status" aria-live="polite" aria-atomic="true"></p>
+          </div>
           <div class="header-preferences">
             <div id="language-toggle" class="language-toggle" role="group" aria-label="Language">
               <button class="language-toggle__option is-active" type="button" data-language="en" aria-label="English" aria-pressed="true">English</button>

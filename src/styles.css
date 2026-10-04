@@ -35,6 +35,11 @@ button:disabled { cursor: wait; opacity: .65; }
 .brand strong { font: 800 15px Manrope, sans-serif; letter-spacing: -.02em; }
 .brand small { margin-top: 2px; color: var(--muted); font-size: 12px; }
 .environment-tag { padding: 7px 11px; border: 1px solid #bedccc; border-radius: 999px; background: #edf7f1; color: #27654e; font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.install-control { display: flex; max-width: 310px; flex-direction: column; align-items: flex-start; gap: 3px; }
+.install-control .button { min-height: 44px; white-space: nowrap; }
+.install-control .button:disabled { cursor: default; opacity: .78; }
+.install-app-status { max-width: 310px; margin: 0; color: var(--muted); font-size: 11px; line-height: 1.4; overflow-wrap: anywhere; }
+:root[data-theme="dark"] .install-control .button.secondary { border-color: #40594b; color: #c6ddd0; background: #1a2821; }
 main { padding: 28px 0 20px; }
 .panel { min-width: 0; padding: 24px; border: 1px solid var(--line); border-radius: 19px; background: rgba(255,255,255,.96); box-shadow: var(--shadow); }
 .config-panel, .auth-panel { width: min(100%, 600px); margin: 42px auto 24px; }
@@ -804,6 +809,9 @@ td { color: #25433b; }
 
 @media (max-width: 600px) {
   .header-tools { width: 100%; align-items: stretch; flex-direction: column; gap: 8px; }
+  .install-control { width: 100%; max-width: none; }
+  .install-control .button { width: 100%; }
+  .install-app-status { max-width: none; }
   .header-preferences { width: 100%; justify-content: space-between; gap: 7px; }
   .environment-tag { align-self: flex-end; max-width: 100%; }
 }

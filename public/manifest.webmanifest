@@ -1,0 +1,26 @@
+{
+  "id": "./",
+  "name": "Shahdara Fiber Net Portal",
+  "short_name": "Shahdara Portal",
+  "description": "Access the Shahdara Fiber Net customer and billing portal.",
+  "lang": "en",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f2f5f3",
+  "theme_color": "#123c35",
+  "icons": [
+    {
+      "src": "./icons/shahdara-app-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icons/shahdara-app-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
