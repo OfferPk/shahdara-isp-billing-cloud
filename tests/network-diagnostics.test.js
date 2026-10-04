@@ -6,12 +6,15 @@ import {
   LIVE_ONLY_DIAGNOSTIC_CHECKS,
   MOCK_DIAGNOSTIC_FIXTURES,
   MockDiagnosticsProvider,
+  NETWORK_ACTION_POLICY,
   RISK_PREVIEW_POLICY,
   SIMULATION_EXAMPLES,
   SYNTHETIC_DIAGNOSTIC_STEPS,
   SYNTHETIC_IDENTIFIER_TYPES,
   SYNTHETIC_SYMPTOM_SCENARIOS,
   classifySyntheticComplaint,
+  previewNetworkActionPolicy,
+  renderNetworkActionPolicyPreview,
   renderSyntheticDiagnosticResult,
   renderSyntheticSymptomDecision,
   runSyntheticDiagnosticSteps,
@@ -230,6 +233,97 @@ test('all simulation output carries fictional source, state, no-change, and no-v
   assert.ok(RISK_PREVIEW_POLICY.every(({ level }) => /Low|Medium|High/.test(level)));
 });
 
+test('every future network action category has an explicit risk classification and unknown actions fail closed', () => {
+  assert.deepEqual(NETWORK_ACTION_POLICY.map(({ id, risk, label }) => ({ id, risk, label })), [
+    { id: 'low-risk-router-changes', risk: 'Low', label: 'Low-risk router changes' },
+    { id: 'medium-risk-customer-profile-changes', risk: 'Medium', label: 'Medium-risk customer or profile changes' },
+    { id: 'high-risk-network-destructive-changes', risk: 'High', label: 'High-risk network or destructive changes' },
+  ]);
+  assert.deepEqual(RISK_PREVIEW_POLICY.map(({ state }) => state), NETWORK_ACTION_POLICY.map(() => 'Unavailable · preview only'));
+  for (const { id, risk } of NETWORK_ACTION_POLICY) {
+    const preview = previewNetworkActionPolicy(id);
+    assert.equal(preview.risk, risk);
+    assert.equal(preview.status, 'unavailable');
+    assert.equal(preview.readyForHumanReview, false);
+    assert.equal(preview.executionPermitted, false);
+  }
+  assert.throws(() => previewNetworkActionPolicy('execute-router-command'), /Unknown network action category/);
+  assert.throws(() => previewNetworkActionPolicy(''), /Unknown network action category/);
+});
+
+test('low risk needs future Admin enable; medium and high risk need exact per-action confirmation', () => {
+  const connectedFuturePreview = { routerConnected: true, adapterConnected: true, adminEnabled: true };
+  const [low, medium, high] = NETWORK_ACTION_POLICY;
+  const lowPreview = previewNetworkActionPolicy(low.id, connectedFuturePreview);
+  assert.equal(lowPreview.status, 'review-ready-simulation-only');
+  assert.equal(lowPreview.requiresActionConfirmation, false);
+  assert.equal(lowPreview.executionPermitted, false);
+
+  const lowWithoutAdminEnable = previewNetworkActionPolicy(low.id, { routerConnected: true, adapterConnected: true });
+  assert.ok(lowWithoutAdminEnable.blockers.includes('future-admin-enable-required'));
+  for (const action of [medium, high]) {
+    const unconfirmed = previewNetworkActionPolicy(action.id, connectedFuturePreview);
+    assert.equal(unconfirmed.requiresActionConfirmation, true);
+    assert.ok(unconfirmed.blockers.includes('explicit-action-confirmation-required'));
+    const wrongActionConfirmation = previewNetworkActionPolicy(action.id, {
+      ...connectedFuturePreview,
+      confirmedActionId: low.id,
+    });
+    assert.ok(wrongActionConfirmation.blockers.includes('explicit-action-confirmation-required'));
+    const confirmed = previewNetworkActionPolicy(action.id, {
+      ...connectedFuturePreview,
+      confirmedActionId: action.id,
+    });
+    assert.equal(confirmed.confirmedForThisAction, true);
+    assert.equal(confirmed.readyForHumanReview, true);
+    assert.equal(confirmed.status, 'review-ready-simulation-only');
+    assert.equal(confirmed.executionPermitted, false);
+  }
+  const highConfirmedButAutomatic = previewNetworkActionPolicy(high.id, {
+    ...connectedFuturePreview,
+    confirmedActionId: high.id,
+    automaticExecution: true,
+  });
+  assert.ok(highConfirmedButAutomatic.blockers.includes('high-risk-never-automatic'));
+  assert.equal(highConfirmedButAutomatic.executionPermitted, false);
+});
+
+test('every risk level rejects disconnected routers or a missing approved adapter independently', () => {
+  for (const { id } of NETWORK_ACTION_POLICY) {
+    const disconnected = previewNetworkActionPolicy(id, {
+      routerConnected: false,
+      adapterConnected: true,
+      adminEnabled: true,
+      confirmedActionId: id,
+    });
+    assert.ok(disconnected.blockers.includes('router-not-connected'), id);
+    assert.equal(disconnected.executionPermitted, false);
+    const noAdapter = previewNetworkActionPolicy(id, {
+      routerConnected: true,
+      adapterConnected: false,
+      adminEnabled: true,
+      confirmedActionId: id,
+    });
+    assert.ok(noAdapter.blockers.includes('adapter-unavailable'), id);
+    assert.equal(noAdapter.executionPermitted, false);
+    const current = previewNetworkActionPolicy(id);
+    assert.ok(current.blockers.includes('router-not-connected'), id);
+    assert.ok(current.blockers.includes('adapter-unavailable'), id);
+  }
+});
+
+test('Admin risk preview explains current blockers and future confirmations without action controls', () => {
+  const markup = renderNetworkActionPolicyPreview();
+  assert.match(markup, /Future action policy · simulation only/);
+  assert.match(markup, /no approved adapter is available/);
+  assert.match(markup, /there are no live customers/);
+  assert.match(markup, /does not approve, queue, or apply a real action/);
+  assert.match(markup, /Future requirement: an Admin must enable this class and an approved adapter must be connected/);
+  assert.match(markup, /explicit Admin confirmation for this specific action/);
+  assert.match(markup, /must never run automatically/);
+  assert.doesNotMatch(markup, /<button|<form|data-action=/i);
+});
+
 test('result rendering escapes input and rejects results without explicit no-change guarantees', () => {
   const result = runSyntheticDiagnostics(provider, 'demo-ahmed-a', '<script>alert("x")</script> Ahmed internet is slow');
   const markup = renderSyntheticDiagnosticResult({ ...result, displayName: '<img src=x onerror=alert(1)>' });
@@ -275,6 +369,8 @@ test('module has no live data, network, persistence, router, provider, AI, or cu
   assert.match(moduleSource, /liveCheckPerformed: false/);
   assert.match(moduleSource, /changesApplied: false/);
   assert.match(moduleSource, /serviceVerified: false/);
+  assert.match(moduleSource, /executionPermitted: false/);
+  assert.doesNotMatch(moduleSource, /fetch\s*\(|XMLHttpRequest|WebSocket|child_process|supabase|routeros|radius|indexedDB|localStorage|sessionStorage|\.rpc\s*\(|\.insert\s*\(|\.update\s*\(|\.delete\s*\(/i);
 });
 
 test('Admin UI remains role-gated and the simulator module stays lazy with demo-only input warnings', () => {
@@ -307,6 +403,7 @@ test('diagnostics is keyboard usable, responsive, state-labeled, and translated 
   assert.match(styles, /\.network-diagnostics__symptom-state \{ border-color:/);
   assert.equal(translateUi('No live router is connected.', 'ur-Latn'), 'Koi live router connected nahin hai.');
   assert.equal(translateUi('Run simulated check', 'ur-Latn'), 'Simulated jaanch chalayein');
+  assert.equal(translateUi('Future action policy · simulation only', 'ur-Latn'), 'Mustaqbil ke actions ki policy · sirf simulation');
   const translatedCopy = [
     'Symptom scenario', 'No internet / disconnected', 'Slow speed / profile mismatch', 'Intermittent / disconnect',
     'Ambiguous symptom description', 'Not covered by the demo', 'The demo needs one supported symptom group. Clarify the complaint; no real network check was run.',
@@ -318,6 +415,10 @@ test('diagnostics is keyboard usable, responsive, state-labeled, and translated 
     ...LIVE_ONLY_DIAGNOSTIC_CHECKS.flatMap(({ label, value }) => [label, value]), 'Synthetic · unavailable',
     ...SYNTHETIC_SYMPTOM_SCENARIOS.flatMap(({ label, diagnosis, findings }) => [label, diagnosis, ...findings.flatMap(({ label: findingLabel, value }) => [findingLabel, value])]),
     ...SIMULATION_EXAMPLES.map(({ label }) => label),
+    'Future action policy · simulation only',
+    'No router is connected, no approved adapter is available, and there are no live customers. Every action class is unavailable today.',
+    'A confirmation shown or tested here is only a simulation; it does not approve, queue, or apply a real action.',
+    ...NETWORK_ACTION_POLICY.map(({ futureRequirement }) => futureRequirement),
   ];
   for (const copy of translatedCopy) assert.notEqual(translateUi(copy, 'ur-Latn'), copy, `diagnostics copy has Roman Urdu: ${copy}`);
 });
