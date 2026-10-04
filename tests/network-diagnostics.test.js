@@ -163,6 +163,64 @@ test('unsupported or ambiguous complaints fail closed and explicitly say no real
   assert.throws(() => runSyntheticDiagnostics(provider, 'demo-ahmed-a', 'Internet is slow and keeps disconnecting'), /not covered by the demo or is ambiguous; no real check was run/);
 });
 
+test('unsupported and ambiguous complaints stop before evidence lookup or any network tool call', () => {
+  const evidenceDescriptor = Object.getOwnPropertyDescriptor(MockDiagnosticsProvider.prototype, 'getSyntheticEvidence');
+  const originalFetch = globalThis.fetch;
+  let evidenceLookups = 0;
+  let networkCalls = 0;
+  Object.defineProperty(MockDiagnosticsProvider.prototype, 'getSyntheticEvidence', {
+    ...evidenceDescriptor,
+    value() {
+      evidenceLookups += 1;
+      throw new Error('Unsupported symptoms must not look up evidence.');
+    },
+  });
+  globalThis.fetch = () => {
+    networkCalls += 1;
+    throw new Error('The simulation must not invoke network tools.');
+  };
+  try {
+    for (const complaint of [
+      'The router lamp is red and web pages time out',
+      'The internet is slow and keeps disconnecting',
+    ]) {
+      let result;
+      assert.throws(() => { result = runSyntheticDiagnostics(provider, 'demo-ahmed-a', complaint); }, /no real check was run/);
+      assert.equal(result, undefined, 'a no-check decision returns no success result');
+    }
+    assert.equal(evidenceLookups, 0);
+    assert.equal(networkCalls, 0);
+  } finally {
+    Object.defineProperty(MockDiagnosticsProvider.prototype, 'getSyntheticEvidence', evidenceDescriptor);
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('a synthetic evidence-provider failure propagates without a success result or live tool call', () => {
+  const evidenceDescriptor = Object.getOwnPropertyDescriptor(MockDiagnosticsProvider.prototype, 'getSyntheticEvidence');
+  const originalFetch = globalThis.fetch;
+  let networkCalls = 0;
+  Object.defineProperty(MockDiagnosticsProvider.prototype, 'getSyntheticEvidence', {
+    ...evidenceDescriptor,
+    value() {
+      throw new Error('synthetic fixture provider unavailable');
+    },
+  });
+  globalThis.fetch = () => {
+    networkCalls += 1;
+    throw new Error('The simulation must not invoke network tools.');
+  };
+  try {
+    let result;
+    assert.throws(() => { result = runSyntheticDiagnostics(provider, 'demo-ahmed-a', 'Ahmed internet slow hai'); }, /synthetic fixture provider unavailable/);
+    assert.equal(result, undefined);
+    assert.equal(networkCalls, 0);
+  } finally {
+    Object.defineProperty(MockDiagnosticsProvider.prototype, 'getSyntheticEvidence', evidenceDescriptor);
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('phrase ambiguity is conservative and words embedded in unrelated words do not trigger a match', () => {
   for (const complaint of [
     'Internet is slow, then the connection keeps dropping',
@@ -389,6 +447,7 @@ test('result rendering escapes input and rejects results without explicit no-cha
   assert.match(markup, /<details class="network-diagnostics__technical"><summary>/);
   assert.doesNotMatch(markup, /<details[^>]+\sopen(?:=|\s|>)/i);
   assert.throws(() => renderSyntheticDiagnosticResult({ ...result, simulated: false }));
+  assert.throws(() => renderSyntheticDiagnosticResult({ ...result, state: 'success' }), /explicitly simulated diagnostic result/);
   assert.throws(() => renderSyntheticDiagnosticResult({ ...result, fictional: false }));
   assert.throws(() => renderSyntheticDiagnosticResult({ ...result, changesApplied: true }));
   assert.throws(() => renderSyntheticDiagnosticResult({ ...result, serviceVerified: true }));
