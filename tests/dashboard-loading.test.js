@@ -28,6 +28,29 @@ test('the skeleton appears before the lazy analytics import and remains a live l
   assert.match(main, /class="dashboard-analytics-loading" role="status"/);
 });
 
+test('deferred analytics loading compares against the generation captured by renderAdmin', () => {
+  const renderAdminStart = main.indexOf('function renderAdmin() {');
+  const renderAdminEnd = main.indexOf('\n  function populateReceiptBills', renderAdminStart);
+  assert.notEqual(renderAdminStart, -1);
+  assert.notEqual(renderAdminEnd, -1);
+
+  const renderAdmin = main.slice(renderAdminStart, renderAdminEnd);
+  assert.match(renderAdmin, /const renderGeneration = \+\+dashboardAnalyticsRenderGeneration;/);
+  assert.match(renderAdmin, /if \(renderGeneration === pageState\.dashboardAnalyticsRenderGeneration && section\?\.dataset\.featureExpanded === 'true'\)/);
+  assert.doesNotMatch(renderAdmin, /if \(generation === pageState\.dashboardAnalyticsRenderGeneration/);
+
+  const callbackBody = renderAdmin.match(/window\.setTimeout\(\(\) => \{([\s\S]*?)\n    \}, 0\);/)?.[1];
+  assert.ok(callbackBody, 'the deferred analytics callback should remain scheduled after rendering');
+  const runCallback = new Function('renderGeneration', 'pageState', 'portalPanel', 'requestDashboardAnalytics', callbackBody);
+  const expandedPortalPanel = { querySelector: () => ({ dataset: { featureExpanded: 'true' } }) };
+  let requestCount = 0;
+
+  runCallback(7, { dashboardAnalyticsRenderGeneration: 7 }, expandedPortalPanel, () => { requestCount += 1; });
+  assert.equal(requestCount, 1, 'expanded analytics should load for the current render');
+  runCallback(7, { dashboardAnalyticsRenderGeneration: 8 }, expandedPortalPanel, () => { requestCount += 1; });
+  assert.equal(requestCount, 1, 'stale render callbacks should not load analytics');
+});
+
 test('skeleton layout stacks on phones and disables shimmer for reduced-motion users', () => {
   assert.match(styles, /\.dashboard-analytics-skeleton\s*\{[^}]*grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\)/);
   assert.match(styles, /@media \(max-width: 600px\)[\s\S]*?\.dashboard-analytics-skeleton\s*\{\s*grid-template-columns:\s*1fr;/);
