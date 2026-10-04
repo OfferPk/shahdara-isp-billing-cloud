@@ -127,11 +127,73 @@ export const SIMULATION_EXAMPLES = Object.freeze([
   Object.freeze({ id: 'unknown', label: 'Unknown synthetic demo name: Zara ka internet band hai', identifierType: 'name', identifier: 'Zara', complaint: 'Zara ka internet band hai' }),
 ]);
 
-export const RISK_PREVIEW_POLICY = Object.freeze([
-  Object.freeze({ level: 'Low-risk router changes', state: 'Unavailable · preview only' }),
-  Object.freeze({ level: 'Medium-risk customer or profile changes', state: 'Unavailable · preview only' }),
-  Object.freeze({ level: 'High-risk network or destructive changes', state: 'Unavailable · preview only' }),
+export const NETWORK_ACTION_POLICY = Object.freeze([
+  Object.freeze({
+    id: 'low-risk-router-changes',
+    risk: 'Low',
+    label: 'Low-risk router changes',
+    requiresAdminEnable: true,
+    requiresActionConfirmation: false,
+    futureRequirement: 'Future requirement: an Admin must enable this class and an approved adapter must be connected.',
+  }),
+  Object.freeze({
+    id: 'medium-risk-customer-profile-changes',
+    risk: 'Medium',
+    label: 'Medium-risk customer or profile changes',
+    requiresAdminEnable: false,
+    requiresActionConfirmation: true,
+    futureRequirement: 'Future requirement: require explicit Admin confirmation for this specific action; a connected adapter is also required.',
+  }),
+  Object.freeze({
+    id: 'high-risk-network-destructive-changes',
+    risk: 'High',
+    label: 'High-risk network or destructive changes',
+    requiresAdminEnable: false,
+    requiresActionConfirmation: true,
+    futureRequirement: 'Future requirement: require explicit confirmation for this specific action; a human must initiate it and it must never run automatically.',
+  }),
 ]);
+
+const CURRENT_ACTION_POLICY_CONTEXT = Object.freeze({
+  routerConnected: false,
+  adapterConnected: false,
+  adminEnabled: false,
+});
+
+export function previewNetworkActionPolicy(actionId, context = CURRENT_ACTION_POLICY_CONTEXT) {
+  const action = NETWORK_ACTION_POLICY.find(({ id }) => id === actionId);
+  if (!action) throw new RangeError('Unknown network action category; no action is available.');
+  const options = context && typeof context === 'object' ? context : {};
+  const blockers = [];
+  if (options.routerConnected !== true) blockers.push('router-not-connected');
+  if (options.adapterConnected !== true) blockers.push('adapter-unavailable');
+  if (action.requiresAdminEnable && options.adminEnabled !== true) blockers.push('future-admin-enable-required');
+  const confirmedForThisAction = options.confirmedActionId === action.id;
+  if (action.requiresActionConfirmation && !confirmedForThisAction) blockers.push('explicit-action-confirmation-required');
+  if (action.risk === 'High' && options.automaticExecution === true) blockers.push('high-risk-never-automatic');
+  const readyForHumanReview = blockers.length === 0;
+  return Object.freeze({
+    actionId: action.id,
+    risk: action.risk,
+    label: action.label,
+    status: readyForHumanReview ? 'review-ready-simulation-only' : 'unavailable',
+    blockers: Object.freeze(blockers),
+    requiresActionConfirmation: action.requiresActionConfirmation,
+    confirmedForThisAction,
+    readyForHumanReview,
+    executionPermitted: false,
+  });
+}
+
+export const RISK_PREVIEW_POLICY = Object.freeze(NETWORK_ACTION_POLICY.map((action) => {
+  const preview = previewNetworkActionPolicy(action.id);
+  return Object.freeze({
+    ...preview,
+    level: action.label,
+    state: 'Unavailable · preview only',
+    futureRequirement: action.futureRequirement,
+  });
+}));
 
 function normalizeText(value) {
   return String(value ?? '').normalize('NFKC').toLocaleLowerCase().replace(/[.,!?;:()\[\]{}"“”'’،؟۔؛/\\_-]/g, ' ').replace(/\s+/g, ' ').trim();
@@ -301,8 +363,11 @@ function renderFindings(findings, t) {
   }).join('');
 }
 
-function renderRiskPreview(t) {
-  return `<section class="network-diagnostics__risk" aria-labelledby="network-diagnostics-risk-title"><h3 id="network-diagnostics-risk-title">${translated(t, 'Changes are disabled')}</h3><p>${translated(t, 'This simulator has no router or customer write tools. Nothing is applied, queued, or awaiting confirmation.')}</p><ul>${RISK_PREVIEW_POLICY.map(({ level, state }) => `<li><strong>${translated(t, level)}</strong><span>${translated(t, state)}</span></li>`).join('')}</ul></section>`;
+export function renderNetworkActionPolicyPreview(t = (message) => message) {
+  const rows = RISK_PREVIEW_POLICY.map(({ level, state, futureRequirement }) => (
+    `<li><strong>${translated(t, level)}</strong><span><strong>${translated(t, state)}</strong> ${translated(t, 'Reason: no connected router or approved adapter.') } ${translated(t, futureRequirement)}</span></li>`
+  )).join('');
+  return `<section class="network-diagnostics__risk" aria-labelledby="network-diagnostics-risk-policy-title"><h3 id="network-diagnostics-risk-policy-title">${translated(t, 'Future action policy · simulation only')}</h3><p>${translated(t, 'No router is connected, no approved adapter is available, and there are no live customers. Every action class is unavailable today.')}</p><p>${translated(t, 'A confirmation shown or tested here is only a simulation; it does not approve, queue, or apply a real action.')}</p><ul>${rows}</ul></section>`;
 }
 
 export function renderSyntheticDiagnosticResult(result, t = (message) => message) {
@@ -316,7 +381,7 @@ export function renderSyntheticDiagnosticResult(result, t = (message) => message
     throw new TypeError('Every rendered finding must be explicitly synthetic and mock or unavailable.');
   }
   const findings = result.findings;
-  return `<article class="network-diagnostics__result" aria-labelledby="network-diagnostics-result-title"><p class="network-diagnostics__simulation-tag">${translated(t, 'SIMULATION ONLY · NOT LIVE NETWORK DATA')}</p><h3 id="network-diagnostics-result-title">${translated(t, 'Simulated diagnostic result')}</h3><p class="network-diagnostics__complaint"><strong>${translated(t, 'Complaint')}</strong>: ${escapeHtml(result.complaint)}</p><p><strong>${translated(t, 'Symptom scenario')}</strong>: ${translated(t, result.symptomScenario)}</p><p class="network-diagnostics__diagnosis">${translated(t, result.diagnosis)}</p><ul class="network-diagnostics__findings" aria-label="${translated(t, 'Synthetic and unavailable diagnostic findings')}">${renderFindings(findings, t)}</ul><section class="network-diagnostics__recommendation" aria-labelledby="network-diagnostics-recommendation-title"><h4 id="network-diagnostics-recommendation-title">${translated(t, 'Recommendation')}</h4><p>${translated(t, result.recommendation)}</p></section><p class="network-diagnostics__not-fixed">${translated(t, 'No router or customer change was applied, and no service restoration was verified.')}</p><details class="network-diagnostics__technical"><summary>${translated(t, 'Technical details')}</summary><dl><div><dt>${translated(t, 'Output state')}</dt><dd>${translated(t, result.state)}</dd></div><div><dt>${translated(t, 'Evidence source')}</dt><dd>${translated(t, 'Fictional local symptom scenario')}</dd></div><div><dt>${translated(t, 'Classification source')}</dt><dd>${translated(t, 'Deterministic local phrase rules')}</dd></div><div><dt>${translated(t, 'Synthetic demo profile')}</dt><dd>${escapeHtml(result.displayName)}</dd></div><div><dt>${translated(t, 'Identity source')}</dt><dd>${translated(t, 'Fictional local profile fixture')}</dd></div><div><dt>${translated(t, 'Fixture identifier')}</dt><dd>${escapeHtml(result.fixtureLabel)}</dd></div><div><dt>${translated(t, 'Live router response')}</dt><dd>${translated(t, 'Unavailable · no live device is connected')}</dd></div></dl><p>${translated(t, 'No shell, command execution, external AI, router API, or database lookup is available in this feature.')}</p></details>${renderRiskPreview(t)}</article>`;
+  return `<article class="network-diagnostics__result" aria-labelledby="network-diagnostics-result-title"><p class="network-diagnostics__simulation-tag">${translated(t, 'SIMULATION ONLY · NOT LIVE NETWORK DATA')}</p><h3 id="network-diagnostics-result-title">${translated(t, 'Simulated diagnostic result')}</h3><p class="network-diagnostics__complaint"><strong>${translated(t, 'Complaint')}</strong>: ${escapeHtml(result.complaint)}</p><p><strong>${translated(t, 'Symptom scenario')}</strong>: ${translated(t, result.symptomScenario)}</p><p class="network-diagnostics__diagnosis">${translated(t, result.diagnosis)}</p><ul class="network-diagnostics__findings" aria-label="${translated(t, 'Synthetic and unavailable diagnostic findings')}">${renderFindings(findings, t)}</ul><section class="network-diagnostics__recommendation" aria-labelledby="network-diagnostics-recommendation-title"><h4 id="network-diagnostics-recommendation-title">${translated(t, 'Recommendation')}</h4><p>${translated(t, result.recommendation)}</p></section><p class="network-diagnostics__not-fixed">${translated(t, 'No router or customer change was applied, and no service restoration was verified.')}</p><details class="network-diagnostics__technical"><summary>${translated(t, 'Technical details')}</summary><dl><div><dt>${translated(t, 'Output state')}</dt><dd>${translated(t, result.state)}</dd></div><div><dt>${translated(t, 'Evidence source')}</dt><dd>${translated(t, 'Fictional local symptom scenario')}</dd></div><div><dt>${translated(t, 'Classification source')}</dt><dd>${translated(t, 'Deterministic local phrase rules')}</dd></div><div><dt>${translated(t, 'Synthetic demo profile')}</dt><dd>${escapeHtml(result.displayName)}</dd></div><div><dt>${translated(t, 'Identity source')}</dt><dd>${translated(t, 'Fictional local profile fixture')}</dd></div><div><dt>${translated(t, 'Fixture identifier')}</dt><dd>${escapeHtml(result.fixtureLabel)}</dd></div><div><dt>${translated(t, 'Live router response')}</dt><dd>${translated(t, 'Unavailable · no live device is connected')}</dd></div></dl><p>${translated(t, 'No shell, command execution, external AI, router API, or database lookup is available in this feature.')}</p></details></article>`;
 }
 
 function renderCandidateList(candidates, t) {
@@ -354,7 +419,7 @@ export function mountNetworkDiagnosticsPanel(root, { t = (message) => message } 
   if (!root || root.id !== 'admin-network-diagnostics') return false;
   const content = root.querySelector('.network-diagnostics__content');
   if (!content) return false;
-  content.innerHTML = renderExperience(t);
+  content.innerHTML = `${renderNetworkActionPolicyPreview(t)}${renderExperience(t)}`;
   const provider = new MockDiagnosticsProvider();
   const form = content.querySelector('#network-diagnostics-form');
   const identifierTypeInput = content.querySelector('#network-diagnostics-identifier-type');
