@@ -152,6 +152,12 @@ test('Admin incident reporting and updates use labeled fields, explicit statuses
   assert.match(main, /name="restored_at" type="datetime-local" step="1"/);
   assert.match(main, /Date-times use this device's local time zone/);
   assert.match(main, /Private to same-organization Admins; stored separately and never copied into the customer-visible summary/);
+  assert.match(main, /id="admin-incident-search" type="search"/);
+  assert.match(main, /aria-label="\$\{escapeHtml\(t\('Filter service incidents by status'\)\)\}"/);
+  for (const status of ['all', 'open', 'resolved']) assert.match(main, new RegExp(`data-incident-status="${status}"[^>]*aria-pressed=`));
+  assert.match(main, /id="admin-incident-count" class="bill-list-count" role="status" aria-live="polite"/);
+  assert.match(styles, /\.incident-filter-pills \{ display: flex; flex-wrap: wrap;/);
+  assert.match(styles, /\.incident-filter-pill \{ min-height: 44px;/);
   assert.match(styles, /\.incident-card-grid \{ display: grid; grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
   assert.match(styles, /@media \(max-width: 760px\) \{\s+\.incident-card-grid \{ grid-template-columns: 1fr; \}/);
   assert.match(styles, /@media \(max-width: 600px\) \{\s+\.incident-create-form \{ grid-template-columns: 1fr;/);

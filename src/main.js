@@ -34,7 +34,12 @@ import {
 } from './admin-bills.js';
 import { filterAdminReceiptRows, paginateAdminReceiptRows, renderAdminReceiptCards } from './admin-receipts.js';
 import { parseDashboardDrilldownHash } from './dashboard-drilldown.js';
-import { renderAdminIncidentCards, renderIncidentCustomerOptions } from './admin-incidents.js';
+import {
+  countAdminIncidentFilters,
+  filterAdminIncidentRows,
+  renderAdminIncidentCards,
+  renderIncidentCustomerOptions,
+} from './admin-incidents.js';
 import { applyDocumentLanguage, formatUiMessage, getStoredLanguage, normalizeLanguage, setLanguagePreference, translateUi } from './language.js';
 import { BRANDING_BUCKET, buildBrandLogoPath, getOrganizationBranding, getPublicBrandLogoUrl, isSafeBrandLogoPath, safeSupportPhoneHref, validateBrandLogoFile } from './organization-branding.js';
 import { renderPrintableBillHtml } from './customer-documents.js';
@@ -153,6 +158,9 @@ if (!supabase) {
     billStatus: 'all',
     receiptSearch: '',
     receiptPage: 1,
+    incidentSearch: '',
+    incidentStatus: 'all',
+    incidentDrafts: new Map(),
     customerBillingMonth: '',
     customerReceiptFrom: '',
     customerReceiptThrough: '',
@@ -316,6 +324,9 @@ if (!supabase) {
       pageState.customerAreaOpen = false;
       pageState.billSearch = '';
       pageState.billStatus = 'all';
+      pageState.incidentSearch = '';
+      pageState.incidentStatus = 'all';
+      pageState.incidentDrafts = new Map();
     }
     if (pageState.context?.organizationId !== context.organizationId
       || pageState.context?.kind !== context.kind
@@ -1253,10 +1264,15 @@ if (!supabase) {
       : `<section class="panel pppoe-link-panel" aria-labelledby="pppoe-link-title"><p class="eyebrow">${escapeHtml(t('Service username mapping'))}</p><h2 id="pppoe-link-title">${escapeHtml(t('Link existing PPPoE username'))}</h2><p class="usage-state" role="status">${escapeHtml(t('The customers.pppoe_username field is not available in this project yet. Ask the project administrator to review and apply the existing bandwidth-usage migration before linking usernames. No mapping or network credential was changed.'))}</p></section>`;
     const incidentCustomerOptions = renderIncidentCustomerOptions(customers);
     const incidents = [...rows.incidents].sort((a, b) => String(b.reported_at).localeCompare(String(a.reported_at)));
+    const incidentFilterOptions = { customers, search: pageState.incidentSearch };
+    const incidentFilterCounts = countAdminIncidentFilters(incidents, incidentFilterOptions);
+    const filteredIncidentRows = filterAdminIncidentRows(incidents, { ...incidentFilterOptions, status: pageState.incidentStatus });
     const incidentCards = renderAdminIncidentCards({
-      incidents,
+      incidents: filteredIncidentRows,
       privateDetails: rows.privateIncidentDetails,
       customers,
+      draftsByIncidentId: pageState.incidentDrafts,
+      emptyMessage: incidents.length ? t('No incidents match these filters.') : t('No service incidents are recorded yet.'),
       t,
     });
 
@@ -1397,7 +1413,16 @@ if (!supabase) {
           <p class="form-message" id="incident-create-message" role="status" aria-live="polite" aria-atomic="true"></p>
         </form>
         <div class="section-heading incident-card-heading"><div><p class="eyebrow">${escapeHtml(t('Recorded incidents'))}</p><h3>${escapeHtml(t('Update status and service times'))}</h3></div></div>
-        <div class="incident-card-grid">${incidentCards}</div>
+        <div class="incident-list-controls">
+          <div class="incident-list-search"><label for="admin-incident-search">${escapeHtml(t('Search incidents by customer name or date (YYYY-MM-DD)'))}</label><input id="admin-incident-search" type="search" autocomplete="off" value="${escapeHtml(pageState.incidentSearch)}" placeholder="${escapeHtml(t('Search incidents by customer name or date (YYYY-MM-DD)'))}"></div>
+          <div class="incident-filter-pills" role="group" aria-label="${escapeHtml(t('Filter service incidents by status'))}">
+            <button class="bill-filter-pill incident-filter-pill ${pageState.incidentStatus === 'all' ? 'is-active' : ''}" type="button" data-incident-status="all" aria-pressed="${pageState.incidentStatus === 'all'}">${escapeHtml(t('All'))} (${incidentFilterCounts.all})</button>
+            <button class="bill-filter-pill incident-filter-pill ${pageState.incidentStatus === 'open' ? 'is-active' : ''}" type="button" data-incident-status="open" aria-pressed="${pageState.incidentStatus === 'open'}">${escapeHtml(t('Open'))} (${incidentFilterCounts.open})</button>
+            <button class="bill-filter-pill incident-filter-pill ${pageState.incidentStatus === 'resolved' ? 'is-active' : ''}" type="button" data-incident-status="resolved" aria-pressed="${pageState.incidentStatus === 'resolved'}">${escapeHtml(t('Resolved'))} (${incidentFilterCounts.resolved})</button>
+          </div>
+          <p id="admin-incident-count" class="bill-list-count" role="status" aria-live="polite">${formatUiMessage('Showing {shown} of {matching} matching incidents; {total} total records.', currentLanguage, { shown: Math.min(filteredIncidentRows.length, 100), matching: filteredIncidentRows.length, total: incidents.length })}</p>
+        </div>
+        <div class="incident-card-grid" id="admin-incident-results">${incidentCards}</div>
       </section>
       <dialog id="receipt-dialog" class="edit-dialog" aria-labelledby="receipt-edit-title"><form id="receipt-edit-form" method="dialog"><div class="section-heading"><div><p class="eyebrow">${escapeHtml(t('Correction'))}</p><h2 id="receipt-edit-title">${escapeHtml(t('Edit receipt'))}</h2></div><button class="icon-button" type="button" data-action="close-dialog" aria-label="${escapeHtml(t('Close'))}">×</button></div><input type="hidden" name="receipt_id"><label>${escapeHtml(t('Original bill'))}<select name="bill_id" required></select></label><label>${escapeHtml(t('Received on'))}<input name="received_on" type="date" required></label><label>${escapeHtml(t('Actual amount (PKR)'))}<input name="amount" inputmode="decimal" required></label><label>${escapeHtml(t('Method'))}<input name="method" maxlength="40" required></label><div class="form-actions"><button class="button secondary" type="button" data-action="close-dialog">${escapeHtml(t('Cancel'))}</button><button class="button primary" type="submit">${escapeHtml(t('Save correction'))}</button></div></form></dialog>`;
 
@@ -1430,6 +1455,7 @@ if (!supabase) {
     bindPppoeMappingActions(context);
     bindBrandingActions(context);
     bindAdminIncidentForms(context);
+    bindAdminIncidentFilters(context);
     bindAdminActions(context);
     bindAdminBillActions(context);
     bindDashboardDrilldowns(context);
@@ -1767,10 +1793,78 @@ if (!supabase) {
     });
   }
 
-  function bindAdminIncidentForms(context) {
+  function updateAdminIncidentResults(root = portalPanel.querySelector('#admin-incidents')) {
+    if (!root || !pageState.rows || pageState.context?.kind !== 'admin') return;
+    const incidents = [...pageState.rows.incidents].sort((a, b) => String(b.reported_at).localeCompare(String(a.reported_at)));
+    const options = { customers: pageState.rows.customers, search: pageState.incidentSearch };
+    const counts = countAdminIncidentFilters(incidents, options);
+    const filtered = filterAdminIncidentRows(incidents, { ...options, status: pageState.incidentStatus });
+    const count = root.querySelector('#admin-incident-count');
+    if (count) count.textContent = formatUiMessage('Showing {shown} of {matching} matching incidents; {total} total records.', currentLanguage, {
+      shown: Math.min(filtered.length, 100), matching: filtered.length, total: incidents.length,
+    });
+    for (const button of root.querySelectorAll('[data-incident-status]')) {
+      const status = button.dataset.incidentStatus;
+      const label = status === 'all' ? 'All' : status === 'open' ? 'Open' : 'Resolved';
+      const selected = status === pageState.incidentStatus;
+      button.classList.toggle('is-active', selected);
+      button.setAttribute('aria-pressed', String(selected));
+      button.textContent = `${t(label)} (${counts[status] ?? 0})`;
+    }
+    const grid = root.querySelector('#admin-incident-results');
+    if (!grid) return;
+    grid.innerHTML = renderAdminIncidentCards({
+      incidents: filtered,
+      privateDetails: pageState.rows.privateIncidentDetails,
+      customers: pageState.rows.customers,
+      draftsByIncidentId: pageState.incidentDrafts,
+      emptyMessage: incidents.length ? t('No incidents match these filters.') : t('No service incidents are recorded yet.'),
+      t,
+    });
+    bindAdminIncidentForms(pageState.context, { includeCreate: false });
+  }
+
+  function bindAdminIncidentFilters(context) {
+    if (context.kind !== 'admin') return;
+    const root = portalPanel.querySelector('#admin-incidents');
+    if (!root) return;
+    const saveDraft = (form) => {
+      const incidentId = form.dataset.incidentId;
+      if (!incidentId) return;
+      const data = new FormData(form);
+      pageState.incidentDrafts.set(incidentId, {
+        customer_visible_summary: String(data.get('customer_visible_summary') ?? ''),
+        status: String(data.get('status') ?? ''),
+        offline_at: String(data.get('offline_at') ?? ''),
+        restored_at: String(data.get('restored_at') ?? ''),
+        staff_notes: String(data.get('staff_notes') ?? ''),
+      });
+    };
+    root.addEventListener('input', (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      const form = target?.closest('[data-incident-update-form]');
+      if (form) saveDraft(form);
+      if (target?.id !== 'admin-incident-search') return;
+      pageState.incidentSearch = target.value;
+      updateAdminIncidentResults(root);
+    });
+    root.addEventListener('change', (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      const form = target?.closest('[data-incident-update-form]');
+      if (form) saveDraft(form);
+    });
+    root.addEventListener('click', (event) => {
+      const target = event.target instanceof Element ? event.target.closest('[data-incident-status]') : null;
+      if (!target) return;
+      pageState.incidentStatus = target.dataset.incidentStatus;
+      updateAdminIncidentResults(root);
+    });
+  }
+
+  function bindAdminIncidentForms(context, { includeCreate = true } = {}) {
     if (context.kind !== 'admin') return;
     const forms = [
-      { form: portalPanel.querySelector('#incident-create-form'), isCreate: true },
+      ...(includeCreate ? [{ form: portalPanel.querySelector('#incident-create-form'), isCreate: true }] : []),
       ...[...portalPanel.querySelectorAll('[data-incident-update-form]')].map((form) => ({ form, isCreate: false })),
     ].filter((entry) => entry.form);
 
@@ -1796,6 +1890,7 @@ if (!supabase) {
             restoredAt: incidentTimestamp(data.get('restored_at'), t('Service restored time')),
             staffNotes: isCreate && !staffNotes ? null : staffNotes,
           });
+          if (!isCreate) pageState.incidentDrafts.delete(form.dataset.incidentId);
           if (isCreate) form.reset();
           await refreshCurrentContext(isCreate
             ? 'Service incident reported.'
