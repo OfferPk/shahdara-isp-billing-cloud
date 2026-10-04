@@ -1111,6 +1111,41 @@ td { color: #25433b; }
 :root[data-theme="dark"] .network-diagnostics__evidence--mock { color: #d3e1ff; background: #26344d; }
 :root[data-theme="dark"] .network-diagnostics__evidence--unavailable { color: #f4d394; background: #3c321f; }
 :root[data-theme="dark"] .network-diagnostics__not-fixed { color: #f4d394; background: #3c321f; }
+.network-knowledge { display: grid; gap: 10px; min-width: 0; margin: 12px 0; padding: 13px; border: 1px solid var(--line); border-radius: 12px; background: color-mix(in srgb, var(--paper) 94%, var(--mint)); }
+.network-knowledge__toggle-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; }
+.network-knowledge__toggle-row h3 { margin: 0 0 3px; font-size: 15px; }
+.network-knowledge__toggle-row .muted { margin: 0; font-size: 12px; }
+.network-knowledge__toggle-row button { min-height: 44px; }
+.network-knowledge__content { display: grid; gap: 10px; min-width: 0; }
+.network-knowledge__content[hidden] { display: none; }
+.network-knowledge__panel { display: grid; gap: 10px; min-width: 0; }
+.network-knowledge__heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.network-knowledge__heading h3 { margin: 0; font-size: 16px; }
+.network-knowledge__intro { margin: 0; color: var(--muted); line-height: 1.5; }
+.network-knowledge__badge, .network-knowledge__label { display: inline-flex; align-items: center; width: fit-content; min-height: 26px; margin: 0; padding: 4px 8px; border: 1px solid #b7c1df; border-radius: 999px; color: #35456f; background: #eef1fb; font-size: 10px; font-weight: 800; line-height: 1.35; }
+.network-knowledge__cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; min-width: 0; }
+.network-knowledge__card { display: grid; align-content: start; gap: 8px; min-width: 0; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); }
+.network-knowledge__card h4 { margin: 0; font-size: 14px; line-height: 1.4; }
+.network-knowledge__card > p:not(.network-knowledge__label) { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.55; overflow-wrap: anywhere; }
+.network-knowledge__card .network-knowledge__disclaimer { padding: 8px; border-radius: 8px; color: #513b12; background: #fff8e6; font-weight: 750; }
+.network-knowledge__source { display: grid; gap: 4px; padding-top: 7px; border-top: 1px solid var(--line); font-size: 11px; }
+.network-knowledge__source a { min-width: 0; color: var(--green-dark); font-weight: 750; text-decoration-thickness: 1px; text-underline-offset: 2px; overflow-wrap: anywhere; }
+.network-knowledge__source-url { display: block; margin-top: 3px; color: var(--muted); font-size: 10px; font-weight: 500; line-height: 1.4; overflow-wrap: anywhere; }
+.network-knowledge__loading, .network-knowledge__error { margin: 0; padding: 10px; border-radius: 8px; background: var(--paper); }
+.network-knowledge__error { color: var(--red); }
+:root[data-theme="dark"] .network-knowledge { border-color: var(--line); background: color-mix(in srgb, var(--paper) 94%, var(--mint)); }
+:root[data-theme="dark"] :is(.network-knowledge__badge, .network-knowledge__label) { border-color: #4a557a; color: #d5ddff; background: #252e49; }
+:root[data-theme="dark"] .network-knowledge__card { border-color: var(--line); background: var(--paper); }
+:root[data-theme="dark"] .network-knowledge__card .network-knowledge__disclaimer { color: #f4d394; background: #3c321f; }
+:root[data-theme="dark"] .network-knowledge__source a { color: #99d9bd; }
+@media (max-width: 900px) {
+  .network-knowledge__cards { grid-template-columns: 1fr; }
+}
+@media (max-width: 600px) {
+  .network-knowledge__toggle-row { align-items: stretch; flex-direction: column; }
+  .network-knowledge__toggle-row button { width: 100%; }
+  .network-knowledge__heading { align-items: flex-start; flex-direction: column; }
+}
 .network-diagnostics__correlation { display: grid; gap: 12px; min-width: 0; padding: 15px; border: 1px solid var(--line); border-radius: 14px; background: var(--paper); }
 .network-diagnostics__correlation h3, .network-diagnostics__correlation h4, .network-diagnostics__correlation h5 { margin: 0; line-height: 1.4; }
 .network-diagnostics__correlation > p { margin: 0; line-height: 1.55; overflow-wrap: anywhere; }
