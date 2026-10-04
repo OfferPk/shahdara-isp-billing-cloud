@@ -851,6 +851,17 @@ if (!supabase) {
     });
   }
 
+  function getAdminBillDrilldownMessage(drilldown, count) {
+    if (!drilldown) return '';
+    const messages = {
+      unpaid: 'Showing unpaid bills for {period}. {count} bills match. Unpaid means a priced bill with a positive remaining balance; missing or future due dates are not overdue.',
+      overdue: 'Showing overdue bills for {period}. {count} bills match. Past-due means an explicitly recorded due date before today and a positive remaining balance.',
+      unpriced: 'Showing unpriced bills for {period}. {count} bills match. No bill amount is treated as zero.',
+    };
+    const message = messages[drilldown.scope];
+    return message ? formatUiMessage(message, currentLanguage, { period: drilldown.period, count }) : '';
+  }
+
   function focusDashboardDrilldown(route) {
     const sectionId = route.target === 'admin-bills' ? 'admin-bills' : 'customer-list';
     const headingId = route.target === 'admin-bills' ? 'admin-bills-title' : 'customer-list-title';
@@ -922,17 +933,12 @@ if (!supabase) {
     const count = portalPanel.querySelector('#admin-bill-count');
     if (count) count.setAttribute('aria-live', drilldown ? 'off' : 'polite');
     if (grid) grid.innerHTML = renderAdminBillCards(filteredRows, formatMoney, t);
-    if (count) count.textContent = formatUiMessage('Showing {shown} of {matching} matching bills; {total} total records.', currentLanguage, { shown: Math.min(filteredRows.length, 100), matching: filteredRows.length, total: allBillRows.length });
+    if (count) count.textContent = formatUiMessage('Showing {shown} of {matching} matching bills; {total} total records.', currentLanguage, { shown: Math.min(filteredRows.length, 100), matching: filteredRows.length, total: billRows.length });
     const summary = portalPanel.querySelector('#admin-bill-drilldown-summary');
     const summaryMessage = portalPanel.querySelector('#admin-bill-drilldown-message');
     if (summary && summaryMessage) {
       summary.hidden = !drilldown;
-      const message = drilldown?.scope === 'overdue'
-        ? 'Showing overdue bills for {period}. {count} bills match. Past-due means an explicitly recorded due date before today and a positive remaining balance.'
-        : 'Showing unpriced bills for {period}. {count} bills match. No bill amount is treated as zero.';
-      summaryMessage.textContent = drilldown
-        ? formatUiMessage(message, currentLanguage, { period: drilldown.period, count: filteredRows.length })
-        : '';
+      summaryMessage.textContent = getAdminBillDrilldownMessage(drilldown, filteredRows.length);
     }
     for (const button of portalPanel.querySelectorAll('[data-bill-status]')) {
       const status = button.dataset.billStatus;
@@ -1210,6 +1216,7 @@ if (!supabase) {
     });
     const billCounts = countAdminBillFilters(scopedAdminBillRows, { search: pageState.billSearch });
     const filteredAdminBillRows = filterAdminBillRows(scopedAdminBillRows, { search: pageState.billSearch, status: pageState.billStatus });
+    const billDrilldownMessage = getAdminBillDrilldownMessage(billDrilldown, filteredAdminBillRows.length);
     const customerListRows = buildCustomerListRows({
       customers,
       bills: rows.bills,
@@ -1366,8 +1373,8 @@ if (!supabase) {
           <button class="bill-filter-pill ${pageState.billStatus === 'unpaid' ? 'is-active' : ''}" type="button" data-bill-status="unpaid" aria-pressed="${pageState.billStatus === 'unpaid'}">${escapeHtml(t('Unpaid'))} (${billCounts.unpaid})</button>
           <button class="bill-filter-pill ${pageState.billStatus === 'paid' ? 'is-active' : ''}" type="button" data-bill-status="paid" aria-pressed="${pageState.billStatus === 'paid'}">${escapeHtml(t('Paid'))} (${billCounts.paid})</button>
         </div>
-        <div id="admin-bill-drilldown-summary" class="filter-summary" ${billDrilldown ? '' : 'hidden'}><p id="admin-bill-drilldown-message" role="status" aria-live="polite" aria-atomic="true">${billDrilldown ? formatUiMessage(billDrilldown.scope === 'overdue' ? 'Showing overdue bills for {period}. {count} bills match. Past-due means an explicitly recorded due date before today and a positive remaining balance.' : 'Showing unpriced bills for {period}. {count} bills match. No bill amount is treated as zero.', currentLanguage, { period: billDrilldown.period, count: filteredAdminBillRows.length }) : ''}</p><button class="button secondary small" type="button" data-action="clear-dashboard-drilldown" data-target="admin-bills">${escapeHtml(t('Clear dashboard filter'))}</button></div>
-        <p id="admin-bill-count" class="bill-list-count" role="status" aria-live="${billDrilldown ? 'off' : 'polite'}">${formatUiMessage('Showing {shown} of {matching} matching bills; {total} total records.', currentLanguage, { shown: Math.min(filteredAdminBillRows.length, 100), matching: filteredAdminBillRows.length, total: adminBillRows.length })}</p>
+        <div id="admin-bill-drilldown-summary" class="filter-summary" ${billDrilldown ? '' : 'hidden'}><p id="admin-bill-drilldown-message" role="status" aria-live="polite" aria-atomic="true">${escapeHtml(billDrilldownMessage)}</p><button class="button secondary small" type="button" data-action="clear-dashboard-drilldown" data-target="admin-bills">${escapeHtml(t('Clear dashboard filter'))}</button></div>
+        <p id="admin-bill-count" class="bill-list-count" role="status" aria-live="${billDrilldown ? 'off' : 'polite'}">${formatUiMessage('Showing {shown} of {matching} matching bills; {total} total records.', currentLanguage, { shown: Math.min(filteredAdminBillRows.length, 100), matching: filteredAdminBillRows.length, total: scopedAdminBillRows.length })}</p>
         <div id="admin-bill-card-grid" class="bill-card-grid">${renderAdminBillCards(filteredAdminBillRows, formatMoney, t)}</div>
         <p class="muted">${escapeHtml(t('Summary cards above use the selected dashboard month: billed and pending follow bill periods, while collected follows actual receipt dates. Carry-forward credit reduces pending balances but is never counted as cash. WhatsApp opens a draft only; receipts can be printed only from existing receipt records.'))}</p>
       </section>

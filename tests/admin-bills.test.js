@@ -10,7 +10,7 @@ import {
   renderAdminBillCards,
   renderPrintableReceiptHtml,
 } from '../src/admin-bills.js';
-import { formatMoney } from '../src/ledger.js';
+import { calculateDashboard, formatMoney } from '../src/ledger.js';
 
 function syntheticRows() {
   return buildAdminBillRows({
@@ -108,6 +108,37 @@ test('collection drill-down is selected-period-only and excludes due-today, miss
   assert.deepEqual(filterCollectionBillRows(rows, { scope: 'unpriced', period: '2026-04' }).map((row) => row.bill.id), ['unpriced']);
   assert.deepEqual(filterCollectionBillRows(rows, { scope: 'overdue', period: '2026-03' }).map((row) => row.bill.id), ['other-period']);
   assert.deepEqual(filterCollectionBillRows(rows, { scope: 'overdue', period: '2026-13' }), []);
+});
+
+test('selected-month unpaid worklist matches Pending and includes positive priced balances without overdue dates', () => {
+  const customers = [
+    { id: 'past-due' }, { id: 'future-due' }, { id: 'missing-date' },
+    { id: 'paid' }, { id: 'unpriced' }, { id: 'older-month' },
+  ];
+  const bills = [
+    { id: 'past-due', customer_id: 'past-due', period: '2026-04-01', amount_due_cents: 10000, due_date: '2026-04-09' },
+    { id: 'future-due', customer_id: 'future-due', period: '2026-04-01', amount_due_cents: 5000, due_date: '2026-04-11' },
+    { id: 'missing-date', customer_id: 'missing-date', period: '2026-04-01', amount_due_cents: 4000, due_date: null },
+    { id: 'paid', customer_id: 'paid', period: '2026-04-01', amount_due_cents: 6000, due_date: '2026-04-01' },
+    { id: 'unpriced', customer_id: 'unpriced', period: '2026-04-01', amount_due_cents: null, due_date: '2026-04-01' },
+    { id: 'older-month', customer_id: 'older-month', period: '2026-03-01', amount_due_cents: 9000, due_date: '2026-03-05' },
+  ];
+  const allocations = [
+    { customer_id: 'past-due', bill_id: 'past-due', amount_cents: 3000, allocation_kind: 'carry-forward' },
+    { customer_id: 'paid', bill_id: 'paid', amount_cents: 6000, allocation_kind: 'same-month' },
+  ];
+  const rows = buildAdminBillRows({ customers, bills, allocations, today: '2026-04-10' });
+  const unpaid = filterCollectionBillRows(rows, { scope: 'unpaid', period: '2026-04' });
+  const totals = calculateDashboard({ month: '2026-04', today: '2026-04-10', customers, bills, allocations });
+
+  assert.deepEqual(unpaid.map((row) => row.bill.id).sort(), ['future-due', 'missing-date', 'past-due']);
+  assert.equal(unpaid.reduce((sum, row) => sum + row.balanceCents, 0), totals.outstandingCents);
+  assert.equal(totals.outstandingCents, 16000);
+  assert.equal(unpaid.find((row) => row.bill.id === 'past-due').isOverdue, true);
+  assert.equal(unpaid.find((row) => row.bill.id === 'future-due').isOverdue, false);
+  assert.equal(unpaid.find((row) => row.bill.id === 'missing-date').isOverdue, false);
+  assert.deepEqual(filterCollectionBillRows(rows, { scope: 'unpaid', period: '2026-03' }).map((row) => row.bill.id), ['older-month']);
+  assert.deepEqual(filterCollectionBillRows(rows, { scope: 'unpaid', period: '2026-13' }), []);
 });
 
 test('WhatsApp creates only a user-opened prefilled Roman Urdu draft for a priced unpaid bill', () => {
