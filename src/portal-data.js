@@ -29,14 +29,15 @@ export function isMissingPortalTestAccountColumn(error) {
 
 async function loadCustomerRows(supabase, context, applyFilters) {
   const coreColumns = 'id, customer_number, name, plan_name, service_address, service_status, monthly_fee_cents, archived';
+  const profileColumns = context.kind === 'admin' ? `${coreColumns}, created_at` : coreColumns;
   const testMarkerColumn = context.kind === 'admin' ? ', portal_test_account' : '';
   try {
-    const rows = await rowsFor(supabase, 'customers', `${coreColumns}, pppoe_username${testMarkerColumn}`, applyFilters, { column: 'customer_number' });
+    const rows = await rowsFor(supabase, 'customers', `${profileColumns}, pppoe_username${testMarkerColumn}`, applyFilters, { column: 'customer_number' });
     return { rows, pppoeMappingAvailable: true };
   } catch (error) {
     if (context.kind === 'admin' && isMissingPortalTestAccountColumn(error)) {
       try {
-        const rows = await rowsFor(supabase, 'customers', `${coreColumns}, pppoe_username`, applyFilters, { column: 'customer_number' });
+        const rows = await rowsFor(supabase, 'customers', `${profileColumns}, pppoe_username`, applyFilters, { column: 'customer_number' });
         return { rows: rows.map((customer) => ({ ...customer, portal_test_account: false })), pppoeMappingAvailable: true };
       } catch (mappingError) {
         if (!isMissingPppoeUsernameColumn(mappingError)) throw mappingError;
@@ -44,7 +45,7 @@ async function loadCustomerRows(supabase, context, applyFilters) {
     } else if (!isMissingPppoeUsernameColumn(error)) {
       throw error;
     }
-    const rows = await rowsFor(supabase, 'customers', coreColumns, applyFilters, { column: 'customer_number' });
+    const rows = await rowsFor(supabase, 'customers', profileColumns, applyFilters, { column: 'customer_number' });
     return {
       rows: rows.map((customer) => ({ ...customer, pppoe_username: null, portal_test_account: false })),
       pppoeMappingAvailable: false,
@@ -114,10 +115,16 @@ export async function loadPortalRows(supabase, context) {
   const customerOnly = (query) => byOrganization(query).eq('customer_id', context.customerId);
   const customerTableOnly = (query) => byOrganization(query).eq('id', context.customerId);
   const privateCustomerDetailsQuery = context.kind === 'admin'
-    ? rowsFor(supabase, 'customer_private_details', 'customer_id, phone', byOrganization, { column: 'customer_id' })
+    ? rowsFor(supabase, 'customer_private_details', 'customer_id, phone, connection_date', byOrganization, { column: 'customer_id' })
     : Promise.resolve([]);
   const privateIncidentDetailsQuery = context.kind === 'admin'
     ? rowsFor(supabase, 'incident_private_details', 'incident_id, staff_notes', byOrganization, { column: 'incident_id' })
+    : Promise.resolve([]);
+  const cashflowExpensesQuery = context.kind === 'admin'
+    ? rowsFor(supabase, 'cashflow_expenses', 'organization_id, id, category, amount_paisa, note, created_at', byOrganization, { column: 'created_at', ascending: false })
+    : Promise.resolve([]);
+  const customerServiceCostsQuery = context.kind === 'admin'
+    ? rowsFor(supabase, 'customer_service_cost_history', 'organization_id, customer_id, id, effective_on, monthly_cost_paisa, note, created_at', byOrganization, { column: 'effective_on', ascending: false })
     : Promise.resolve([]);
   const billColumns = context.kind === 'admin'
     ? 'id, customer_id, period, amount_due_cents, issued_on, due_date, plan_snapshot'
@@ -133,11 +140,14 @@ export async function loadPortalRows(supabase, context) {
       .then((data) => ({ data, error: null }))
       .catch((error) => ({ data: [], error }))
     : Promise.resolve({ data: [], error: null });
-  const [customerResult, bills, receipts, allocations, incidents, privateCustomerDetails, privateIncidentDetails, branding, customerBandwidthUsage] = await Promise.all([
+  const receiptColumns = context.kind === 'admin'
+    ? 'organization_id, id, customer_id, origin_bill_id, received_on, amount_cents, method'
+    : 'id, customer_id, origin_bill_id, received_on, amount_cents, method';
+  const [customerResult, bills, receipts, allocations, incidents, privateCustomerDetails, privateIncidentDetails, cashflowExpenses, customerServiceCosts, branding, customerBandwidthUsage] = await Promise.all([
     customerQuery,
     rowsFor(supabase, 'bills', billColumns,
       context.kind === 'admin' ? byOrganization : customerOnly, { column: 'period', ascending: false }),
-    rowsFor(supabase, 'receipts', 'id, customer_id, origin_bill_id, received_on, amount_cents, method',
+    rowsFor(supabase, 'receipts', receiptColumns,
       context.kind === 'admin' ? byOrganization : customerOnly, { column: 'received_on', ascending: false }),
     rowsFor(supabase, 'receipt_allocations', 'receipt_id, bill_id, customer_id, amount_cents, allocation_kind',
       context.kind === 'admin' ? byOrganization : customerOnly, { column: 'created_at', ascending: true }),
@@ -145,13 +155,16 @@ export async function loadPortalRows(supabase, context) {
       context.kind === 'admin' ? byOrganization : customerOnly, { column: 'reported_at', ascending: false }),
     privateCustomerDetailsQuery,
     privateIncidentDetailsQuery,
+    cashflowExpensesQuery,
+    customerServiceCostsQuery,
     loadOrganizationBranding(supabase, context.organizationId),
     customerBandwidthUsageQuery,
   ]);
   return {
     customers: customerResult.rows,
     pppoeMappingAvailable: customerResult.pppoeMappingAvailable,
-    bills, receipts, allocations, incidents, privateCustomerDetails, privateIncidentDetails, branding,
+    bills, receipts, allocations, incidents, privateCustomerDetails, privateIncidentDetails,
+    cashflowExpenses, customerServiceCosts, branding,
     customerBandwidthUsage: customerBandwidthUsage.data,
     customerBandwidthUsageError: customerBandwidthUsage.error,
   };

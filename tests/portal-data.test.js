@@ -82,13 +82,17 @@ test('portal row reads scope customer data and preserve safe paging', async () =
     kind: 'customer', organizationId: 'synthetic-org', customerId: 'synthetic-customer',
   });
 
-  assert.deepEqual(Object.keys(rows), ['customers', 'pppoeMappingAvailable', 'bills', 'receipts', 'allocations', 'incidents', 'privateCustomerDetails', 'privateIncidentDetails', 'branding', 'customerBandwidthUsage', 'customerBandwidthUsageError']);
+  assert.deepEqual(Object.keys(rows), ['customers', 'pppoeMappingAvailable', 'bills', 'receipts', 'allocations', 'incidents', 'privateCustomerDetails', 'privateIncidentDetails', 'cashflowExpenses', 'customerServiceCosts', 'branding', 'customerBandwidthUsage', 'customerBandwidthUsageError']);
   assert.equal(rows.pppoeMappingAvailable, true);
   assert.equal(rows.branding, null);
   assert.deepEqual(rows.privateCustomerDetails, []);
   assert.equal(client.calls.some((query) => query.table === 'customer_private_details'), false);
   assert.deepEqual(rows.privateIncidentDetails, []);
   assert.equal(client.calls.some((query) => query.table === 'incident_private_details'), false);
+  assert.deepEqual(rows.cashflowExpenses, []);
+  assert.deepEqual(rows.customerServiceCosts, []);
+  assert.equal(client.calls.some((query) => ['cashflow_expenses', 'customer_service_cost_history'].includes(query.table)), false,
+    'customer context never issues an Admin financial query');
   for (const query of client.calls) {
     if (query.table === 'customer_bandwidth_usage') {
       assert.deepEqual(query.filters, [], 'RLS, not a client-supplied identity filter, controls usage rows');
@@ -185,24 +189,26 @@ test('customer billing and incident reads are limited to approved fields and the
     assert.doesNotMatch(query.selects.join(' '), /phone|staff_notes|created_by|recorded_by|creator|email/i);
   }
   assert.equal(client.calls.some((query) => query.table === 'incident_private_details'), false);
+  assert.equal(client.calls.some((query) => query.table === 'cashflow_expenses'), false);
+  assert.equal(client.calls.some((query) => query.table === 'customer_service_cost_history'), false);
 });
 
-test('Admin phone query uses only the private phone column and is scoped to the Admin organization', async () => {
+test('Admin phone and service-start query selects only the private profile fields and is scoped to the Admin organization', async () => {
   const client = mockClient({
     customers: { data: [], error: null },
     bills: { data: [], error: null },
     receipts: { data: [], error: null },
     receipt_allocations: { data: [], error: null },
     incidents: { data: [], error: null },
-    customer_private_details: { data: [{ customer_id: 'synthetic-customer', phone: '03001234567' }], error: null },
+    customer_private_details: { data: [{ customer_id: 'synthetic-customer', phone: '03001234567', connection_date: '2025-10-15' }], error: null },
     incident_private_details: { data: [{ incident_id: 'synthetic-incident', staff_notes: 'Synthetic Admin-only note' }], error: null },
   });
   const rows = await loadPortalRows(client, { kind: 'admin', organizationId: 'synthetic-org' });
 
   const query = client.calls.find((entry) => entry.table === 'customer_private_details');
-  assert.deepEqual(query.selects, ['customer_id, phone']);
+  assert.deepEqual(query.selects, ['customer_id, phone, connection_date']);
   assert.ok(query.filters.some(([kind, field, value]) => kind === 'eq' && field === 'organization_id' && value === 'synthetic-org'));
-  assert.deepEqual(rows.privateCustomerDetails, [{ customer_id: 'synthetic-customer', phone: '03001234567' }]);
+  assert.deepEqual(rows.privateCustomerDetails, [{ customer_id: 'synthetic-customer', phone: '03001234567', connection_date: '2025-10-15' }]);
   const incidentNotesQuery = client.calls.find((entry) => entry.table === 'incident_private_details');
   assert.deepEqual(incidentNotesQuery.selects, ['incident_id, staff_notes']);
   assert.ok(incidentNotesQuery.filters.some(([kind, field, value]) => kind === 'eq' && field === 'organization_id' && value === 'synthetic-org'));
@@ -239,7 +245,7 @@ test('Admin query falls back safely when the staging marker migration is not yet
   assert.equal(rows.customers[0].pppoe_username, 'synthetic-pppoe');
 });
 
-test('collection monitoring uses only existing organization-scoped public billing fields', async () => {
+test('collection and cashflow monitoring use only approved organization-scoped financial fields', async () => {
   const client = mockClient({
     customers: { data: [], error: null },
     bills: { data: [], error: null },
@@ -250,10 +256,12 @@ test('collection monitoring uses only existing organization-scoped public billin
   await loadPortalRows(client, { kind: 'admin', organizationId: 'synthetic-org' });
 
   const expectedColumns = {
-    customers: 'id, customer_number, name, plan_name, service_address, service_status, monthly_fee_cents, archived, pppoe_username, portal_test_account',
+    customers: 'id, customer_number, name, plan_name, service_address, service_status, monthly_fee_cents, archived, created_at, pppoe_username, portal_test_account',
     bills: 'id, customer_id, period, amount_due_cents, issued_on, due_date, plan_snapshot',
-    receipts: 'id, customer_id, origin_bill_id, received_on, amount_cents, method',
+    receipts: 'organization_id, id, customer_id, origin_bill_id, received_on, amount_cents, method',
     receipt_allocations: 'receipt_id, bill_id, customer_id, amount_cents, allocation_kind',
+    cashflow_expenses: 'organization_id, id, category, amount_paisa, note, created_at',
+    customer_service_cost_history: 'organization_id, customer_id, id, effective_on, monthly_cost_paisa, note, created_at',
   };
   const dashboardQueries = Object.entries(expectedColumns).map(([table, columns]) => {
     const query = client.calls.find((entry) => entry.table === table);
@@ -283,7 +291,8 @@ test('collection drill-down reuses current RLS-scoped rows and adds no query or 
   await loadPortalRows(client, { kind: 'admin', organizationId: 'synthetic-org' });
   const expectedTables = [
     'customers', 'bills', 'receipts', 'receipt_allocations', 'incidents',
-    'customer_private_details', 'incident_private_details', 'organization_branding',
+    'customer_private_details', 'incident_private_details', 'cashflow_expenses',
+    'customer_service_cost_history', 'organization_branding',
   ].sort();
   assert.deepEqual(client.calls.map((query) => query.table).sort(), expectedTables);
   for (const query of client.calls) {
@@ -464,4 +473,24 @@ test('PPPoE clearing is explicit, and an unconfirmed update is never treated as 
   assert.equal(isMissingPppoeUsernameColumn({ code: '42501', message: 'permission denied' }), false);
   assert.equal(isMissingPortalTestAccountColumn({ code: 'PGRST204', message: "Could not find 'portal_test_account' column" }), true);
   assert.equal(isMissingPortalTestAccountColumn({ code: '42501', message: 'permission denied' }), false);
+});
+test('Admin financial reads select exact rows and remain filtered to the selected organization', async () => {
+  const client = mockClient({
+    customers: { data: [{ id: 'synthetic-customer', created_at: '2020-01-01T00:00:00.000Z' }], error: null },
+    cashflow_expenses: { data: [{ organization_id: 'synthetic-org', id: 'expense', category: 'bill', amount_paisa: 200, note: '', created_at: '2026-10-04T12:00:00Z' }], error: null },
+    customer_service_cost_history: { data: [{ organization_id: 'synthetic-org', customer_id: 'synthetic-customer', id: 'cost', effective_on: '2026-10-01', monthly_cost_paisa: 150000, note: '', created_at: '2026-10-01T12:00:00Z' }], error: null },
+  });
+  const rows = await loadPortalRows(client, { kind: 'admin', organizationId: 'synthetic-org', role: 'admin' });
+
+  const expenseQuery = client.calls.find((query) => query.table === 'cashflow_expenses');
+  const costQuery = client.calls.find((query) => query.table === 'customer_service_cost_history');
+  assert.deepEqual(expenseQuery.selects, ['organization_id, id, category, amount_paisa, note, created_at']);
+  assert.deepEqual(costQuery.selects, ['organization_id, customer_id, id, effective_on, monthly_cost_paisa, note, created_at']);
+  for (const query of [expenseQuery, costQuery]) {
+    assert.ok(query.filters.some(([kind, field, value]) => kind === 'eq' && field === 'organization_id' && value === 'synthetic-org'));
+    assert.deepEqual(query.ranges, [[0, 999]]);
+    assert.doesNotMatch(query.selects.join(' '), /created_by|user_id|email|private/i);
+  }
+  assert.equal(rows.cashflowExpenses.length, 1);
+  assert.equal(rows.customerServiceCosts.length, 1);
 });

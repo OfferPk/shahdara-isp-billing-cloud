@@ -228,6 +228,65 @@ test('profile history keeps bill balance, cash receipts, and carry-forward credi
   assert.doesNotMatch(markup, /staff_notes|recorded_by|email/);
 });
 
+test('Admin profile shows same-tenant posted cash, labelled service tenure, effective cost history, and estimated contribution', () => {
+  const baseRow = rowsForTests().find((entry) => entry.customer.id === 'synthetic-a');
+  const row = {
+    ...baseRow,
+    connectionDate: '2025-10-15',
+    customer: { ...baseRow.customer, created_at: '2020-01-01T00:00:00.000Z' },
+  };
+  const customerReceipts = Array.from({ length: 12 }, (_, index) => {
+    const date = new Date(2025, 9 + index, 15, 12);
+    const receivedOn = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-15`;
+    return {
+      organization_id: 'org-a', id: `cash-${index}`, customer_id: 'synthetic-a',
+      origin_bill_id: 'bill-a', received_on: receivedOn, amount_cents: 300000, method: 'Cash',
+    };
+  });
+  customerReceipts.push(
+    { ...customerReceipts[0], organization_id: 'org-b', id: 'other-tenant', amount_cents: 999999 },
+    { ...customerReceipts[0], customer_id: 'synthetic-b', id: 'other-customer', amount_cents: 999999 },
+    { ...customerReceipts[0], id: 'future-cash', received_on: '2026-10-16', amount_cents: 999999 },
+  );
+  const customerServiceCosts = [
+    { organization_id: 'org-a', customer_id: 'synthetic-a', id: 'cost-old', effective_on: '2025-10-01', monthly_cost_paisa: 160000, created_at: '2025-09-01T00:00:00.000Z', note: 'superseded' },
+    { organization_id: 'org-a', customer_id: 'synthetic-a', id: 'cost-current', effective_on: '2025-10-01', monthly_cost_paisa: 150000, created_at: '2025-09-02T00:00:00.000Z', note: 'approved monthly package cost' },
+    { organization_id: 'org-b', customer_id: 'synthetic-a', id: 'other-cost', effective_on: '2025-10-01', monthly_cost_paisa: 999999, created_at: '2025-09-03T00:00:00.000Z', note: 'other tenant' },
+  ];
+  const markup = renderCustomerProfile(row, {
+    bills: [...bills, { id: 'unpaid-future', customer_id: 'synthetic-a', period: '2026-11-01', amount_due_cents: 999999, due_date: null, plan_snapshot: 'unpaid invoice' }],
+    receipts: customerReceipts,
+    allocations,
+    customerServiceCosts,
+    organizationId: 'org-a',
+    now: new Date(2026, 9, 15, 12),
+    formatMoney: (paisa) => String(paisa),
+  });
+
+  assert.match(markup, /Total cash collected from posted receipts<\/dt><dd>3600000<\/dd>/);
+  assert.match(markup, /Service start date<\/dt><dd>2025-10-15<\/dd>/);
+  assert.match(markup, /Customer tenure<\/dt><dd>1 year<\/dd>/);
+  assert.match(markup, /Estimated customer contribution<\/dt><dd>1800000<\/dd>/);
+  assert.match(markup, /Current assigned monthly package \/ bandwidth cost<\/dt><dd>150000<\/dd>/);
+  assert.match(markup, /Active for this month/);
+  assert.match(markup, /Superseded entry/);
+  assert.match(markup, /approved monthly package cost/);
+  assert.match(markup, /not audited net profit/i);
+  assert.match(markup, /Cost allocations are not added to global cash expenses/i);
+});
+
+test('Admin profile reports N/A rather than treating unknown tenure or cost history as zero contribution', () => {
+  const row = rowsForTests().find((entry) => entry.customer.id === 'synthetic-a');
+  const markup = renderCustomerProfile(row, {
+    bills, receipts: [], allocations, organizationId: 'org-a',
+    formatMoney: (paisa) => `PKR ${paisa}`, now: new Date(2026, 9, 15, 12),
+  });
+  assert.match(markup, /Start date not recorded<\/dt><dd>N\/A — start date unknown<\/dd>/);
+  assert.match(markup, /Customer tenure<\/dt><dd>N\/A — start date unknown<\/dd>/);
+  assert.match(markup, /Estimated customer contribution<\/dt><dd>Unknown — add a start date and an effective monthly cost first\.<\/dd>/);
+  assert.match(markup, /No service cost history recorded yet/);
+});
+
 test('test login control is absent from default profiles and appears only when explicitly enabled for Admin staging', () => {
   const original = rowsForTests().find((entry) => entry.customer.id === 'synthetic-a');
   const row = { ...original, customer: { ...original.customer } };

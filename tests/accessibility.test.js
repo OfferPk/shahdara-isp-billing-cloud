@@ -47,8 +47,8 @@ test('billing and receipt collections use named semantic card lists instead of w
   const cardLists = (source) => [...source.matchAll(/<ul class="record-card-grid[^\"]*" aria-label=/g)].length;
   assert.equal(tableRegions(main), 0, 'Admin receipts and Customer billing history no longer need horizontal table scrolling');
   assert.equal(tableRegions(customerList), 0, 'customer-profile history no longer needs horizontal table scrolling');
-  assert.equal(cardLists(main), 3, 'Admin receipts plus Customer bill and receipt history use named lists');
-  assert.equal(cardLists(customerList), 2, 'customer-profile bills and receipts use named lists');
+  assert.equal(cardLists(main), 3, 'Admin receipt and Customer bill and receipt history use named lists');
+  assert.equal(cardLists(customerList), 3, 'customer-profile bills, receipts, and effective cost history use named lists');
   for (const [name, source] of [['portal', main], ['customer profile', customerList]]) {
     assert.match(source, /<li><article class="record-card/ , `${name} records are articles within native lists`);
     assert.match(source, /class="record-card__facts"/, `${name} card fields use definition lists`);
@@ -94,6 +94,10 @@ test('keyboard focus, reduced motion and small-phone layout remain explicit', ()
   assert.match(styles, /@media \(max-width: 380px\) \{[\s\S]*?\.site-header \{ flex-wrap: wrap;/);
   assert.match(styles, /@media \(max-width: 760px\)[\s\S]*?\.customer-card-grid \{ grid-template-columns: 1fr; \}/);
   assert.match(styles, /@media \(max-width: 600px\) \{\s+\.customer-billing-filters \{ grid-template-columns: 1fr; \}\s+\.customer-billing-filters label:first-child/);
+  assert.match(styles, /\.cashflow-chart-wrap \{ overflow-x: auto; overscroll-behavior-inline: contain; \}/);
+  assert.match(styles, /@media \(max-width: 820px\) \{\s+\.cashflow-workspace \{ grid-template-columns: 1fr; \}/);
+  assert.match(styles, /@media \(max-width: 600px\) \{\s+\.cashflow-summary-grid \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); \}\s+\.cashflow-history-filters \{ grid-template-columns: 1fr; \}/);
+  assert.match(styles, /@media \(max-width: 600px\)[\s\S]*?\.customer-service-cost-form \{ grid-template-columns: 1fr; \}/);
   assert.match(styles, /\.customer-action \{ display: inline-flex; min-height: 40px;/);
   assert.match(styles, /\.customer-filter-pill \{ min-height: 44px;/);
 });

@@ -4,6 +4,7 @@ import { validatePakistanPhone } from './customer-input.js';
 import { createCustomer, invokeRpc, loadContexts, loadOrganizationBranding, loadPortalRows, manageServiceIncident, saveCustomerPppoeUsername, saveCustomerPortalTestAccount } from './portal-data.js';
 import { getBillingCycleQuickDate, isValidBillingMonth, localDateString, localMonthString } from './bill-dates.js';
 import { amountToMinorUnits, calculateDashboard, formatMoney } from './ledger.js';
+import { CASHFLOW_CATEGORIES, filterCashflowExpenses, summarizeCashflow } from './cashflow.js';
 import { renderDashboardMetrics } from './dashboard-metrics.js';
 import {
   buildCustomerListRows,
@@ -138,6 +139,11 @@ if (!supabase) {
     customerListStatus: 'all',
     customerListArea: '',
     customerAreaOpen: false,
+    cashflowMonthCount: 3,
+    cashflowSearch: '',
+    cashflowCategory: 'all',
+    cashflowFromDate: '',
+    cashflowThroughDate: '',
     billSearch: '',
     billStatus: 'all',
     customerBillingMonth: '',
@@ -146,6 +152,7 @@ if (!supabase) {
     dashboardDrilldown: null,
   };
   let pendingReceiptAttempt = null;
+  const pendingFinancialAttempts = new Map();
 
   function receiptAttemptKey(context) {
     return `shahdara-cloud-receipt-attempt:${pageState.user?.id ?? 'signed-out'}:${context.organizationId}`;
@@ -174,6 +181,35 @@ if (!supabase) {
     if (!pendingReceiptAttempt) return;
     try { sessionStorage.removeItem(pendingReceiptAttempt.key); } catch { /* No browser storage is required for portal access. */ }
     pendingReceiptAttempt = null;
+  }
+
+  function financialAttemptKey(kind, context, customerId = '') {
+    return `${kind}:${pageState.user?.id ?? 'signed-out'}:${context.organizationId}:${customerId}`;
+  }
+
+  function financialAttemptStorageKey(kind, context, customerId = '') {
+    return `shahdara-${kind}-attempt:${pageState.user?.id ?? 'signed-out'}:${context.organizationId}:${customerId}`;
+  }
+
+  function getFinancialAttemptId(kind, context, customerId = '') {
+    const attemptKey = financialAttemptKey(kind, context, customerId);
+    const current = pendingFinancialAttempts.get(attemptKey);
+    if (current) return current.id;
+    const storageKey = financialAttemptStorageKey(kind, context, customerId);
+    let id = '';
+    try { id = sessionStorage.getItem(storageKey) ?? ''; } catch { /* Keep the in-memory ID for this tab. */ }
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) id = crypto.randomUUID();
+    pendingFinancialAttempts.set(attemptKey, { id, storageKey });
+    try { sessionStorage.setItem(storageKey, id); } catch { /* Stable IDs still work until the page closes. */ }
+    return id;
+  }
+
+  function clearFinancialAttempt(kind, context, customerId = '') {
+    const attemptKey = financialAttemptKey(kind, context, customerId);
+    const attempt = pendingFinancialAttempts.get(attemptKey);
+    const storageKey = attempt?.storageKey ?? financialAttemptStorageKey(kind, context, customerId);
+    try { sessionStorage.removeItem(storageKey); } catch { /* Browser storage is optional. */ }
+    pendingFinancialAttempts.delete(attemptKey);
   }
 
   function localMonth(date = new Date()) {
@@ -631,8 +667,11 @@ if (!supabase) {
       bills: pageState.rows.bills,
       receipts: pageState.rows.receipts,
       allocations: pageState.rows.allocations,
+      customerServiceCosts: pageState.rows.customerServiceCosts,
+      organizationId: pageState.context.organizationId,
       formatMoney,
       t,
+      locale: currentLanguage === 'ur-Latn' ? 'ur-Latn-PK' : 'en-PK',
       portalTestModeAvailable: pageState.context?.kind === 'admin' && portalTestModeAvailable,
     });
     content.dataset.customerId = customerId;
@@ -724,6 +763,49 @@ if (!supabase) {
         result.textContent = t('Credential issue or reset could not be completed. Contact an administrator before retrying.');
       } finally {
         button.disabled = false;
+      }
+    });
+    content.querySelector('#customer-service-cost-form')?.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const button = form.querySelector('button[type="submit"]');
+      const message = content.querySelector('#customer-service-cost-message');
+      const context = pageState.context;
+      if (context?.kind !== 'admin' || !['owner', 'admin'].includes(context.role)) {
+        setMessage(message, 'Only same-organization Owners and Admins can record cashflow.', true);
+        return;
+      }
+      const formData = new FormData(form);
+      const effectiveMonth = String(formData.get('effective_month') ?? '').trim();
+      const note = String(formData.get('note') ?? '').trim();
+      try {
+        if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(effectiveMonth)) throw new Error(t('Choose a valid effective month.'));
+        const monthlyCostPaisa = amountToMinorUnits(formData.get('monthly_cost'), { allowZero: true });
+        if (note.length > 500) throw new Error(t('The service cost note is too long.'));
+        button.disabled = true;
+        setMessage(message, 'Saving effective cost history…');
+        const entryId = getFinancialAttemptId('customer-service-cost', context, customerId);
+        await invokeRpc(supabase, 'record_customer_service_cost', {
+          p_organization_id: context.organizationId,
+          p_customer_id: customerId,
+          p_entry_id: entryId,
+          p_effective_on: `${effectiveMonth}-01`,
+          p_monthly_cost_paisa: monthlyCostPaisa,
+          p_note: note || null,
+        });
+        clearFinancialAttempt('customer-service-cost', context, customerId);
+        await refreshCurrentContext('Monthly service-cost history updated.');
+        openCustomerProfile(customerId);
+        setMessage(portalPanel.querySelector('#customer-service-cost-message'), 'Monthly service-cost history updated.');
+      } catch (error) {
+        const messageText = error?.code === '23505'
+          ? 'This request ID was already used for different cost details. Check the history and retry with the original month, amount, and note; no second entry was created.'
+          : error?.code === '42501'
+            ? 'Only same-organization Owners and Admins can record cashflow.'
+            : 'Service cost could not be confirmed. Retry the same customer, effective month, amount, and note to avoid a duplicate.';
+        setMessage(content.querySelector('#customer-service-cost-message'), messageText, true);
+      } finally {
+        if (button?.isConnected) button.disabled = false;
       }
     });
     dialog.showModal();
@@ -919,6 +1001,128 @@ if (!supabase) {
     window.setTimeout(() => printWindow.print(), 150);
   }
 
+  function renderCashflowAnalysis() {
+    const summary = summarizeCashflow({
+      receipts: pageState.rows.receipts,
+      expenses: pageState.rows.cashflowExpenses,
+      monthCount: pageState.cashflowMonthCount,
+      now: new Date(),
+    });
+    const { totals } = summary;
+    const maxValue = Math.max(1, ...summary.months.flatMap((month) => [
+      month.incomePaisa,
+      month.operatingCostsPaisa,
+      month.partnerDistributionsPaisa,
+      Math.abs(month.operatingProfitPaisa),
+      Math.abs(month.netCashflowPaisa),
+    ]));
+    const left = 78;
+    const right = 876;
+    const baseline = 121;
+    const amplitude = 82;
+    const step = (right - left) / summary.months.length;
+    const centers = summary.months.map((month, index) => ({ month, x: left + step * (index + 0.5) }));
+    const barSeries = [
+      { key: 'incomePaisa', color: 'var(--cashflow-income)', direction: -1, offset: -20 },
+      { key: 'operatingCostsPaisa', color: 'var(--cashflow-costs)', direction: 1, offset: -5 },
+      { key: 'partnerDistributionsPaisa', color: 'var(--cashflow-distribution)', direction: 1, offset: 10 },
+    ];
+    const barMarkup = centers.flatMap(({ month, x }) => barSeries.map((series) => {
+      const value = month[series.key];
+      if (!value) return '';
+      const height = Math.max(2, (value / maxValue) * amplitude);
+      const y = series.direction < 0 ? baseline - height : baseline;
+      return `<rect x="${(x + series.offset - 5).toFixed(2)}" y="${y.toFixed(2)}" width="10" height="${height.toFixed(2)}" rx="3" fill="${series.color}"><title>${escapeHtml(month.label)} · ${escapeHtml(formatMoney(value))}</title></rect>`;
+    })).join('');
+    const lineMarkup = [
+      { key: 'operatingProfitPaisa', color: 'var(--cashflow-profit)', name: t('Operating profit') },
+      { key: 'netCashflowPaisa', color: 'var(--cashflow-net)', name: t('Net cashflow after partner distributions') },
+    ].map((series) => {
+      const points = centers.map(({ month, x }) => `${x.toFixed(2)},${(baseline - (month[series.key] / maxValue) * amplitude).toFixed(2)}`).join(' ');
+      const dots = centers.map(({ month, x }) => `<circle cx="${x.toFixed(2)}" cy="${(baseline - (month[series.key] / maxValue) * amplitude).toFixed(2)}" r="3.4" fill="${series.color}"><title>${escapeHtml(series.name)} · ${escapeHtml(month.label)} · ${escapeHtml(formatMoney(month[series.key]))}</title></circle>`).join('');
+      return `<polyline points="${points}" fill="none" stroke="${series.color}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"></polyline>${dots}`;
+    }).join('');
+    const monthLabels = centers.map(({ month, x }) => `<text x="${x.toFixed(2)}" y="232" text-anchor="middle">${escapeHtml(month.label)}</text>`).join('');
+    const descriptions = summary.months.map((month) => `${month.label}: ${t('Receipts')} ${formatMoney(month.incomePaisa)}, ${t('Operating costs')} ${formatMoney(month.operatingCostsPaisa)}, ${t('Partner distributions')} ${formatMoney(month.partnerDistributionsPaisa)}, ${t('Operating profit')} ${formatMoney(month.operatingProfitPaisa)}, ${t('Net cashflow after partner distributions')} ${formatMoney(month.netCashflowPaisa)}`).join('; ');
+    const metrics = [
+      [t('Cash receipts'), totals.incomePaisa, 'cashflow-metric--income'],
+      [t('Operating costs'), totals.operatingCostsPaisa, 'cashflow-metric--costs'],
+      [t('Operating profit'), totals.operatingProfitPaisa, 'cashflow-metric--profit'],
+      [t('Partner distributions'), totals.partnerDistributionsPaisa, 'cashflow-metric--distribution'],
+      [t('Net cashflow after partner distributions'), totals.netCashflowPaisa, 'cashflow-metric--net'],
+    ].map(([label, amount, modifier]) => `<article class="metric cashflow-metric ${modifier}"><span>${escapeHtml(label)}</span><strong>${escapeHtml(formatMoney(amount))}</strong><small>${escapeHtml(t('PKR · selected period'))}</small></article>`).join('');
+    return `<div class="cashflow-analysis-content">
+      <div class="cashflow-period-switch" role="group" aria-label="${escapeHtml(t('Cashflow graph period'))}">
+        ${[1, 3, 6].map((count) => `<button class="cashflow-period-button ${pageState.cashflowMonthCount === count ? 'is-active' : ''}" type="button" data-cashflow-months="${count}" aria-pressed="${pageState.cashflowMonthCount === count}">${count} ${escapeHtml(t(count === 1 ? 'month' : 'months'))}</button>`).join('')}
+      </div>
+      <p class="muted">${escapeHtml(t('Income includes posted cash receipts only; issued or unpaid bills and allocations are not income. Operating costs exclude partner distributions.'))}</p>
+      <div class="cashflow-summary-grid admin-metrics">${metrics}</div>
+      <div class="cashflow-chart-legend" role="list" aria-label="${escapeHtml(t('Cashflow chart legend'))}">
+        <span role="listitem"><i class="cashflow-swatch cashflow-swatch--income"></i>${escapeHtml(t('Receipts'))}</span>
+        <span role="listitem"><i class="cashflow-swatch cashflow-swatch--costs"></i>${escapeHtml(t('Operating costs'))}</span>
+        <span role="listitem"><i class="cashflow-swatch cashflow-swatch--distribution"></i>${escapeHtml(t('Partner distributions'))}</span>
+        <span role="listitem"><i class="cashflow-swatch cashflow-swatch--profit"></i>${escapeHtml(t('Operating profit'))}</span>
+        <span role="listitem"><i class="cashflow-swatch cashflow-swatch--net"></i>${escapeHtml(t('Net cashflow after partner distributions'))}</span>
+      </div>
+      <div class="cashflow-chart-wrap"><svg class="cashflow-chart" viewBox="0 0 900 250" role="img" aria-labelledby="cashflow-chart-title cashflow-chart-description">
+        <title id="cashflow-chart-title">${escapeHtml(t('Cashflow over selected months'))}</title>
+        <desc id="cashflow-chart-description">${escapeHtml(descriptions)}</desc>
+        <line x1="58" x2="884" y1="${baseline}" y2="${baseline}" class="cashflow-chart__zero" />
+        <text x="4" y="35" class="cashflow-chart__axis">${escapeHtml(formatMoney(maxValue))}</text>
+        <text x="4" y="${baseline + 4}" class="cashflow-chart__axis">${escapeHtml(t('Zero'))}</text>
+        <text x="4" y="210" class="cashflow-chart__axis">${escapeHtml(formatMoney(-maxValue))}</text>
+        ${barMarkup}${lineMarkup}${monthLabels}
+      </svg></div>
+    </div>`;
+  }
+
+  function cashflowExpenseFilterOptions() {
+    return {
+      search: pageState.cashflowSearch,
+      category: pageState.cashflowCategory,
+      fromDate: pageState.cashflowFromDate,
+      throughDate: pageState.cashflowThroughDate,
+    };
+  }
+
+  function currentCashflowExpenseRows() {
+    return filterCashflowExpenses(pageState.rows?.cashflowExpenses ?? [], cashflowExpenseFilterOptions());
+  }
+
+  function renderCashflowExpenseCards(expenses) {
+    if (pageState.cashflowFromDate && pageState.cashflowThroughDate && pageState.cashflowFromDate > pageState.cashflowThroughDate) {
+      return `<li class="record-card-empty" role="alert">${escapeHtml(t('Choose a start date on or before the end date.'))}</li>`;
+    }
+    return expenses.slice(0, 100).map((expense) => {
+      const category = CASHFLOW_CATEGORIES.find((item) => item.value === expense.category);
+      const recordedAt = new Date(expense.created_at);
+      const localTime = Number.isNaN(recordedAt.getTime()) ? '' : recordedAt.toLocaleString(currentLanguage === 'ur-Latn' ? 'ur-Latn-PK' : 'en-PK', { dateStyle: 'medium', timeStyle: 'short' });
+      const distribution = expense.category === 'partner_profit';
+      return `<li><article class="record-card cashflow-expense-card">
+        <header class="record-card__top"><div><h3>${escapeHtml(category?.label ?? expense.category)}</h3>${localTime ? `<p class="record-card__subtitle"><time datetime="${escapeHtml(expense.created_at)}">${escapeHtml(localTime)}</time></p>` : ''}</div><span class="status-pill ${distribution ? 'status-pill--partial' : ''}">${escapeHtml(t(distribution ? 'Partner distribution' : 'Operating expense'))}</span></header>
+        <dl class="record-card__facts"><div><dt>${escapeHtml(t('Amount (PKR)'))}</dt><dd>${escapeHtml(formatMoney(expense.amount_paisa))}</dd></div>${expense.note ? `<div><dt>${escapeHtml(t('Note'))}</dt><dd>${escapeHtml(expense.note)}</dd></div>` : ''}</dl>
+      </article></li>`;
+    }).join('') || `<li class="record-card-empty" role="status">${escapeHtml(t('No recorded expenses match these filters.'))}</li>`;
+  }
+
+  function cashflowExpenseCountText(rows) {
+    if (pageState.cashflowFromDate && pageState.cashflowThroughDate && pageState.cashflowFromDate > pageState.cashflowThroughDate) {
+      return t('Expense history is hidden until the date range is corrected.');
+    }
+    return formatUiMessage('Showing {shown} of {total} matching cash expenses.', currentLanguage, {
+      shown: Math.min(rows.length, 100), total: rows.length,
+    });
+  }
+
+  function updateCashflowExpenseResults(root = portalPanel.querySelector('#admin-cashflow')) {
+    if (!root) return;
+    const rows = currentCashflowExpenseRows();
+    const count = root.querySelector('#cashflow-expense-count');
+    const list = root.querySelector('#cashflow-expense-results');
+    if (count) count.textContent = cashflowExpenseCountText(rows);
+    if (list) list.innerHTML = renderCashflowExpenseCards(rows);
+  }
+
   function renderAdmin() {
     const context = pageState.context;
     const rows = pageState.rows;
@@ -1045,6 +1249,35 @@ if (!supabase) {
           </form><p class="form-message" id="receipt-message" role="status"></p>
         </section>
       </div>
+      <section id="admin-cashflow" class="panel data-panel cashflow-panel" data-feature-toggle data-feature-key="admin-cashflow" data-feature-name="${escapeHtml(t('Cashflow and expense tracking'))}" aria-labelledby="admin-cashflow-title">
+        <div class="section-heading"><div><p class="eyebrow">${escapeHtml(t('Owner / Admin only'))}</p><h2 id="admin-cashflow-title">${escapeHtml(t('Cashflow and expense tracking'))}</h2></div></div>
+        <p class="muted">${escapeHtml(t('All amounts are PKR. These cash-basis estimates use posted receipts and recorded cash expenses; they are not formal accrual accounts.'))}</p>
+        <div id="cashflow-analysis">${renderCashflowAnalysis()}</div>
+        <div class="cashflow-workspace">
+          <section class="cashflow-entry-panel" aria-labelledby="cashflow-entry-title">
+            <h3 id="cashflow-entry-title">${escapeHtml(t('Record a cash expense'))}</h3>
+            <form id="cashflow-expense-form" class="stack">
+              <label for="cashflow-expense-category">${escapeHtml(t('Expense category'))}<select id="cashflow-expense-category" name="category" required>${CASHFLOW_CATEGORIES.map((item) => `<option value="${escapeHtml(item.value)}">${escapeHtml(t(item.label))}</option>`).join('')}</select></label>
+              <label for="cashflow-expense-amount">${escapeHtml(t('Amount (PKR)'))}<input id="cashflow-expense-amount" name="amount" inputmode="decimal" placeholder="0.00" required></label>
+              <label for="cashflow-expense-note">${escapeHtml(t('Optional note'))}<textarea id="cashflow-expense-note" name="note" maxlength="1000" rows="3"></textarea></label>
+              <p class="muted">${escapeHtml(t('Server-recorded time is UTC and shown in your local time zone.'))}</p>
+              <button class="button primary" type="submit">${escapeHtml(t('Save cash expense'))}</button>
+            </form>
+            <p id="cashflow-expense-message" class="form-message" role="status" aria-live="polite" aria-atomic="true"></p>
+          </section>
+          <section class="cashflow-history-panel" aria-labelledby="cashflow-history-title">
+            <h3 id="cashflow-history-title">${escapeHtml(t('Searchable expense history'))}</h3>
+            <div class="cashflow-history-filters">
+              <label for="cashflow-expense-search">${escapeHtml(t('Search category, note, or amount'))}<input id="cashflow-expense-search" type="search" autocomplete="off" value="${escapeHtml(pageState.cashflowSearch)}"></label>
+              <label for="cashflow-expense-filter-category">${escapeHtml(t('Category'))}<select id="cashflow-expense-filter-category"><option value="all">${escapeHtml(t('All categories'))}</option>${CASHFLOW_CATEGORIES.map((item) => `<option value="${escapeHtml(item.value)}" ${pageState.cashflowCategory === item.value ? 'selected' : ''}>${escapeHtml(t(item.label))}</option>`).join('')}</select></label>
+              <label for="cashflow-expense-from">${escapeHtml(t('From date'))}<input id="cashflow-expense-from" type="date" value="${escapeHtml(pageState.cashflowFromDate)}"></label>
+              <label for="cashflow-expense-through">${escapeHtml(t('Through date'))}<input id="cashflow-expense-through" type="date" value="${escapeHtml(pageState.cashflowThroughDate)}"></label>
+            </div>
+            <p id="cashflow-expense-count" class="customer-history-count" role="status" aria-live="polite" aria-atomic="true">${escapeHtml(cashflowExpenseCountText(currentCashflowExpenseRows()))}</p>
+            <ul id="cashflow-expense-results" class="record-card-grid cashflow-expense-list" aria-label="${escapeHtml(t('Cash expense history'))}">${renderCashflowExpenseCards(currentCashflowExpenseRows())}</ul>
+          </section>
+        </div>
+      </section>
       <section id="customer-list" class="panel data-panel customer-list-panel" aria-labelledby="customer-list-title">
         <div class="customer-list-heading"><div><p class="eyebrow">${escapeHtml(t('Customer directory'))}</p><h2 id="customer-list-title" tabindex="-1">${escapeHtml(t('Customers'))}</h2></div>
           <div class="customer-summary" aria-label="${escapeHtml(t('Customer count, active count, and unpaid count'))}"><span><strong>${customerSummary.total}</strong><small>${escapeHtml(t('Total'))}</small></span><span><strong>${customerSummary.active}</strong><small>${escapeHtml(t('Active'))}</small></span><span><strong>${customerSummary.unpaid}</strong><small>${escapeHtml(t('Unpaid'))}</small></span></div>
@@ -1129,6 +1362,7 @@ if (!supabase) {
     }));
     portalPanel.querySelector('#receipt-customer')?.addEventListener('change', (event) => populateReceiptBills(event.target.value));
     bindAdminForms(context);
+    bindAdminCashflowActions(context);
     bindPppoeMappingActions(context);
     bindBrandingActions(context);
     bindAdminIncidentForms(context);
@@ -1509,6 +1743,78 @@ if (!supabase) {
         }
       });
     }
+  }
+
+  function bindAdminCashflowActions(context) {
+    if (context.kind !== 'admin') return;
+    const root = portalPanel.querySelector('#admin-cashflow');
+    if (!root) return;
+
+    root.addEventListener('input', (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.id === 'cashflow-expense-search') {
+        pageState.cashflowSearch = target.value;
+        updateCashflowExpenseResults(root);
+      }
+    });
+    root.addEventListener('change', (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (!target) return;
+      if (target.id === 'cashflow-expense-filter-category') pageState.cashflowCategory = target.value || 'all';
+      if (target.id === 'cashflow-expense-from') pageState.cashflowFromDate = target.value;
+      if (target.id === 'cashflow-expense-through') pageState.cashflowThroughDate = target.value;
+      if (target.id.startsWith('cashflow-expense-')) updateCashflowExpenseResults(root);
+    });
+    root.addEventListener('click', (event) => {
+      const target = event.target instanceof Element ? event.target.closest('[data-cashflow-months]') : null;
+      if (!target) return;
+      const count = Number(target.dataset.cashflowMonths);
+      if (![1, 3, 6].includes(count)) return;
+      pageState.cashflowMonthCount = count;
+      const analysis = root.querySelector('#cashflow-analysis');
+      if (analysis) analysis.innerHTML = renderCashflowAnalysis();
+    });
+
+    root.querySelector('#cashflow-expense-form')?.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const submitButton = form.querySelector('button[type="submit"]');
+      const message = root.querySelector('#cashflow-expense-message');
+      if (context.kind !== 'admin' || !['owner', 'admin'].includes(context.role)) {
+        setMessage(message, 'Only same-organization Owners and Admins can record cashflow.', true);
+        return;
+      }
+      const formData = new FormData(form);
+      const category = String(formData.get('category') ?? '');
+      const note = String(formData.get('note') ?? '').trim();
+      try {
+        if (!CASHFLOW_CATEGORIES.some((item) => item.value === category)) throw new Error(t('Choose a valid expense category.'));
+        const amountPaisa = amountToMinorUnits(formData.get('amount'));
+        if (note.length > 1000) throw new Error(t('The expense note is too long.'));
+        submitButton.disabled = true;
+        setMessage(message, 'Recording cash expense…');
+        const entryId = getFinancialAttemptId('cashflow-expense', context);
+        await invokeRpc(supabase, 'record_cash_expense', {
+          p_organization_id: context.organizationId,
+          p_entry_id: entryId,
+          p_category: category,
+          p_amount_paisa: amountPaisa,
+          p_note: note || null,
+        });
+        clearFinancialAttempt('cashflow-expense', context);
+        form.reset();
+        await refreshCurrentContext('Cash expense recorded.');
+      } catch (error) {
+        const messageText = error?.code === '23505'
+          ? 'This request ID was already used for different expense details. Check the history and retry with the original category, amount, and note; no second entry was created.'
+          : error?.code === '42501'
+            ? 'Only same-organization Owners and Admins can record cashflow.'
+            : error?.message || 'Cash expense could not be confirmed. Retry the same category, amount, and note to avoid a duplicate.';
+        setMessage(root.querySelector('#cashflow-expense-message'), messageText, true);
+      } finally {
+        if (submitButton?.isConnected) submitButton.disabled = false;
+      }
+    });
   }
 
   function bindAdminActions(context) {
