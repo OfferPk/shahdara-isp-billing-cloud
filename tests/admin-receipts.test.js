@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  filterAdminReceiptsByPeriod,
   filterAdminReceiptRows,
   paginateAdminReceiptRows,
   renderAdminReceiptCards,
@@ -33,6 +34,16 @@ test('receipt search matches customer, date, method, and visible PKR amounts cas
   assert.deepEqual(search('1500'), ['receipt-1']);
   assert.deepEqual(search('   '), receipts.map((receipt) => receipt.id));
   assert.deepEqual(search('not found'), []);
+});
+
+test('selected-month receipt drilldowns use received_on rather than a related bill period', () => {
+  const rows = [
+    { id: 'receipt-august-for-july-bill', received_on: '2026-08-13', bill_period: '2026-07' },
+    { id: 'receipt-september-for-august-bill', received_on: '2026-09-02', bill_period: '2026-08' },
+  ];
+  assert.deepEqual(filterAdminReceiptsByPeriod(rows, '2026-08').map((row) => row.id), ['receipt-august-for-july-bill']);
+  assert.deepEqual(filterAdminReceiptsByPeriod(rows, '2026-13'), []);
+  assert.equal(filterAdminReceiptsByPeriod(rows).length, rows.length);
 });
 
 test('receipt pagination returns stable slices and safely clamps invalid page requests', () => {

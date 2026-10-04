@@ -145,10 +145,13 @@ test('collection drill-down is selected-period-only and excludes due-today, miss
 
   assert.deepEqual(filterCollectionBillRows(rows, { scope: 'overdue', period: '2026-04' }).map((row) => row.bill.id), ['open-before']);
   assert.deepEqual(filterCollectionBillRows(rows, { scope: 'paid', period: '2026-04' }).map((row) => row.bill.id), ['paid']);
+  assert.deepEqual(filterCollectionBillRows(rows, { scope: 'all', period: '2026-04' }).map((row) => row.bill.id), ['due-today', 'no-date', 'open-before', 'paid', 'unpriced']);
+  assert.deepEqual(filterCollectionBillRows(rows, { scope: 'all', period: '2026-03' }).map((row) => row.bill.id), ['other-period']);
   assert.deepEqual(filterCollectionBillRows(rows, { scope: 'pending', period: '2026-04' }).map((row) => row.bill.id), ['due-today', 'no-date']);
   assert.deepEqual(filterCollectionBillRows(rows, { scope: 'unpriced', period: '2026-04' }).map((row) => row.bill.id), ['unpriced']);
   assert.deepEqual(filterCollectionBillRows(rows, { scope: 'overdue', period: '2026-03' }).map((row) => row.bill.id), ['other-period']);
   assert.deepEqual(filterCollectionBillRows(rows, { scope: 'overdue', period: '2026-13' }), []);
+  assert.deepEqual(filterCollectionBillRows(rows, { scope: 'all', period: '2026-13' }), []);
 });
 
 test('selected-month unpaid worklist matches Pending and includes positive priced balances without overdue dates', () => {
