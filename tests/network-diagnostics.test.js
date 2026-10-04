@@ -23,6 +23,11 @@ import {
   runSyntheticDiagnosticSteps,
   runSyntheticDiagnostics,
 } from '../src/network-diagnostics.js';
+import {
+  SYNTHETIC_NETWORK_COMPLAINTS,
+  groupSyntheticComplaintRecords,
+  renderSyntheticIncidentCorrelationDemo,
+} from '../src/network-incident-correlation.js';
 import { translateUi } from '../src/language.js';
 
 const [main, styles, moduleSource] = await Promise.all([
@@ -30,6 +35,7 @@ const [main, styles, moduleSource] = await Promise.all([
   readFile(new URL('../src/styles.css', import.meta.url), 'utf8'),
   readFile(new URL('../src/network-diagnostics.js', import.meta.url), 'utf8'),
 ]);
+const correlationSource = await readFile(new URL('../src/network-incident-correlation.js', import.meta.url), 'utf8');
 
 const provider = new MockDiagnosticsProvider();
 
@@ -449,6 +455,8 @@ test('Admin UI remains role-gated and the simulator module stays lazy with demo-
   assert.match(moduleSource, /data-synthetic-fixture=/);
   assert.match(moduleSource, /Choose a synthetic demo profile to continue/);
   assert.match(moduleSource, /Complaint is not covered by the demo; no real check was run/);
+  assert.match(moduleSource, /import \{ renderSyntheticIncidentCorrelationDemo \} from '\.\/network-incident-correlation\.js'/);
+  assert.match(moduleSource, /renderNetworkActionPolicyPreview\(t\)\}\$\{renderSyntheticIncidentCorrelationDemo\(t\)\}/);
 });
 
 test('diagnostics is keyboard usable, responsive, state-labeled, and translated for Roman Urdu', () => {
@@ -483,7 +491,86 @@ test('diagnostics is keyboard usable, responsive, state-labeled, and translated 
     'Only this view’s in-memory simulation history is cleared.', 'No simulations are in this view yet.',
     'Clear history', 'Clear recent simulations', 'Simulation history cleared from this view.',
     'Fixture', 'Scenario', 'Result', 'Displayed', 'Simulated only',
+    'Simulation only · no live network/customer data checked',
+    'This fixed demo is not an automatic watcher and does not load real complaints.',
+    'Network-wide complaint grouping · synthetic demo',
+    'This illustration groups only fictional sample records with the same fake device, interface, and pre-labeled symptom code inside a ten-minute sample window. A shared pattern does not prove a cause.',
+    'Three synthetic complaint samples meet this demo grouping rule; one unrelated synthetic sample stays separate.',
+    'Fixed multilingual sample records', 'Fictional sample complaints in English, Roman Urdu, and Urdu',
+    'Synthetic sample record', 'Fake device', 'Fake interface', 'Sample symptom code', 'Sample minute offset',
+    'minutes into this fixed demo', 'Possible incident grouping', 'Possible shared-dependency pattern · demo only',
+    'fictional sample records', 'share the same fake device, interface, and symptom code within ten sample minutes.',
+    'Shared fake device', 'Shared fake interface', 'Shared sample symptom', 'Sample record IDs',
+    'This illustrates a possible common-cause incident grouping, not a confirmed cause or a real incident.',
+    'Live network findings · unavailable', 'Unavailable live network checks', 'Router finding', 'WAN finding',
+    'DNS finding', 'OLT finding', 'Unavailable · no live network data was checked',
+    'No synthetic group met the minimum shared-evidence rule.', 'Unrelated sample · not grouped',
+    'Its fake dependency and symptom do not match the shared demo group; it is not included.',
+    'Synthetic incident groups', 'No incident was created, nothing was saved, and no remediation or network action is offered.',
     ...NETWORK_ACTION_POLICY.map(({ futureRequirement }) => futureRequirement),
   ];
   for (const copy of translatedCopy) assert.notEqual(translateUi(copy, 'ur-Latn'), copy, `diagnostics copy has Roman Urdu: ${copy}`);
+});
+
+test('synthetic incident grouping requires three records with the same fake device, interface, and symptom inside the sample window', () => {
+  const result = groupSyntheticComplaintRecords(SYNTHETIC_NETWORK_COMPLAINTS);
+  assert.equal(result.groups.length, 1);
+  assert.equal(result.groups[0].groupId, 'SIM-GROUP-001');
+  assert.deepEqual(result.groups[0].complaintIds, ['SIM-COMPLAINT-001', 'SIM-COMPLAINT-002', 'SIM-COMPLAINT-003']);
+  assert.equal(result.groups[0].deviceId, 'SIM-DEVICE-DEMO-A');
+  assert.equal(result.groups[0].interfaceId, 'SIM-IFACE-DEMO-UPLINK-A');
+  assert.equal(result.groups[0].symptomCode, 'DEMO-INTERMITTENT-DROPS');
+  assert.equal(result.groups[0].sampleSpanMinutes, 8);
+  assert.deepEqual(result.ungroupedComplaintIds, ['SIM-COMPLAINT-004']);
+  assert.equal(groupSyntheticComplaintRecords(SYNTHETIC_NETWORK_COMPLAINTS.slice(0, 2)).groups.length, 0, 'two similar reports remain below the three-record threshold');
+});
+
+test('unrelated, missing-dependency, different-symptom, and out-of-window demo records do not group', () => {
+  const shared = SYNTHETIC_NETWORK_COMPLAINTS.slice(0, 3);
+  const otherDevice = shared.map((record, index) => ({ ...record, id: `SIM-COMPLAINT-10${index}`, deviceId: `SIM-DEVICE-OTHER-${index}` }));
+  const otherInterface = shared.map((record, index) => ({ ...record, id: `SIM-COMPLAINT-20${index}`, interfaceId: `SIM-IFACE-OTHER-${index}` }));
+  const otherSymptoms = shared.map((record, index) => ({ ...record, id: `SIM-COMPLAINT-30${index}`, symptomCode: `DEMO-OTHER-SYMPTOM-${index}` }));
+  const noInterface = shared.map((record, index) => ({ ...record, id: `SIM-COMPLAINT-40${index}`, interfaceId: '' }));
+  const outsideWindow = shared.map((record, index) => ({ ...record, id: `SIM-COMPLAINT-50${index}`, sampleOffsetMinutes: index * 11 }));
+  for (const records of [otherDevice, otherInterface, otherSymptoms, noInterface, outsideWindow]) {
+    assert.deepEqual(groupSyntheticComplaintRecords(records).groups, [], 'missing or unrelated evidence fails closed');
+  }
+  assert.deepEqual(groupSyntheticComplaintRecords([{ ...shared[0], synthetic: false }, ...shared.slice(1)]).groups, []);
+  assert.deepEqual(groupSyntheticComplaintRecords([shared[0], shared[0], shared[0], shared[1]]).groups, [], 'duplicate synthetic IDs do not inflate the threshold');
+  assert.throws(() => groupSyntheticComplaintRecords({}), /must be an array/);
+  assert.throws(() => groupSyntheticComplaintRecords(shared, { minimumGroupSize: 1 }), /valid threshold/);
+  assert.throws(() => groupSyntheticComplaintRecords(shared, { windowMinutes: -1 }), /valid threshold/);
+});
+
+test('the visible incident demo is explicitly synthetic, unavailable for live checks, and offers no actions or writes', () => {
+  const result = groupSyntheticComplaintRecords(SYNTHETIC_NETWORK_COMPLAINTS);
+  assert.equal(result.simulationOnly, true);
+  assert.equal(result.liveDataChecked, false);
+  assert.equal(result.liveCallsMade, false);
+  assert.equal(result.recordsPersisted, false);
+  assert.ok(result.groups.every((group) => group.simulationOnly && !group.liveDataChecked && !group.liveCallsMade && !group.recordsPersisted));
+  const markup = renderSyntheticIncidentCorrelationDemo();
+  assert.match(markup, /Simulation only · no live network\/customer data checked/);
+  assert.match(markup, /not an automatic watcher/);
+  for (const networkPart of ['Router', 'WAN', 'DNS', 'OLT']) assert.match(markup, new RegExp(`${networkPart} finding`));
+  assert.match(markup, /Unavailable · no live network data was checked/);
+  assert.match(markup, /No incident was created, nothing was saved/);
+  assert.doesNotMatch(markup, /<button\b|<form\b|data-action=|fetch\s*\(/i);
+  assert.doesNotMatch(correlationSource, /fetch\s*\(|XMLHttpRequest|WebSocket|child_process|supabase|routeros|radius|indexedDB|localStorage|sessionStorage|\.rpc\s*\(|\.insert\s*\(|\.update\s*\(|\.delete\s*\(/i);
+});
+
+test('incident demo exposes accessible English and Roman Urdu labels plus correctly tagged Urdu complaint samples', () => {
+  const english = renderSyntheticIncidentCorrelationDemo();
+  const romanUrdu = renderSyntheticIncidentCorrelationDemo((copy) => translateUi(copy, 'ur-Latn'));
+  assert.match(english, /aria-labelledby="network-correlation-demo-title"/);
+  assert.match(english, /role="status" aria-live="polite" aria-atomic="true"/);
+  assert.match(english, /aria-label="Fictional sample complaints in English, Roman Urdu, and Urdu"/);
+  assert.match(english, /<q lang="en" dir="ltr">/);
+  assert.match(english, /<q lang="ur-Latn" dir="ltr">/);
+  assert.match(english, /<q lang="ur" dir="rtl">انٹرنیٹ بار بار بند ہو جاتا ہے۔<\/q>/);
+  assert.match(romanUrdu, /Sirf simulation · live network ya customer data check nahin kiya gaya/);
+  assert.match(romanUrdu, /Network bhar ki shikayaton ki grouping · khayali demo/);
+  assert.match(romanUrdu, /is muqarrar demo mein minute/);
+  assert.match(romanUrdu, /Dastiyab nahin · live network data check nahin hua/);
+  assert.match(romanUrdu, /lang="ur" dir="rtl"/);
 });

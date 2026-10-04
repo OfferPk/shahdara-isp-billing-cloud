@@ -1,3 +1,5 @@
+import { renderSyntheticIncidentCorrelationDemo } from './network-incident-correlation.js';
+
 const MAX_COMPLAINT_LENGTH = 500;
 export const MAX_SYNTHETIC_IDENTIFIER_LENGTH = 120;
 export const MAX_RECENT_SIMULATIONS = 10;
@@ -474,7 +476,7 @@ export function mountNetworkDiagnosticsPanel(root, { t = (message) => message } 
   if (!root || root.id !== 'admin-network-diagnostics') return false;
   const content = root.querySelector('.network-diagnostics__content');
   if (!content) return false;
-  content.innerHTML = `${renderNetworkActionPolicyPreview(t)}${renderExperience(t)}`;
+  content.innerHTML = `${renderNetworkActionPolicyPreview(t)}${renderSyntheticIncidentCorrelationDemo(t)}${renderExperience(t)}`;
   const provider = new MockDiagnosticsProvider();
   const recentSimulationHistory = createRecentSimulationHistory();
   const form = content.querySelector('#network-diagnostics-form');
