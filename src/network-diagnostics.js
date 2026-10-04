@@ -1,10 +1,27 @@
 const MAX_COMPLAINT_LENGTH = 500;
+export const MAX_SYNTHETIC_IDENTIFIER_LENGTH = 120;
+
+export const SYNTHETIC_IDENTIFIER_TYPES = Object.freeze([
+  Object.freeze({ value: 'name', label: 'Synthetic display name or alias', placeholder: 'Example: Ali Khan or Ahmed Raza' }),
+  Object.freeze({ value: 'username', label: 'Simulated username', placeholder: 'Example: SIM-USER-ALI-A' }),
+  Object.freeze({ value: 'pppoeUsername', label: 'Simulated PPPoE username', placeholder: 'Example: SIM.PPPOE.ALI.A' }),
+  Object.freeze({ value: 'customerId', label: 'Synthetic customer ID', placeholder: 'Example: DEMO-CUSTOMER-001' }),
+  Object.freeze({ value: 'phonePlaceholder', label: 'Fake phone placeholder (not a phone number)', placeholder: 'Example: DEMO-PHONE-001-NOT-DIALABLE' }),
+  Object.freeze({ value: 'accountNumber', label: 'Synthetic account number', placeholder: 'Example: DEMO-ACCOUNT-001' }),
+]);
 
 export const MOCK_DIAGNOSTIC_FIXTURES = Object.freeze([
   Object.freeze({
     id: 'demo-ali-a',
     displayName: 'Ali Khan · Synthetic profile A',
     aliases: Object.freeze(['ali', 'ali khan', 'علی', 'علی خان']),
+    demoIdentifiers: Object.freeze({
+      username: 'SIM-USER-ALI-A',
+      pppoeUsername: 'SIM.PPPOE.ALI.A',
+      customerId: 'DEMO-CUSTOMER-001',
+      phonePlaceholder: 'DEMO-PHONE-001-NOT-DIALABLE',
+      accountNumber: 'DEMO-ACCOUNT-001',
+    }),
     fixtureLabel: 'DEMO-ALI-A',
     diagnosis: 'In this synthetic example, the PPPoE session is shown as disconnected. The fixture does not establish why.',
     findings: Object.freeze([
@@ -19,6 +36,13 @@ export const MOCK_DIAGNOSTIC_FIXTURES = Object.freeze([
     id: 'demo-ali-b',
     displayName: 'Ali Khan · Synthetic profile B',
     aliases: Object.freeze(['ali', 'ali khan', 'علی', 'علی خان']),
+    demoIdentifiers: Object.freeze({
+      username: 'SIM-USER-ALI-B',
+      pppoeUsername: 'SIM.PPPOE.ALI.B',
+      customerId: 'DEMO-CUSTOMER-002',
+      phonePlaceholder: 'DEMO-PHONE-002-NOT-DIALABLE',
+      accountNumber: 'DEMO-ACCOUNT-002',
+    }),
     fixtureLabel: 'DEMO-ALI-B',
     diagnosis: 'This synthetic profile shows a connected session and matching example speeds; the reported experience cannot be verified without live evidence.',
     findings: Object.freeze([
@@ -33,6 +57,13 @@ export const MOCK_DIAGNOSTIC_FIXTURES = Object.freeze([
     id: 'demo-ahmed-a',
     displayName: 'Ahmed Raza · Synthetic profile',
     aliases: Object.freeze(['ahmed', 'ahmed raza', 'احمد', 'احمد رضا']),
+    demoIdentifiers: Object.freeze({
+      username: 'SIM-USER-AHMED-A',
+      pppoeUsername: 'SIM.PPPOE.AHMED.A',
+      customerId: 'DEMO-CUSTOMER-003',
+      phonePlaceholder: 'DEMO-PHONE-003-NOT-DIALABLE',
+      accountNumber: 'DEMO-ACCOUNT-003',
+    }),
     fixtureLabel: 'DEMO-AHMED-A',
     diagnosis: 'In this synthetic example, the package is 20 Mbps while the example assigned speed profile is 5 Mbps. This is a fixture mismatch, not a finding about any real customer.',
     findings: Object.freeze([
@@ -47,10 +78,10 @@ export const MOCK_DIAGNOSTIC_FIXTURES = Object.freeze([
 ]);
 
 export const SIMULATION_EXAMPLES = Object.freeze([
-  Object.freeze({ id: 'roman-ali', label: 'Roman Urdu: Ali ka internet nahi chal raha', text: 'Ali ka internet nahi chal raha' }),
-  Object.freeze({ id: 'english-ahmed', label: "English: Ahmed's internet is slow", text: "Ahmed's internet is slow" }),
-  Object.freeze({ id: 'urdu-ahmed', label: 'Urdu: احمد کی رفتار سست ہے', text: 'احمد کی رفتار سست ہے' }),
-  Object.freeze({ id: 'unknown', label: 'Unknown synthetic name: Zara ka internet band hai', text: 'Zara ka internet band hai' }),
+  Object.freeze({ id: 'roman-ali', label: 'Roman Urdu: Ali ka internet nahi chal raha', identifierType: 'name', identifier: 'Ali Khan', complaint: 'Ali ka internet nahi chal raha' }),
+  Object.freeze({ id: 'english-ahmed', label: "English: Ahmed's internet is slow", identifierType: 'name', identifier: 'Ahmed Raza', complaint: "Ahmed's internet is slow" }),
+  Object.freeze({ id: 'urdu-ahmed', label: 'Urdu: احمد کی رفتار سست ہے', identifierType: 'name', identifier: 'احمد رضا', complaint: 'احمد کی رفتار سست ہے' }),
+  Object.freeze({ id: 'unknown', label: 'Unknown synthetic demo name: Zara ka internet band hai', identifierType: 'name', identifier: 'Zara', complaint: 'Zara ka internet band hai' }),
 ]);
 
 export const RISK_PREVIEW_POLICY = Object.freeze([
@@ -63,20 +94,35 @@ function normalizeText(value) {
   return String(value ?? '').normalize('NFKC').toLocaleLowerCase().replace(/[.,!?;:()\[\]{}"“”'’]/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
+function normalizeExactIdentifier(value) {
+  if (typeof value !== 'string' || value.length > MAX_SYNTHETIC_IDENTIFIER_LENGTH) return '';
+  return value.normalize('NFKC').trim().toLocaleLowerCase();
+}
+
+function selectableCandidate({ id, displayName }) {
+  return Object.freeze({ id, displayName });
+}
+
 export class MockDiagnosticsProvider {
   constructor() {
     this.mode = 'simulation';
     Object.freeze(this);
   }
 
-  searchSyntheticFixtures(complaint) {
-    const normalized = normalizeText(complaint);
-    if (!normalized) return [];
-    const words = new Set(normalized.split(' '));
-    return MOCK_DIAGNOSTIC_FIXTURES.filter((fixture) => fixture.aliases.some((alias) => {
-      const normalizedAlias = normalizeText(alias);
-      return normalized.includes(normalizedAlias) && (normalizedAlias.includes(' ') || words.has(normalizedAlias));
-    })).map(({ id, displayName }) => Object.freeze({ id, displayName }));
+  searchSyntheticFixturesByIdentifier(identifierType, identifier) {
+    const type = SYNTHETIC_IDENTIFIER_TYPES.find(({ value }) => value === identifierType);
+    const normalized = normalizeExactIdentifier(identifier);
+    if (!type || !normalized) return [];
+
+    if (type.value === 'name') {
+      return MOCK_DIAGNOSTIC_FIXTURES.filter((fixture) => [fixture.displayName, ...fixture.aliases]
+        .some((name) => normalizeText(name) === normalizeText(normalized)))
+        .map(selectableCandidate);
+    }
+
+    return MOCK_DIAGNOSTIC_FIXTURES.filter((fixture) => (
+      normalizeExactIdentifier(fixture.demoIdentifiers[type.value]) === normalized
+    )).map(selectableCandidate);
   }
 
   getSyntheticEvidence(fixtureId) {
@@ -140,7 +186,7 @@ export function renderSyntheticDiagnosticResult(result, t = (message) => message
     throw new TypeError('Only an explicitly simulated diagnostic result can be rendered.');
   }
   const findings = Array.isArray(result.findings) ? result.findings : [];
-  return `<article class="network-diagnostics__result" aria-labelledby="network-diagnostics-result-title"><p class="network-diagnostics__simulation-tag">${translated(t, 'SIMULATION ONLY · NOT LIVE NETWORK DATA')}</p><h3 id="network-diagnostics-result-title">${translated(t, 'Simulated diagnostic result')}</h3><p class="network-diagnostics__complaint"><strong>${translated(t, 'Complaint')}</strong>: ${escapeHtml(result.complaint)}</p><p class="network-diagnostics__diagnosis">${translated(t, result.diagnosis)}</p><ul class="network-diagnostics__findings" aria-label="${translated(t, 'Synthetic and unavailable diagnostic findings')}">${renderFindings(findings, t)}</ul><section class="network-diagnostics__recommendation" aria-labelledby="network-diagnostics-recommendation-title"><h4 id="network-diagnostics-recommendation-title">${translated(t, 'Recommendation')}</h4><p>${translated(t, result.recommendation)}</p></section><p class="network-diagnostics__not-fixed">${translated(t, 'No router or customer change was applied, and no service restoration was verified.')}</p><details class="network-diagnostics__technical"><summary>${translated(t, 'Technical details')}</summary><dl><div><dt>${translated(t, 'Evidence source')}</dt><dd>${translated(t, 'Local synthetic fixture')}</dd></div><div><dt>${translated(t, 'Fixture identifier')}</dt><dd>${escapeHtml(result.fixtureLabel)}</dd></div><div><dt>${translated(t, 'Live router response')}</dt><dd>${translated(t, 'Unavailable · no live device is connected')}</dd></div></dl><p>${translated(t, 'No shell, command execution, external AI, router API, or database lookup is available in this feature.')}</p></details>${renderRiskPreview(t)}</article>`;
+  return `<article class="network-diagnostics__result" aria-labelledby="network-diagnostics-result-title"><p class="network-diagnostics__simulation-tag">${translated(t, 'SIMULATION ONLY · NOT LIVE NETWORK DATA')}</p><h3 id="network-diagnostics-result-title">${translated(t, 'Simulated diagnostic result')}</h3><p class="network-diagnostics__complaint"><strong>${translated(t, 'Complaint')}</strong>: ${escapeHtml(result.complaint)}</p><p class="network-diagnostics__diagnosis">${translated(t, result.diagnosis)}</p><ul class="network-diagnostics__findings" aria-label="${translated(t, 'Synthetic and unavailable diagnostic findings')}">${renderFindings(findings, t)}</ul><section class="network-diagnostics__recommendation" aria-labelledby="network-diagnostics-recommendation-title"><h4 id="network-diagnostics-recommendation-title">${translated(t, 'Recommendation')}</h4><p>${translated(t, result.recommendation)}</p></section><p class="network-diagnostics__not-fixed">${translated(t, 'No router or customer change was applied, and no service restoration was verified.')}</p><details class="network-diagnostics__technical"><summary>${translated(t, 'Technical details')}</summary><dl><div><dt>${translated(t, 'Synthetic demo profile')}</dt><dd>${escapeHtml(result.displayName)}</dd></div><div><dt>${translated(t, 'Evidence source')}</dt><dd>${translated(t, 'Local synthetic fixture')}</dd></div><div><dt>${translated(t, 'Fixture identifier')}</dt><dd>${escapeHtml(result.fixtureLabel)}</dd></div><div><dt>${translated(t, 'Live router response')}</dt><dd>${translated(t, 'Unavailable · no live device is connected')}</dd></div></dl><p>${translated(t, 'No shell, command execution, external AI, router API, or database lookup is available in this feature.')}</p></details>${renderRiskPreview(t)}</article>`;
 }
 
 function renderCandidateList(candidates, t) {
@@ -155,8 +201,9 @@ function renderUnknownMatch(t) {
 }
 
 function renderExperience(t) {
+  const typeOptions = SYNTHETIC_IDENTIFIER_TYPES.map(({ value, label }) => `<option value="${escapeHtml(value)}">${translated(t, label)}</option>`).join('');
   const examples = SIMULATION_EXAMPLES.map(({ id, label }) => `<button class="button secondary network-diagnostics__example" type="button" data-synthetic-example="${escapeHtml(id)}">${translated(t, label)}</button>`).join('');
-  return `<div class="network-diagnostics__experience"><div class="network-diagnostics__examples" role="group" aria-label="${translated(t, 'Synthetic complaint examples')}">${examples}</div><form id="network-diagnostics-form" class="network-diagnostics__form"><label for="network-diagnostics-complaint">${translated(t, 'Describe a service complaint (English, Roman Urdu, or Urdu)')}</label><textarea id="network-diagnostics-complaint" name="complaint" maxlength="${MAX_COMPLAINT_LENGTH}" rows="3" aria-describedby="network-diagnostics-help" required></textarea><p id="network-diagnostics-help" class="muted">${translated(t, 'Complaint text is processed locally in this browser and is not saved or sent.')}</p><button class="button primary" type="submit">${translated(t, 'Run simulated check')}</button></form><p class="network-diagnostics__status" id="network-diagnostics-status" role="status" aria-live="polite" aria-atomic="true"></p><div id="network-diagnostics-results"></div></div>`;
+  return `<div class="network-diagnostics__experience"><div class="network-diagnostics__examples" role="group" aria-label="${translated(t, 'Synthetic complaint examples')}">${examples}</div><form id="network-diagnostics-form" class="network-diagnostics__form"><label for="network-diagnostics-identifier-type">${translated(t, 'Synthetic demo identifier type')}</label><select id="network-diagnostics-identifier-type" name="identifierType" required>${typeOptions}</select><label for="network-diagnostics-identifier">${translated(t, 'Synthetic demo identifier value')}</label><input id="network-diagnostics-identifier" name="identifier" type="text" maxlength="${MAX_SYNTHETIC_IDENTIFIER_LENGTH}" autocomplete="off" autocapitalize="none" spellcheck="false" aria-describedby="network-diagnostics-identifier-help" required><p id="network-diagnostics-identifier-help" class="muted">${translated(t, 'Use fictional demo values only. Never enter a real customer name, login, PPPoE credential, account number, or phone number. Inputs stay local and are not saved or sent.')}</p><label for="network-diagnostics-complaint">${translated(t, 'Describe a synthetic demo complaint (English, Roman Urdu, or Urdu)')}</label><textarea id="network-diagnostics-complaint" name="complaint" maxlength="${MAX_COMPLAINT_LENGTH}" rows="3" aria-describedby="network-diagnostics-help" required></textarea><p id="network-diagnostics-help" class="muted">${translated(t, 'Use a fictional demo complaint only. Complaint text is processed locally in this browser and is not saved or sent.')}</p><button class="button primary" type="submit">${translated(t, 'Run simulated check')}</button></form><p class="network-diagnostics__status" id="network-diagnostics-status" role="status" aria-live="polite" aria-atomic="true"></p><div id="network-diagnostics-results"></div></div>`;
 }
 
 export function mountNetworkDiagnosticsPanel(root, { t = (message) => message } = {}) {
@@ -166,20 +213,47 @@ export function mountNetworkDiagnosticsPanel(root, { t = (message) => message } 
   content.innerHTML = renderExperience(t);
   const provider = new MockDiagnosticsProvider();
   const form = content.querySelector('#network-diagnostics-form');
+  const identifierTypeInput = content.querySelector('#network-diagnostics-identifier-type');
+  const identifierInput = content.querySelector('#network-diagnostics-identifier');
   const complaintInput = content.querySelector('#network-diagnostics-complaint');
   const status = content.querySelector('#network-diagnostics-status');
   const results = content.querySelector('#network-diagnostics-results');
   let selectableFixtureIds = new Set();
   let latestComplaint = '';
 
+  function clearMatch() {
+    selectableFixtureIds = new Set();
+    latestComplaint = '';
+    results.replaceChildren();
+    status.textContent = '';
+  }
+
+  function updateIdentifierPlaceholder() {
+    const identifierType = SYNTHETIC_IDENTIFIER_TYPES.find(({ value }) => value === identifierTypeInput?.value);
+    if (identifierInput && identifierType) identifierInput.placeholder = translated(t, identifierType.placeholder);
+  }
+
+  identifierTypeInput?.addEventListener('change', () => {
+    updateIdentifierPlaceholder();
+    clearMatch();
+  });
+  for (const input of [identifierInput, complaintInput]) {
+    input?.addEventListener('input', clearMatch);
+  }
+  updateIdentifierPlaceholder();
+
   content.addEventListener('click', (event) => {
     const target = event.target instanceof Element ? event.target.closest('button') : null;
     if (!target) return;
     const example = SIMULATION_EXAMPLES.find(({ id }) => id === target.dataset.syntheticExample);
-    if (example && complaintInput) {
-      complaintInput.value = example.text;
-      complaintInput.focus();
+    if (example && identifierInput && complaintInput && identifierTypeInput) {
+      identifierTypeInput.value = example.identifierType;
+      updateIdentifierPlaceholder();
+      identifierInput.value = example.identifier;
+      complaintInput.value = example.complaint;
+      clearMatch();
       status.textContent = translated(t, 'Example added. Submit to run the local simulation.');
+      identifierInput.focus();
       return;
     }
     const fixtureId = target.dataset.syntheticFixture;
@@ -197,21 +271,24 @@ export function mountNetworkDiagnosticsPanel(root, { t = (message) => message } 
 
   form?.addEventListener('submit', (event) => {
     event.preventDefault();
+    const identifierType = String(identifierTypeInput?.value ?? '');
+    const identifier = String(identifierInput?.value ?? '').trim();
     const complaint = String(complaintInput?.value ?? '').trim();
     results.replaceChildren();
     selectableFixtureIds = new Set();
     latestComplaint = '';
-    if (!complaint || complaint.length > MAX_COMPLAINT_LENGTH) {
-      status.textContent = translated(t, 'Enter a complaint between 1 and 500 characters.');
+    if (!identifier || identifier.length > MAX_SYNTHETIC_IDENTIFIER_LENGTH
+        || !complaint || complaint.length > MAX_COMPLAINT_LENGTH) {
+      status.textContent = translated(t, 'Enter a synthetic demo identifier (1 to 120 characters) and a demo complaint (1 to 500 characters).');
       return;
     }
-    latestComplaint = complaint;
-    const candidates = provider.searchSyntheticFixtures(complaint);
+    const candidates = provider.searchSyntheticFixturesByIdentifier(identifierType, identifier);
     if (candidates.length === 0) {
       status.textContent = translated(t, 'No synthetic example matched; live customer lookup was not attempted.');
       results.innerHTML = renderUnknownMatch(t);
       return;
     }
+    latestComplaint = complaint;
     selectableFixtureIds = new Set(candidates.map(({ id }) => id));
     status.textContent = translated(t, 'Choose a synthetic demo profile to continue.');
     results.innerHTML = renderCandidateList(candidates, t);
