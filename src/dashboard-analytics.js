@@ -218,11 +218,11 @@ function chartCoordinate(pointIndex, pointCount) {
 }
 
 function renderTrendChart(series, t, formatMoney) {
-  if (series.view === 'month' && series.needsMoreMonths) {
-    return `<p class="dashboard-empty-state" role="status">${escapeHtml(t('A monthly trend needs recorded bill or receipt data in at least two months.'))}</p>`;
-  }
   if (!series.hasRecords) {
     return `<p class="dashboard-empty-state" role="status">${escapeHtml(t('No dated billing, receipt, or due-date records are available for this view.'))}</p>`;
+  }
+  if (series.view === 'month' && series.needsMoreMonths) {
+    return `<p class="dashboard-empty-state" role="status">${escapeHtml(t('A monthly trend needs recorded bill or receipt data in at least two months.'))}</p>`;
   }
   if (!series.points.some((point) => point.billedCents || point.collectedCents || point.pendingCents)) {
     return `<p class="dashboard-empty-state" role="status">${escapeHtml(t('No priced bill, receipt, or outstanding balance amounts are available for this view.'))}</p>`;
