@@ -68,10 +68,13 @@ test('billing and receipt collections use named semantic card lists instead of w
   assert.match(main, /<label for="admin-receipt-search">/);
   assert.match(main, /class="receipt-pagination" aria-label=/);
   assert.match(main, /id="admin-receipt-count" class="admin-receipt-count" role="status" aria-live="polite"/);
+  assert.match(main, /class="bill-pagination" aria-label=/);
+  assert.match(main, /data-bill-page="-1"/);
+  assert.match(main, /data-bill-page="1"/);
   assert.match(main, /id="admin-bill-count" class="bill-list-count" role="status" aria-live="\$\{billDrilldown \? 'off' : 'polite'\}"/);
   assert.match(main, /id="admin-bill-drilldown-message" role="status" aria-live="polite" aria-atomic="true"/);
   assert.match(main, /data-action="clear-dashboard-drilldown" data-target="admin-bills"/);
-  assert.match(main, /formatUiMessage\('Showing \{shown\} of \{matching\} matching bills; \{total\} total records\.'/);
+  assert.match(main, /formatUiMessage\('Showing \{shownStart\}–\{shownEnd\} of \{matching\} matching bills; \{total\} total records\.'/);
 });
 
 test('KPI detail text maintains WCAG AA contrast on the colorful Admin card tints', () => {

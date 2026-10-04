@@ -27,6 +27,7 @@ import {
   countAdminBillFilters,
   filterCollectionBillRows,
   filterAdminBillRows,
+  paginateAdminBillRows,
   renderAdminBillCards,
   renderPrintableReceiptHtml,
 } from './admin-bills.js';
@@ -147,6 +148,7 @@ if (!supabase) {
     cashflowThroughDate: '',
     billSearch: '',
     billStatus: 'all',
+    billPage: 1,
     receiptSearch: '',
     receiptPage: 1,
     customerBillingMonth: '',
@@ -310,6 +312,7 @@ if (!supabase) {
       pageState.customerAreaOpen = false;
       pageState.billSearch = '';
       pageState.billStatus = 'all';
+      pageState.billPage = 1;
     }
     if (pageState.context?.organizationId !== context.organizationId
       || pageState.context?.kind !== context.kind
@@ -844,6 +847,7 @@ if (!supabase) {
     if (current?.hash === nextRoute?.hash && current?.card === nextRoute?.card) return;
 
     pageState.dashboardDrilldown = nextRoute;
+    pageState.billPage = 1;
     if (nextRoute) {
       pageState.selectedMonth = nextRoute.period;
       pageState.billSearch = '';
@@ -885,6 +889,11 @@ if (!supabase) {
     portalPanel.querySelector(`#${headingId}`)?.focus({ preventScroll: true });
   }
 
+  function renderAdminBillPagination(page) {
+    if (page.pageCount <= 1) return `<nav id="admin-bill-pagination" hidden></nav>`;
+    return `<nav id="admin-bill-pagination" class="bill-pagination" aria-label="${escapeHtml(t('Bill list pages'))}"><button class="button secondary small" type="button" data-bill-page="-1" aria-label="${escapeHtml(t('Previous page'))}" ${page.page <= 1 ? 'disabled' : ''}>${escapeHtml(t('Previous page'))}</button><span class="bill-pagination__current" aria-live="polite">${escapeHtml(formatUiMessage('Page {page} of {pageCount}.', currentLanguage, { page: page.page, pageCount: page.pageCount }))}</span><button class="button secondary small" type="button" data-bill-page="1" aria-label="${escapeHtml(t('Next page'))}" ${page.page >= page.pageCount ? 'disabled' : ''}>${escapeHtml(t('Next page'))}</button></nav>`;
+  }
+
   function updateAdminBillResults() {
     const allBillRows = currentAdminBillRows();
     const drilldown = pageState.dashboardDrilldown?.target === 'admin-bills' ? pageState.dashboardDrilldown : null;
@@ -894,11 +903,15 @@ if (!supabase) {
     });
     const filteredRows = filterAdminBillRows(billRows, { search: pageState.billSearch, status: pageState.billStatus });
     const counts = countAdminBillFilters(billRows, { search: pageState.billSearch });
+    const page = paginateAdminBillRows(filteredRows, { page: pageState.billPage, pageSize: 10 });
+    pageState.billPage = page.page;
     const grid = portalPanel.querySelector('#admin-bill-card-grid');
     const count = portalPanel.querySelector('#admin-bill-count');
     if (count) count.setAttribute('aria-live', drilldown ? 'off' : 'polite');
-    if (grid) grid.innerHTML = renderAdminBillCards(filteredRows, formatMoney, t);
-    if (count) count.textContent = formatUiMessage('Showing {shown} of {matching} matching bills; {total} total records.', currentLanguage, { shown: Math.min(filteredRows.length, 100), matching: filteredRows.length, total: allBillRows.length });
+    if (grid) grid.innerHTML = renderAdminBillCards(page.items, formatMoney, t);
+    if (count) count.textContent = formatUiMessage('Showing {shownStart}–{shownEnd} of {matching} matching bills; {total} total records.', currentLanguage, { shownStart: page.start, shownEnd: page.end, matching: filteredRows.length, total: allBillRows.length });
+    const pagination = portalPanel.querySelector('#admin-bill-pagination');
+    if (pagination) pagination.outerHTML = renderAdminBillPagination(page);
     const summary = portalPanel.querySelector('#admin-bill-drilldown-summary');
     const summaryMessage = portalPanel.querySelector('#admin-bill-drilldown-message');
     if (summary && summaryMessage) {
@@ -1186,6 +1199,8 @@ if (!supabase) {
     });
     const billCounts = countAdminBillFilters(scopedAdminBillRows, { search: pageState.billSearch });
     const filteredAdminBillRows = filterAdminBillRows(scopedAdminBillRows, { search: pageState.billSearch, status: pageState.billStatus });
+    const initialBillPage = paginateAdminBillRows(filteredAdminBillRows, { page: pageState.billPage, pageSize: 10 });
+    pageState.billPage = initialBillPage.page;
     const customerListRows = buildCustomerListRows({
       customers,
       bills: rows.bills,
@@ -1336,8 +1351,9 @@ if (!supabase) {
           <button class="bill-filter-pill ${pageState.billStatus === 'paid' ? 'is-active' : ''}" type="button" data-bill-status="paid" aria-pressed="${pageState.billStatus === 'paid'}">${escapeHtml(t('Paid'))} (${billCounts.paid})</button>
         </div>
         <div id="admin-bill-drilldown-summary" class="filter-summary" ${billDrilldown ? '' : 'hidden'}><p id="admin-bill-drilldown-message" role="status" aria-live="polite" aria-atomic="true">${billDrilldown ? formatUiMessage(billDrilldown.scope === 'overdue' ? 'Showing overdue bills for {period}. {count} bills match. Past-due means an explicitly recorded due date before today and a positive remaining balance.' : 'Showing unpriced bills for {period}. {count} bills match. No bill amount is treated as zero.', currentLanguage, { period: billDrilldown.period, count: filteredAdminBillRows.length }) : ''}</p><button class="button secondary small" type="button" data-action="clear-dashboard-drilldown" data-target="admin-bills">${escapeHtml(t('Clear dashboard filter'))}</button></div>
-        <p id="admin-bill-count" class="bill-list-count" role="status" aria-live="${billDrilldown ? 'off' : 'polite'}">${formatUiMessage('Showing {shown} of {matching} matching bills; {total} total records.', currentLanguage, { shown: Math.min(filteredAdminBillRows.length, 100), matching: filteredAdminBillRows.length, total: adminBillRows.length })}</p>
-        <div id="admin-bill-card-grid" class="bill-card-grid">${renderAdminBillCards(filteredAdminBillRows, formatMoney, t)}</div>
+        <p id="admin-bill-count" class="bill-list-count" role="status" aria-live="${billDrilldown ? 'off' : 'polite'}">${formatUiMessage('Showing {shownStart}–{shownEnd} of {matching} matching bills; {total} total records.', currentLanguage, { shownStart: initialBillPage.start, shownEnd: initialBillPage.end, matching: filteredAdminBillRows.length, total: adminBillRows.length })}</p>
+        <div id="admin-bill-card-grid" class="bill-card-grid">${renderAdminBillCards(initialBillPage.items, formatMoney, t)}</div>
+        ${renderAdminBillPagination(initialBillPage)}
         <p class="muted">${escapeHtml(t('Summary cards above use the selected dashboard month: billed and pending follow bill periods, while collected follows actual receipt dates. Carry-forward credit reduces pending balances but is never counted as cash. WhatsApp opens a draft only; receipts can be printed only from existing receipt records.'))}</p>
       </section>
       <section id="admin-receipts" class="panel data-panel"><div class="section-heading"><div><p class="eyebrow">${escapeHtml(t('Dated cash entries'))}</p><h2>${escapeHtml(t('Receipts'))}</h2></div><span class="muted">${receipts.length} ${escapeHtml(t('actual receipts'))}</span></div>
@@ -1954,6 +1970,7 @@ if (!supabase) {
     billRoot?.addEventListener('input', (event) => {
       if (event.target.id !== 'admin-bill-search') return;
       pageState.billSearch = event.target.value;
+      pageState.billPage = 1;
       updateAdminBillResults();
     });
     billRoot?.addEventListener('click', (event) => {
@@ -1962,7 +1979,17 @@ if (!supabase) {
       const filterButton = target.closest('[data-bill-status]');
       if (filterButton) {
         pageState.billStatus = filterButton.dataset.billStatus;
+        pageState.billPage = 1;
         updateAdminBillResults();
+        return;
+      }
+      const pageButton = target.closest('[data-bill-page]');
+      if (pageButton) {
+        const direction = Number(pageButton.dataset.billPage);
+        pageState.billPage += direction;
+        updateAdminBillResults();
+        (billRoot.querySelector(`[data-bill-page="${direction}"]:not(:disabled)`)
+          ?? billRoot.querySelector('.bill-pagination button:not(:disabled)'))?.focus();
         return;
       }
       const clearFilter = target.closest('[data-action="clear-dashboard-drilldown"]');

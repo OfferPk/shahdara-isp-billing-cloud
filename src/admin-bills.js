@@ -108,6 +108,27 @@ export function countAdminBillFilters(rows, { search = '' } = {}) {
   };
 }
 
+export function paginateAdminBillRows(rows, { page = 1, pageSize = 10 } = {}) {
+  const safePageSize = Number.isSafeInteger(Number(pageSize)) && Number(pageSize) > 0
+    ? Math.floor(Number(pageSize))
+    : 10;
+  const pageCount = Math.max(1, Math.ceil(rows.length / safePageSize));
+  const requestedPage = Number.isSafeInteger(Number(page)) ? Number(page) : 1;
+  const currentPage = Math.min(pageCount, Math.max(1, requestedPage));
+  const startIndex = (currentPage - 1) * safePageSize;
+  const endIndex = Math.min(rows.length, startIndex + safePageSize);
+
+  return {
+    items: rows.slice(startIndex, endIndex),
+    page: currentPage,
+    pageSize: safePageSize,
+    pageCount,
+    total: rows.length,
+    start: rows.length ? startIndex + 1 : 0,
+    end: endIndex,
+  };
+}
+
 function whatsappDigits(phone) {
   const digits = digitsOnly(phone);
   if (/^03\d{9}$/.test(digits)) return `92${digits.slice(1)}`;
@@ -135,7 +156,7 @@ export function buildWhatsappReminderHref(row, formatMoney, t = (value) => value
 
 export function renderAdminBillCards(rows, formatMoney, t = (value) => value) {
   if (!rows.length) return `<p class="bill-card-empty" role="status">${escapeHtml(t('No bills match this search and status filter.'))}</p>`;
-  return rows.slice(0, 100).map((row) => {
+  return rows.map((row) => {
     const billId = escapeHtml(row.bill.id);
     const customerName = escapeHtml(row.customerName || t('Customer'));
     const period = escapeHtml(row.period || t('Period not recorded'));

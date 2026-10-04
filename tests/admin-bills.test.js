@@ -7,10 +7,12 @@ import {
   countAdminBillFilters,
   filterCollectionBillRows,
   filterAdminBillRows,
+  paginateAdminBillRows,
   renderAdminBillCards,
   renderPrintableReceiptHtml,
 } from '../src/admin-bills.js';
 import { formatMoney } from '../src/ledger.js';
+import { formatUiMessage, translateUi } from '../src/language.js';
 
 function syntheticRows() {
   return buildAdminBillRows({
@@ -80,6 +82,40 @@ test('Admin bill search supports customer name and Admin-only phone, and status 
   assert.deepEqual(filterAdminBillRows(rows, { search: '+923111234567', status: 'paid' }).map((row) => row.bill.id), ['bill-paid']);
   assert.deepEqual(countAdminBillFilters(rows), { all: 4, unpaid: 2, paid: 1 });
   assert.deepEqual(countAdminBillFilters(rows, { search: 'Amina' }), { all: 1, unpaid: 1, paid: 0 });
+});
+
+test('Admin bill pagination returns stable pages, clamps requests, and keeps every record reachable', () => {
+  const bills = Array.from({ length: 23 }, (_entry, index) => ({ id: `bill-${index + 1}` }));
+  const second = paginateAdminBillRows(bills, { page: 2 });
+  assert.deepEqual(second.items.map((bill) => bill.id), Array.from({ length: 10 }, (_entry, index) => `bill-${index + 11}`));
+  assert.deepEqual({ page: second.page, pageCount: second.pageCount, total: second.total, start: second.start, end: second.end }, {
+    page: 2, pageCount: 3, total: 23, start: 11, end: 20,
+  });
+  const last = paginateAdminBillRows(bills, { page: 99 });
+  assert.equal(last.page, 3);
+  assert.deepEqual(last.items.map((bill) => bill.id), ['bill-21', 'bill-22', 'bill-23']);
+  assert.equal(paginateAdminBillRows(bills, { page: -3 }).page, 1);
+  assert.deepEqual(paginateAdminBillRows([]), {
+    items: [], page: 1, pageSize: 10, pageCount: 1, total: 0, start: 0, end: 0,
+  });
+
+  const row = syntheticRows()[0];
+  const moreThanOneHundred = Array.from({ length: 101 }, (_entry, index) => ({
+    ...row,
+    bill: { ...row.bill, id: `bill-${index + 1}` },
+    receipts: [],
+  }));
+  assert.equal((renderAdminBillCards(moreThanOneHundred, formatMoney).match(/<article class="bill-card">/g) ?? []).length, 101);
+});
+
+test('bill visible-range and page labels have Roman Urdu translations', () => {
+  assert.equal(
+    formatUiMessage('Showing {shownStart}–{shownEnd} of {matching} matching bills; {total} total records.', 'ur-Latn', {
+      shownStart: 11, shownEnd: 20, matching: 23, total: 145,
+    }),
+    'Kul 145 records mein se 23 mutabiq bills mein 11–20 dikhaye ja rahe hain.',
+  );
+  assert.equal(translateUi('Bill list pages', 'ur-Latn'), 'Bill list ke safhay');
 });
 
 test('collection drill-down is selected-period-only and excludes due-today, missing-date, paid, and unpriced bills from overdue', () => {

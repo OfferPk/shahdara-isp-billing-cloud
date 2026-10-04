@@ -324,9 +324,9 @@ td { color: #25433b; }
 }
 
 @media (max-width: 600px) {
-  .receipt-pagination { gap: 6px; }
-  .receipt-pagination button { min-width: 0; flex: 1; padding-right: 10px; padding-left: 10px; }
-  .receipt-pagination__current { min-width: 90px; }
+  .receipt-pagination, .bill-pagination { gap: 6px; }
+  .receipt-pagination button, .bill-pagination button { min-width: 0; flex: 1; padding-right: 10px; padding-left: 10px; }
+  .receipt-pagination__current, .bill-pagination__current { min-width: 90px; }
 }
 
 
@@ -349,9 +349,9 @@ td { color: #25433b; }
 .admin-receipt-search { display: grid; max-width: 680px; gap: 6px; margin: 14px 0 10px; }
 .admin-receipt-search input { min-height: 48px; border-radius: 13px; }
 .admin-receipt-count { min-height: 20px; margin: 10px 0 13px; color: var(--muted); font-size: 12px; }
-.receipt-pagination { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 14px 0 2px; }
-.receipt-pagination button { min-width: 112px; }
-.receipt-pagination__current { min-width: 110px; color: var(--muted); font-size: 12px; font-weight: 700; text-align: center; }
+.receipt-pagination, .bill-pagination { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 14px 0 2px; }
+.receipt-pagination button, .bill-pagination button { min-width: 112px; }
+.receipt-pagination__current, .bill-pagination__current { min-width: 110px; color: var(--muted); font-size: 12px; font-weight: 700; text-align: center; }
 .bill-card-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; }
 .bill-card { min-width: 0; overflow: hidden; border: 1px solid #dfe9e3; border-radius: 16px; background: linear-gradient(145deg, #fff, #f9fcfa); box-shadow: 0 8px 22px rgba(24, 54, 45, .045); }
 .bill-card__top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 17px 17px 0; }
