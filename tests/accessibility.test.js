@@ -107,6 +107,17 @@ test('keyboard focus, reduced motion and small-phone layout remain explicit', ()
   assert.match(styles, /\.customer-filter-pill \{ min-height: 44px;/);
 });
 
+test('cashflow reconciliation is announced as a note and distinguishes list filters from the selected-period summary', () => {
+  assert.match(main, /class="cashflow-reconciliation" role="note"/);
+  assert.match(main, /Selected-period cashflow reconciliation: cash receipts \{income\}.*net cashflow \{net\}/);
+  for (const key of ['incomePaisa', 'operatingCostsPaisa', 'operatingProfitPaisa', 'partnerDistributionsPaisa', 'netCashflowPaisa']) {
+    assert.ok(main.includes(`formatMoney(totals.${key})`), `reconciliation uses the existing ${key} total`);
+  }
+  assert.match(main, /History search and date filters only narrow this list; they do not change the selected-period cashflow summary above\./);
+  assert.match(styles, /\.cashflow-reconciliation \{[^}]*overflow-wrap: anywhere;/);
+  assert.match(styles, /\.cashflow-filter-scope \{ margin: 0 0 12px;/);
+});
+
 test('customer usage meter is responsive, accessible, color-coded, and keeps status text at WCAG AA contrast', async () => {
   const usageUi = await readFile(new URL('../src/customer-usage.js', import.meta.url), 'utf8');
   assert.match(usageUi, /role="progressbar" aria-label=/);
