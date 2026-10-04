@@ -92,10 +92,15 @@ export function getCustomerAreaOptions(rows) {
   return options;
 }
 
-export function filterCustomerRows(rows, { search = '', status = 'all', area = '' } = {}) {
+export function filterCustomerRows(rows, { search = '', status = 'all', area = '', serviceStatus = 'all' } = {}) {
   const query = normalizeText(search);
   const queryDigits = digitsOnly(search);
   return rows.filter((row) => {
+    const archived = row.customer.archived === true;
+    if (serviceStatus === 'archived' && !archived) return false;
+    if (serviceStatus === 'active' && (archived || row.customer.service_status !== 'active')) return false;
+    if (serviceStatus === 'offline' && (archived || row.customer.service_status !== 'offline')) return false;
+    if (serviceStatus === 'not-set' && (archived || ['active', 'offline'].includes(row.customer.service_status))) return false;
     if (status === 'paid' && row.billing.status !== 'paid') return false;
     if (status === 'unpaid' && row.billing.status !== 'unpaid') return false;
     if (area === NO_AREA_VALUE && row.area) return false;

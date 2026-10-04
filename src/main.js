@@ -6,6 +6,7 @@ import { getBillingCycleQuickDate, isValidBillingMonth, localDateString, localMo
 import { amountToMinorUnits, calculateDashboard, formatMoney } from './ledger.js';
 import { CASHFLOW_CATEGORIES, filterCashflowExpenses, summarizeCashflow } from './cashflow.js';
 import { renderDashboardMetrics } from './dashboard-metrics.js';
+import { buildDashboardTrendSeries } from './dashboard-trend.js';
 import {
   buildCustomerListRows,
   filterCustomerRows,
@@ -33,7 +34,7 @@ import {
   renderPrintableReceiptHtml,
 } from './admin-bills.js';
 import { filterAdminReceiptRows, paginateAdminReceiptRows, renderAdminReceiptCards } from './admin-receipts.js';
-import { parseDashboardDrilldownHash } from './dashboard-drilldown.js';
+import { createDashboardDrilldown, parseDashboardDrilldownHash } from './dashboard-drilldown.js';
 import {
   countAdminIncidentFilters,
   filterAdminIncidentRows,
@@ -153,6 +154,7 @@ if (!supabase) {
     loadingUserId: null,
     customerListSearch: '',
     customerListStatus: 'all',
+    customerListServiceStatus: 'all',
     customerListArea: '',
     customerListSort: 'account-number',
     customerListPage: 1,
@@ -169,6 +171,7 @@ if (!supabase) {
     incidentSearch: '',
     incidentStatus: 'all',
     incidentDrafts: new Map(),
+    dashboardTrendView: 'month',
     customerBillingMonth: '',
     customerReceiptFrom: '',
     customerReceiptThrough: '',
@@ -176,6 +179,46 @@ if (!supabase) {
   };
   let pendingReceiptAttempt = null;
   const pendingFinancialAttempts = new Map();
+  const dashboardControlRoots = new WeakSet();
+  let dashboardAnalyticsModulePromise = null;
+  let dashboardAnalyticsRenderGeneration = 0;
+
+  function loadDashboardAnalyticsModule() {
+    if (!dashboardAnalyticsModulePromise) {
+      dashboardAnalyticsModulePromise = import('./dashboard-analytics.js').catch((error) => {
+        dashboardAnalyticsModulePromise = null;
+        throw error;
+      });
+    }
+    return dashboardAnalyticsModulePromise;
+  }
+
+  function requestDashboardAnalytics() {
+    const section = portalPanel.querySelector('#admin-dashboard-analytics');
+    const props = pageState.dashboardAnalyticsProps;
+    const generation = pageState.dashboardAnalyticsRenderGeneration;
+    if (!section || !props || section.dataset.analyticsLoaded === 'true' || section.dataset.analyticsLoading === 'true') return;
+    section.dataset.analyticsLoading = 'true';
+    section.setAttribute('aria-busy', 'true');
+    loadDashboardAnalyticsModule().then(({ renderDashboardAnalytics }) => {
+      if (generation !== pageState.dashboardAnalyticsRenderGeneration || pageState.context?.kind !== 'admin') return;
+      const currentSection = portalPanel.querySelector('#admin-dashboard-analytics');
+      if (!currentSection || currentSection !== section) return;
+      const template = document.createElement('template');
+      template.innerHTML = renderDashboardAnalytics(pageState.dashboardAnalyticsProps ?? props);
+      const replacement = template.content.querySelector('#admin-dashboard-analytics');
+      if (!replacement) throw new Error('Dashboard analytics section was not rendered.');
+      replacement.dataset.analyticsLoaded = 'true';
+      currentSection.replaceWith(replacement);
+    }).catch(() => {
+      if (generation !== pageState.dashboardAnalyticsRenderGeneration) return;
+      const currentSection = portalPanel.querySelector('#admin-dashboard-analytics');
+      if (!currentSection) return;
+      const errorTemplate = document.createElement('template');
+      errorTemplate.innerHTML = `<section id="admin-dashboard-analytics" class="panel data-panel dashboard-analytics" aria-labelledby="admin-dashboard-analytics-title"><div class="section-heading"><div><p class="eyebrow">${escapeHtml(t('Analytics'))}</p><h2 id="admin-dashboard-analytics-title">${escapeHtml(t('Billing and customer insights'))}</h2></div></div><div class="dashboard-analytics-loading dashboard-analytics-loading--error"><p role="alert">${escapeHtml(t('Dashboard analytics could not be loaded.'))}</p><button class="button secondary" type="button" data-action="retry-dashboard-analytics">${escapeHtml(t('Retry'))}</button></div></section>`;
+      currentSection.replaceWith(errorTemplate.content.querySelector('#admin-dashboard-analytics'));
+    });
+  }
 
   function receiptAttemptKey(context) {
     return `shahdara-cloud-receipt-attempt:${pageState.user?.id ?? 'signed-out'}:${context.organizationId}`;
@@ -241,6 +284,13 @@ if (!supabase) {
 
   function localDate(date = new Date()) {
     return localDateString(date);
+  }
+
+  function shiftBillingMonth(month, offset) {
+    if (!isValidBillingMonth(month) || !Number.isInteger(offset)) return '';
+    const [year, monthNumber] = month.split('-').map(Number);
+    const shifted = new Date(year, monthNumber - 1 + offset, 1, 12);
+    return `${shifted.getFullYear()}-${String(shifted.getMonth() + 1).padStart(2, '0')}`;
   }
 
   function incidentTimestamp(value, label) {
@@ -655,6 +705,7 @@ if (!supabase) {
       search: pageState.customerListSearch,
       status: pageState.customerListStatus,
       area: pageState.customerListArea,
+      serviceStatus: pageState.customerListServiceStatus,
     });
     const sortedRows = sortCustomerRows(filteredRows, pageState.customerListSort);
     const page = paginateCustomerRows(sortedRows, { page: pageState.customerListPage, pageSize: 10 });
@@ -687,6 +738,11 @@ if (!supabase) {
     }
     for (const button of portalPanel.querySelectorAll('[data-billing-filter]')) {
       const selected = button.dataset.billingFilter === pageState.customerListStatus;
+      button.setAttribute('aria-pressed', String(selected));
+      button.classList.toggle('is-active', selected);
+    }
+    for (const button of portalPanel.querySelectorAll('[data-service-status]')) {
+      const selected = button.dataset.serviceStatus === pageState.customerListServiceStatus;
       button.setAttribute('aria-pressed', String(selected));
       button.classList.toggle('is-active', selected);
     }
@@ -873,6 +929,8 @@ if (!supabase) {
   function getAdminBillDrilldownMessage(drilldown, count) {
     if (!drilldown) return '';
     const messages = {
+      paid: 'Showing paid bills for {period}. {count} bills match. Paid means the recorded priced balance is zero after allocations.',
+      pending: 'Showing current pending bills for {period}. {count} bills match. These priced bills have a positive balance and are not overdue; missing or future due dates remain pending.',
       unpaid: 'Showing unpaid bills for {period}. {count} bills match. Unpaid means a priced bill with a positive remaining balance; missing or future due dates are not overdue.',
       overdue: 'Showing overdue bills for {period}. {count} bills match. Past-due means an explicitly recorded due date before today and a positive remaining balance.',
       unpriced: 'Showing unpriced bills for {period}. {count} bills match. No bill amount is treated as zero.',
@@ -886,6 +944,8 @@ if (!supabase) {
     const headingId = route.target === 'admin-bills' ? 'admin-bills-title' : 'customer-list-title';
     const section = portalPanel.querySelector(`#${sectionId}`);
     const heading = portalPanel.querySelector(`#${headingId}`);
+    const featureToggle = section?.querySelector('[data-feature-toggle-button]');
+    if (featureToggle?.getAttribute('aria-expanded') === 'false') featureToggle.click();
     const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     section?.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'start' });
     heading?.focus({ preventScroll: true });
@@ -894,7 +954,10 @@ if (!supabase) {
   function applyDashboardDrilldown(route, { focus = false } = {}) {
     const nextRoute = pageState.context?.kind === 'admin' && pageState.rows && route ? route : null;
     const current = pageState.dashboardDrilldown;
-    if (current?.hash === nextRoute?.hash && current?.card === nextRoute?.card) return;
+    if (current?.hash === nextRoute?.hash && current?.card === nextRoute?.card) {
+      if (focus && nextRoute) focusDashboardDrilldown(nextRoute);
+      return;
+    }
 
     pageState.dashboardDrilldown = nextRoute;
     pageState.customerListPage = 1;
@@ -904,6 +967,7 @@ if (!supabase) {
       pageState.billStatus = 'all';
       pageState.customerListSearch = '';
       pageState.customerListStatus = 'all';
+      pageState.customerListServiceStatus = 'all';
       pageState.customerListArea = '';
       pageState.customerAreaOpen = false;
       const monthInput = portalPanel.querySelector('#dashboard-month');
@@ -929,6 +993,153 @@ if (!supabase) {
       history.pushState({ ...(history.state ?? {}), dashboardDrilldown: route }, '', route.hash);
       applyDashboardDrilldown(route, { focus: true });
     }));
+  }
+
+  function bindDashboardControls(context) {
+    if (context.kind !== 'admin') return;
+    if (dashboardControlRoots.has(portalPanel)) return;
+    dashboardControlRoots.add(portalPanel);
+    const closeQuickMenu = (restoreFocus = false) => {
+      const quickMenu = portalPanel.querySelector('#customer-fab-options');
+      const quickButton = portalPanel.querySelector('[data-action="toggle-dashboard-quick-actions"]');
+      if (!quickMenu || !quickButton) return;
+      quickMenu.hidden = true;
+      quickButton.setAttribute('aria-expanded', 'false');
+      if (restoreFocus) quickButton.focus({ preventScroll: true });
+    };
+    const focusQuickTarget = (action) => {
+      if (action === 'search') {
+        const search = portalPanel.querySelector('#customer-search');
+        search?.scrollIntoView({ behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'center' });
+        search?.focus({ preventScroll: true });
+        return;
+      }
+      if (action === 'reports') {
+        const section = portalPanel.querySelector('#admin-cashflow');
+        const featureToggle = section?.querySelector('[data-feature-toggle-button]');
+        if (featureToggle?.getAttribute('aria-expanded') === 'false') featureToggle.click();
+        section?.scrollIntoView({ behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
+        section?.querySelector('#admin-cashflow-title')?.focus({ preventScroll: true });
+        return;
+      }
+      if (action === 'unpaid' || action === 'overdue') {
+        const route = createDashboardDrilldown(action, pageState.selectedMonth);
+        if (!route) return;
+        history.pushState({ ...(history.state ?? {}), dashboardDrilldown: route }, '', route.hash);
+        applyDashboardDrilldown(route, { focus: true });
+        return;
+      }
+      const selector = action === 'customer' ? '#customer-form'
+        : action === 'bill' ? '#bill-form'
+          : action === 'receipt' ? '#receipt-form' : '';
+      const form = selector ? portalPanel.querySelector(selector) : null;
+      if (!form) return;
+      form.scrollIntoView({ behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'center' });
+      const control = action === 'customer' ? form.elements.customer_number
+        : action === 'bill' ? form.elements.customer_id
+          : form.elements.customer_id;
+      control?.focus({ preventScroll: true });
+    };
+
+    portalPanel.addEventListener('click', (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (!target) return;
+      const quickMenu = portalPanel.querySelector('#customer-fab-options');
+
+      const analyticsToggle = target.closest('[data-feature-toggle-button]');
+      if (analyticsToggle?.parentElement?.id === 'admin-dashboard-analytics'
+        && analyticsToggle.getAttribute('aria-expanded') === 'true') requestDashboardAnalytics();
+      if (target.closest('[data-action="retry-dashboard-analytics"]')) {
+        requestDashboardAnalytics();
+        return;
+      }
+
+      const monthShortcut = target.closest('[data-dashboard-month-target]');
+      if (monthShortcut) {
+        const kind = monthShortcut.dataset.dashboardMonthTarget;
+        const current = localMonth();
+        const targetMonth = kind === 'current' ? current
+          : kind === 'last' ? shiftBillingMonth(current, -1)
+            : kind === 'previous' ? shiftBillingMonth(pageState.selectedMonth, -1)
+              : kind === 'next' ? shiftBillingMonth(pageState.selectedMonth, 1) : '';
+        const monthInput = portalPanel.querySelector('#dashboard-month');
+        if (!targetMonth || !monthInput || (kind === 'next' && targetMonth > current)) return;
+        monthInput.value = targetMonth;
+        monthInput.dispatchEvent(new Event('change', { bubbles: true }));
+        return;
+      }
+
+      const trendButton = target.closest('[data-dashboard-trend-view]');
+      if (trendButton) {
+        const view = trendButton.dataset.dashboardTrendView;
+        if (!['day', 'week', 'month'].includes(view) || !pageState.dashboardAnalyticsProps) return;
+        pageState.dashboardTrendView = view;
+        pageState.dashboardAnalyticsProps = { ...pageState.dashboardAnalyticsProps, trendView: view };
+        const requestedProps = pageState.dashboardAnalyticsProps;
+        const generation = pageState.dashboardAnalyticsRenderGeneration;
+        loadDashboardAnalyticsModule().then(({ renderDashboardAnalytics }) => {
+          if (generation !== pageState.dashboardAnalyticsRenderGeneration || pageState.dashboardAnalyticsProps !== requestedProps) return;
+          const template = document.createElement('template');
+          template.innerHTML = renderDashboardAnalytics(requestedProps);
+          const replacement = template.content.querySelector('.dashboard-trend-card');
+          const currentCard = portalPanel.querySelector('#admin-dashboard-analytics .dashboard-trend-card');
+          if (!replacement || !currentCard) return;
+          currentCard.replaceWith(replacement);
+          replacement.querySelector(`[data-dashboard-trend-view="${view}"]`)?.focus({ preventScroll: true });
+        }).catch(() => announceApp(t('Dashboard analytics could not be loaded.')));
+        return;
+      }
+
+      const serviceStatusButton = target.closest('[data-dashboard-service-status]');
+      if (serviceStatusButton) {
+        const serviceStatus = serviceStatusButton.dataset.dashboardServiceStatus;
+        if (!['active', 'offline', 'not-set', 'archived'].includes(serviceStatus)) return;
+        if (pageState.dashboardDrilldown?.target === 'customer-list') {
+          pageState.dashboardDrilldown = null;
+          history.replaceState({ ...(history.state ?? {}), dashboardDrilldown: null }, '', '#customer-list');
+        }
+        pageState.customerListSearch = '';
+        pageState.customerListStatus = 'all';
+        pageState.customerListServiceStatus = serviceStatus;
+        pageState.customerListArea = '';
+        pageState.customerAreaOpen = false;
+        pageState.customerListPage = 1;
+        const search = portalPanel.querySelector('#customer-search');
+        if (search) search.value = '';
+        updateCustomerListResults();
+        focusDashboardDrilldown({ target: 'customer-list' });
+        return;
+      }
+
+      const customerProfile = target.closest('[data-dashboard-customer-id]');
+      if (customerProfile) {
+        openCustomerProfile(customerProfile.dataset.dashboardCustomerId);
+        return;
+      }
+
+      const toggleQuickMenu = target.closest('[data-action="toggle-dashboard-quick-actions"]');
+      if (toggleQuickMenu) {
+        const opening = quickMenu?.hidden === true;
+        if (quickMenu) quickMenu.hidden = !opening;
+        toggleQuickMenu.setAttribute('aria-expanded', String(opening));
+        if (opening) quickMenu?.querySelector('button')?.focus({ preventScroll: true });
+        return;
+      }
+
+      const quickAction = target.closest('[data-dashboard-quick-action]');
+      if (quickAction) {
+        const action = quickAction.dataset.dashboardQuickAction;
+        closeQuickMenu(true);
+        focusQuickTarget(action);
+        return;
+      }
+
+      if (quickMenu && !quickMenu.hidden && !target.closest('#customer-fab-menu')) closeQuickMenu();
+    });
+    portalPanel.addEventListener('keydown', (event) => {
+      const quickMenu = portalPanel.querySelector('#customer-fab-options');
+      if (event.key === 'Escape' && quickMenu && !quickMenu.hidden) closeQuickMenu(true);
+    });
   }
 
   function clearDashboardDrilldown(target) {
@@ -1210,6 +1421,8 @@ if (!supabase) {
   }
 
   function renderAdmin() {
+    const renderGeneration = ++dashboardAnalyticsRenderGeneration;
+    pageState.dashboardAnalyticsRenderGeneration = renderGeneration;
     const context = pageState.context;
     const rows = pageState.rows;
     const dashboardToday = localDate();
@@ -1221,6 +1434,19 @@ if (!supabase) {
       receipts: rows.receipts,
       allocations: rows.allocations,
     });
+    const previousMonth = shiftBillingMonth(pageState.selectedMonth, -1);
+    const hasPreviousMonthRecords = Boolean(previousMonth) && (
+      rows.bills.some((bill) => String(bill.period ?? '').slice(0, 7) === previousMonth)
+      || rows.receipts.some((receipt) => String(receipt.received_on ?? '').slice(0, 7) === previousMonth)
+    );
+    const previousTotals = hasPreviousMonthRecords ? calculateDashboard({
+      month: previousMonth,
+      today: dashboardToday,
+      customers: rows.customers,
+      bills: rows.bills,
+      receipts: rows.receipts,
+      allocations: rows.allocations,
+    }) : null;
     const customers = [...rows.customers].sort((a, b) => a.customer_number - b.customer_number);
     const bills = [...rows.bills].sort((a, b) => String(b.period).localeCompare(String(a.period)));
     const receipts = [...rows.receipts].sort((a, b) => String(b.received_on).localeCompare(String(a.received_on)));
@@ -1248,6 +1474,15 @@ if (!supabase) {
       privateDetails: rows.privateCustomerDetails,
       currentMonth: localMonth(),
     });
+    const dashboardTrendSeries = buildDashboardTrendSeries({
+      month: pageState.selectedMonth,
+      today: dashboardToday,
+      bills: rows.bills,
+      receipts: rows.receipts,
+      allocations: rows.allocations,
+      billRows: adminBillRows,
+      view: 'month',
+    });
     const customerSummary = summarizeCustomerRows(customerListRows);
     const customerDrilldown = pageState.dashboardDrilldown?.target === 'customer-list' ? pageState.dashboardDrilldown : null;
     const scopedCustomerListRows = customerDrilldown
@@ -1257,6 +1492,7 @@ if (!supabase) {
       search: pageState.customerListSearch,
       status: pageState.customerListStatus,
       area: pageState.customerListArea,
+      serviceStatus: pageState.customerListServiceStatus,
     });
     const initialCustomerPage = paginateCustomerRows(
       sortCustomerRows(filteredCustomerRows, pageState.customerListSort),
@@ -1288,12 +1524,32 @@ if (!supabase) {
       emptyMessage: incidents.length ? t('No incidents match these filters.') : t('No service incidents are recorded yet.'),
       t,
     });
+    const dashboardAnalyticsProps = {
+      month: pageState.selectedMonth,
+      today: dashboardToday,
+      now: new Date(),
+      totals,
+      customers,
+      bills: rows.bills,
+      receipts: rows.receipts,
+      allocations: rows.allocations,
+      billRows: adminBillRows,
+      customerRows: customerListRows,
+      incidents: rows.incidents,
+      trendView: pageState.dashboardTrendView,
+      trendSeries: dashboardTrendSeries,
+      t,
+      formatMoney,
+    };
+    pageState.dashboardAnalyticsProps = dashboardAnalyticsProps;
+    const dashboardAnalyticsMarkup = `<section id="admin-dashboard-analytics" class="panel data-panel dashboard-analytics" aria-labelledby="admin-dashboard-analytics-title"><div class="section-heading"><div><p class="eyebrow">${escapeHtml(t('Analytics'))}</p><h2 id="admin-dashboard-analytics-title">${escapeHtml(t('Billing and customer insights'))}</h2></div></div><p class="dashboard-analytics-loading" role="status">${escapeHtml(t('Expand this panel to load detailed analytics.'))}</p></section>`;
 
     portalPanel.innerHTML = `${shellHeader(t('Administrator portal'))}
       ${renderPortalNavigation('admin')}
       ${brandingSettingsHtml()}
-      ${renderDashboardMetrics({ month: pageState.selectedMonth, today: dashboardToday, totals, t })}
-      <section class="panel month-panel"><label for="dashboard-month">${escapeHtml(t('Dashboard month'))}</label><input type="month" id="dashboard-month" value="${escapeHtml(pageState.selectedMonth)}"><p class="muted">${escapeHtml(t('Cash totals follow receipt dates. Credit allocation is shown separately and is never counted as another payment.'))}</p></section>
+      ${renderDashboardMetrics({ month: pageState.selectedMonth, today: dashboardToday, totals, previousTotals, trendSeries: dashboardTrendSeries, t })}
+      <section class="panel month-panel" data-feature-key="admin-month-controls" data-feature-default-expanded="true"><div class="month-panel__row"><label for="dashboard-month">${escapeHtml(t('Dashboard month'))}<input type="month" id="dashboard-month" value="${escapeHtml(pageState.selectedMonth)}"></label><div class="dashboard-month-shortcuts" role="group" aria-label="${escapeHtml(t('Dashboard month shortcuts'))}"><button class="button secondary small" type="button" data-dashboard-month-target="previous">${escapeHtml(t('Previous month'))}</button><button class="button secondary small" type="button" data-dashboard-month-target="current">${escapeHtml(t('This month'))}</button><button class="button secondary small" type="button" data-dashboard-month-target="last">${escapeHtml(t('Last month'))}</button><button class="button secondary small" type="button" data-dashboard-month-target="next" ${pageState.selectedMonth >= localMonth() ? 'disabled' : ''}>${escapeHtml(t('Next month'))}</button></div></div><p class="muted">${escapeHtml(t('Cash totals follow receipt dates. Credit allocation is shown separately and is never counted as another payment.'))}</p></section>
+      ${dashboardAnalyticsMarkup}
       <div class="admin-grid">
         <section class="panel"><p class="eyebrow">${escapeHtml(t('Customer records'))}</p><h2>${escapeHtml(t('Add customer'))}</h2>
           <form id="customer-form" class="form-grid">
@@ -1347,7 +1603,7 @@ if (!supabase) {
         </section>
       </div>
       <section id="admin-cashflow" class="panel data-panel cashflow-panel" data-feature-toggle data-feature-key="admin-cashflow" data-feature-name="${escapeHtml(t('Cashflow and expense tracking'))}" aria-labelledby="admin-cashflow-title">
-        <div class="section-heading"><div><p class="eyebrow">${escapeHtml(t('Owner / Admin only'))}</p><h2 id="admin-cashflow-title">${escapeHtml(t('Cashflow and expense tracking'))}</h2></div></div>
+        <div class="section-heading"><div><p class="eyebrow">${escapeHtml(t('Owner / Admin only'))}</p><h2 id="admin-cashflow-title" tabindex="-1">${escapeHtml(t('Cashflow and expense tracking'))}</h2></div></div>
         <p class="muted">${escapeHtml(t('All amounts are PKR. These cash-basis estimates use posted receipts and recorded cash expenses; they are not formal accrual accounts.'))}</p>
         <div id="cashflow-analysis">${renderCashflowAnalysis()}</div>
         <div class="cashflow-workspace">
@@ -1388,6 +1644,9 @@ if (!supabase) {
           <button class="customer-filter-pill ${pageState.customerListArea ? 'is-active' : ''}" type="button" data-action="toggle-area-filter" aria-expanded="${pageState.customerAreaOpen}" aria-pressed="${Boolean(pageState.customerListArea)}">${escapeHtml(t('Area'))}</button>
           <label class="sr-only" for="customer-area-filter">${escapeHtml(t('Filter by saved service address'))}</label><select id="customer-area-filter" aria-label="${escapeHtml(t('Filter by saved service address'))}" ${pageState.customerAreaOpen ? '' : 'hidden'}><option value="" disabled ${pageState.customerListArea ? '' : 'selected'}>${escapeHtml(t('Choose an area / address'))}</option>${customerAreaOptions}</select>
         </div>
+        <div class="customer-service-filters" role="group" aria-label="${escapeHtml(t('Filter customers by service status'))}">
+          ${[['all', 'All service states'], ['active', 'Active'], ['offline', 'Offline'], ['not-set', 'Not set'], ['archived', 'Archived']].map(([value, label]) => `<button class="customer-filter-pill ${pageState.customerListServiceStatus === value ? 'is-active' : ''}" type="button" data-service-status="${value}" aria-pressed="${pageState.customerListServiceStatus === value}">${escapeHtml(t(label))}</button>`).join('')}
+        </div>
         <div class="customer-list-sort"><label for="customer-list-sort">${escapeHtml(t('Sort customers'))}</label><select id="customer-list-sort"><option value="account-number" ${pageState.customerListSort === 'account-number' ? 'selected' : ''}>${escapeHtml(t('Account number (low to high)'))}</option><option value="name" ${pageState.customerListSort === 'name' ? 'selected' : ''}>${escapeHtml(t('Name (A to Z)'))}</option><option value="balance" ${pageState.customerListSort === 'balance' ? 'selected' : ''}>${escapeHtml(t('Outstanding balance (high to low)'))}</option></select></div>
         <div id="customer-list-drilldown-summary" class="filter-summary" ${customerDrilldown ? '' : 'hidden'}><p id="customer-list-drilldown-message" role="status" aria-live="polite" aria-atomic="true">${customerDrilldown ? formatUiMessage('Showing active customers without a bill snapshot for {period}. {count} customers match.', currentLanguage, { period: customerDrilldown.period, count: scopedCustomerListRows.length }) : ''}</p><button class="button secondary small" type="button" data-action="clear-dashboard-drilldown" data-target="customer-list">${escapeHtml(t('Clear dashboard filter'))}</button></div>
         <p id="customer-list-count" class="customer-list-count" role="status" aria-live="${customerDrilldown ? 'off' : 'polite'}">${formatUiMessage('Showing {shownStart}–{shownEnd} of {matching} matching customers; {total} total customers.', currentLanguage, { shownStart: initialCustomerPage.start, shownEnd: initialCustomerPage.end, matching: filteredCustomerRows.length, total: scopedCustomerListRows.length })}</p>
@@ -1395,7 +1654,7 @@ if (!supabase) {
         ${renderCustomerListPagination(initialCustomerPage)}
         <dialog id="customer-profile-dialog" class="edit-dialog customer-profile-dialog" aria-labelledby="customer-profile-title"><div id="customer-profile-content"></div></dialog>
       </section>
-      <button class="customer-fab" type="button" data-action="open-add-customer" aria-label="${escapeHtml(t('Add customer'))}" title="${escapeHtml(t('Add customer'))}"><span aria-hidden="true">+</span></button>
+      <div class="customer-fab-menu" id="customer-fab-menu"><div class="customer-fab-options" id="customer-fab-options" role="group" aria-label="${escapeHtml(t('Quick actions'))}" hidden><button type="button" data-dashboard-quick-action="customer">${escapeHtml(t('Add customer'))}</button><button type="button" data-dashboard-quick-action="bill">${escapeHtml(t('Create bill'))}</button><button type="button" data-dashboard-quick-action="receipt">${escapeHtml(t('Record receipt'))}</button><button type="button" data-dashboard-quick-action="search">${escapeHtml(t('Search customers'))}</button><button type="button" data-dashboard-quick-action="unpaid">${escapeHtml(t('View unpaid'))}</button><button type="button" data-dashboard-quick-action="overdue">${escapeHtml(t('View overdue'))}</button><button type="button" data-dashboard-quick-action="reports">${escapeHtml(t('Reports'))}</button></div><button class="customer-fab" type="button" data-action="toggle-dashboard-quick-actions" aria-controls="customer-fab-options" aria-expanded="false" aria-label="${escapeHtml(t('Quick actions'))}" title="${escapeHtml(t('Quick actions'))}"><span aria-hidden="true">+</span></button></div>
       <section id="admin-bills" class="panel data-panel admin-bills-panel" aria-labelledby="admin-bills-title"><div class="section-heading"><div><p class="eyebrow">${escapeHtml(t('Monthly snapshots'))}</p><h2 id="admin-bills-title" tabindex="-1">${escapeHtml(t('Bills'))}</h2></div><span class="muted">${bills.length} ${escapeHtml(t('records'))}</span></div>
         <div class="bill-list-search"><label for="admin-bill-search">${escapeHtml(t('Search bills by customer name or Admin phone'))}</label><input id="admin-bill-search" type="search" autocomplete="off" value="${escapeHtml(pageState.billSearch)}" placeholder="${escapeHtml(t('Search customer name or phone'))}"><p class="muted">${escapeHtml(t('Phone lookup uses only the Admin-authorized private phone record.'))}</p></div>
         <div class="bill-list-filters" role="group" aria-label="${escapeHtml(t('Filter bills by payment status'))}">
@@ -1473,8 +1732,15 @@ if (!supabase) {
     bindAdminActions(context);
     bindAdminBillActions(context);
     bindDashboardDrilldowns(context);
+    bindDashboardControls(context);
     bindCustomerListActions(context);
     populateReceiptBills(portalPanel.querySelector('#receipt-customer')?.value);
+    window.setTimeout(() => {
+      const section = portalPanel.querySelector('#admin-dashboard-analytics');
+      if (generation === pageState.dashboardAnalyticsRenderGeneration && section?.dataset.featureExpanded === 'true') {
+        requestDashboardAnalytics();
+      }
+    }, 0);
   }
 
   function populateReceiptBills(customerId) {
@@ -2141,6 +2407,7 @@ if (!supabase) {
       if (event.target.id === 'customer-area-filter') {
         pageState.customerListArea = event.target.value;
         pageState.customerListStatus = 'all';
+        pageState.customerListServiceStatus = 'all';
       } else if (event.target.id === 'customer-list-sort') {
         pageState.customerListSort = event.target.value;
       } else return;
@@ -2153,8 +2420,18 @@ if (!supabase) {
       const filterButton = target.closest('[data-billing-filter]');
       if (filterButton) {
         pageState.customerListStatus = filterButton.dataset.billingFilter;
+        pageState.customerListServiceStatus = 'all';
         pageState.customerListArea = '';
         pageState.customerAreaOpen = false;
+        pageState.customerListPage = 1;
+        updateCustomerListResults();
+        return;
+      }
+      const serviceFilterButton = target.closest('[data-service-status]');
+      if (serviceFilterButton) {
+        const serviceStatus = serviceFilterButton.dataset.serviceStatus;
+        if (!['all', 'active', 'offline', 'not-set', 'archived'].includes(serviceStatus)) return;
+        pageState.customerListServiceStatus = serviceStatus;
         pageState.customerListPage = 1;
         updateCustomerListResults();
         return;
@@ -2178,6 +2455,7 @@ if (!supabase) {
       if (!action) return;
       if (action.dataset.action === 'toggle-area-filter') {
         pageState.customerListStatus = 'all';
+        pageState.customerListServiceStatus = 'all';
         pageState.customerListPage = 1;
         pageState.customerAreaOpen = !pageState.customerAreaOpen;
         updateCustomerListResults();
@@ -2190,13 +2468,6 @@ if (!supabase) {
         const row = currentCustomerListRows().find((entry) => entry.customer.id === action.dataset.customerId);
         openReceiptFormForCustomer(row);
       }
-    });
-    portalPanel.querySelector('[data-action="open-add-customer"]')?.addEventListener('click', () => {
-      const form = portalPanel.querySelector('#customer-form');
-      if (!form) return;
-      const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-      form.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'center' });
-      form.elements.customer_number?.focus({ preventScroll: true });
     });
   }
 

@@ -169,10 +169,10 @@ test('customer history enhancement uses only recorded customer-visible fields an
   const customerPortal = main.slice(main.indexOf('function renderCustomerBillingResults()'), main.indexOf('async function refreshCurrentContext('));
   const customerFacingCode = `${customerPortal}\n${customerPortalModule}`;
 
-  assert.match(portalData, /const billColumns = context\.kind === 'admin'[\s\S]*?issued_on, due_date, plan_snapshot/);
+  assert.match(portalData, /const billColumns = context\.kind === 'admin'[\s\S]*?issued_on, due_date, plan_snapshot, created_at/);
   assert.match(portalData, /: 'id, customer_id, period, amount_due_cents, plan_snapshot'/);
   assert.match(portalData, /rowsFor\(supabase, 'bills', billColumns/);
-  assert.match(portalData, /const receiptColumns = context\.kind === 'admin'[\s\S]*?organization_id, id, customer_id, origin_bill_id, received_on, amount_cents, method'[\s\S]*?: 'id, customer_id, origin_bill_id, received_on, amount_cents, method'/);
+  assert.match(portalData, /const receiptColumns = context\.kind === 'admin'[\s\S]*?organization_id, id, customer_id, origin_bill_id, received_on, amount_cents, method, created_at'[\s\S]*?: 'id, customer_id, origin_bill_id, received_on, amount_cents, method'/);
   assert.match(portalData, /'receipt_allocations', 'receipt_id, bill_id, customer_id, amount_cents, allocation_kind'/);
   assert.match(portalData, /'incidents', 'id, customer_id, customer_visible_summary, status, reported_at, offline_at, restored_at'/);
   assert.match(customerPortal, /customerReceipts\.reduce/);

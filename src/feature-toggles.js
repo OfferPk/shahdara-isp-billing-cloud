@@ -1,5 +1,6 @@
 let generatedId = 0;
 const expandedFeatureKeys = new Set();
+const collapsedFeatureKeys = new Set();
 const activityDocuments = new WeakSet();
 const observedDocuments = new WeakSet();
 
@@ -142,7 +143,8 @@ function decorateFeature(feature, documentObject, formatMessage) {
   const title = getFeatureTitle(feature);
   feature.dataset.featureToggleName = title;
   const key = getFeatureKey(feature, title);
-  const expanded = expandedFeatureKeys.has(key);
+  const expanded = expandedFeatureKeys.has(key)
+    || (!collapsedFeatureKeys.has(key) && feature.dataset.featureDefaultExpanded === 'true');
   if (!feature.id) feature.id = `feature-toggle-panel-${++generatedId}`;
 
   const button = documentObject.createElement('button');
@@ -170,8 +172,14 @@ function decorateFeature(feature, documentObject, formatMessage) {
     feature.dataset.featureExpanded = String(nextExpanded);
     text.textContent = formatMessage(nextExpanded ? 'Hide {feature}' : 'Show {feature}', { feature: title });
     button.setAttribute('aria-label', formatMessage(nextExpanded ? 'Hide {feature}' : 'Show {feature}', { feature: title }));
-    if (nextExpanded) expandedFeatureKeys.add(key);
-    else expandedFeatureKeys.delete(key);
+    if (nextExpanded) {
+      expandedFeatureKeys.add(key);
+      collapsedFeatureKeys.delete(key);
+    } else {
+      expandedFeatureKeys.delete(key);
+      if (feature.dataset.featureDefaultExpanded === 'true') collapsedFeatureKeys.add(key);
+      else collapsedFeatureKeys.delete(key);
+    }
   };
 
   button.addEventListener('click', () => setExpanded(button.getAttribute('aria-expanded') !== 'true'));
