@@ -41,6 +41,10 @@ psql --no-psqlrc --set ON_ERROR_STOP=1 --host 127.0.0.1 --port "$port" --usernam
 psql --no-psqlrc --set ON_ERROR_STOP=1 --host 127.0.0.1 --port "$port" --username postgres --dbname synthetic_customer_auth_test \
   --file "$repo_root/supabase/migrations/20261002180000_customer_temporary_password_auth.sql"
 psql --no-psqlrc --set ON_ERROR_STOP=1 --host 127.0.0.1 --port "$port" --username postgres --dbname synthetic_customer_auth_test \
+  --file "$repo_root/supabase/migrations/20261003200536_add_customer_pppoe_username_mapping.sql"
+psql --no-psqlrc --set ON_ERROR_STOP=1 --host 127.0.0.1 --port "$port" --username postgres --dbname synthetic_customer_auth_test \
+  --file "$repo_root/supabase/migrations/20261004091620_staging_pppoe_test_portal_login.sql"
+psql --no-psqlrc --set ON_ERROR_STOP=1 --host 127.0.0.1 --port "$port" --username postgres --dbname synthetic_customer_auth_test \
   --file "$repo_root/tests/local-customer-auth-assertions.sql"
 
 echo 'Disposable PostgreSQL cluster stopped and removed by the exit trap.'

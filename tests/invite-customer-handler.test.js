@@ -227,6 +227,27 @@ test('database rate limits are enforced before Auth and return a safe retry hint
   assert.equal(calls.invitations.length, 0);
 });
 
+test('customer/email conflicts and permanent review locks return distinct non-retryable guidance without sending an invitation', async (t) => {
+  const cases = [
+    ['email_mismatch', 'INVITATION_EMAIL_MISMATCH', /different email address/i],
+    ['email_in_progress', 'INVITATION_EMAIL_RESERVED', /reserved by another customer/i],
+    ['needs_review', 'INVITATION_REVIEW_REQUIRED', /stop retrying/i],
+  ];
+  for (const [status, code, message] of cases) {
+    await t.test(status, async () => {
+      const { handler, calls } = makeHarness({ reserveStatus: status });
+      const response = await handler(request());
+      const body = await json(response);
+      assert.equal(response.status, 409);
+      assert.equal(body.code, code);
+      assert.equal(body.retryable, false);
+      assert.match(body.error, message);
+      assert.match(body.error, /No new invitation was sent/i);
+      assert.equal(calls.invitations.length, 0);
+    });
+  }
+});
+
 test('successful synthetic invitation reserves first, hashes email, sets a fixed redirect and links server-side', async () => {
   const { handler, calls } = makeHarness();
   const response = await handler(request());

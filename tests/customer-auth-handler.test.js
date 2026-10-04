@@ -20,10 +20,10 @@ const session = {
   user: { id: userId, email: alias },
 };
 
-function makeEnv() {
+function makeEnv(supabaseUrl = 'https://synthetic-project.supabase.co') {
   const values = new Map([
     ['APP_ORIGIN', origin],
-    ['SUPABASE_URL', 'https://synthetic-project.supabase.co'],
+    ['SUPABASE_URL', supabaseUrl],
     ['SUPABASE_PUBLISHABLE_KEY', 'synthetic-publishable-key'],
     ['SUPABASE_SERVICE_ROLE_KEY', 'synthetic-service-only-key'],
     ['PORTAL_RATE_LIMIT_HMAC_KEY', 'synthetic-test-hmac-secret-long-enough-0123456789'],
@@ -85,7 +85,7 @@ function loginHarness(options = {}) {
 
 function credentialsHarness(options = {}) {
   const calls = { keys: [], clientOptions: [], rpcs: [], created: [], updated: [], deleted: [] };
-  const env = makeEnv();
+  const env = makeEnv(options.supabaseUrl);
   const createClient = (_url, key, clientOptions = {}) => {
     calls.keys.push(key);
     calls.clientOptions.push({ key, options: clientOptions });
@@ -100,7 +100,7 @@ function credentialsHarness(options = {}) {
     return {
       async rpc(name, args) {
         calls.rpcs.push({ name, args });
-        if (name === 'reserve_customer_portal_credential') {
+        if (name === 'reserve_customer_portal_credential_for_login') {
           return options.reserveError
             ? { data: null, error: options.reserveError }
             : { data: options.reserve ?? {
@@ -194,6 +194,20 @@ test('broker maps an active username server-side and returns only the normal no-
   assert.doesNotMatch(JSON.stringify(calls.rpcs), /synthetic-permanent-password/);
 });
 
+test('broker preserves exact printable PPPoE username casing for the server-side resolver', async () => {
+  const pppoeUsername = 'Synthetic.Test@ISP';
+  const { handler, calls } = loginHarness();
+  const response = await handler(request('customer-login', {
+    body: { username: pppoeUsername, password: 'synthetic-permanent-password' },
+  }));
+  assert.equal(response.status, 200);
+  assert.equal(calls.rpcs[1].name, 'resolve_customer_portal_login');
+  assert.equal(calls.rpcs[1].args.p_login_id, pppoeUsername);
+  assert.equal(calls.signIns[0].email, alias);
+  assert.equal(calls.signIns[0].password, 'synthetic-permanent-password');
+  assert.doesNotMatch(JSON.stringify(calls.rpcs), /synthetic-permanent-password/);
+});
+
 test('wrong, unknown, and expired credentials use the same generic response and never return a session', async () => {
   for (const resolution of [
     { status: 'not_found' },
@@ -267,8 +281,9 @@ test('Admin issue stores no password in RPCs and returns the one-time secret wit
   assert.equal(response.status, 200);
   assert.equal(response.headers.get('cache-control'), 'no-store, max-age=0');
   const body = await responseJson(response);
-  assert.deepEqual(Object.keys(body).sort(), ['action', 'expires_at', 'ok', 'temporary_password', 'username']);
+  assert.deepEqual(Object.keys(body).sort(), ['action', 'expires_at', 'ok', 'temporary_password', 'test_account', 'username']);
   assert.equal(body.action, 'issue');
+  assert.equal(body.test_account, false);
   assert.equal(body.username, username);
   assert.equal(body.temporary_password.length, 32);
   assert.doesNotMatch(JSON.stringify(body), /internal\.shahdara\.net|portal-/);
@@ -276,11 +291,52 @@ test('Admin issue stores no password in RPCs and returns the one-time secret wit
   assert.equal(calls.created[0].email, alias);
   assert.equal(calls.created[0].email_confirm, true);
   assert.equal(calls.created[0].password, body.temporary_password);
-  assert.equal(calls.rpcs[0].name, 'reserve_customer_portal_credential');
+  assert.equal(calls.rpcs[0].name, 'reserve_customer_portal_credential_for_login');
+  assert.equal(calls.rpcs[0].args.p_is_staging_project, false);
   assert.equal(calls.rpcs.at(-1).name, 'complete_customer_portal_credential');
   assert.doesNotMatch(JSON.stringify(calls.rpcs), new RegExp(body.temporary_password));
   assert.equal(calls.deleted.length, 0);
   assert.equal(calls.clientOptions.find(({ key }) => key === 'synthetic-service-only-key').options.auth.persistSession, false);
+});
+
+test('staging-marked customers receive PPPoE username plus default 123456 only on the exact staging project', async () => {
+  const staging = credentialsHarness({
+    supabaseUrl: 'https://qkdsuvmlutkatcqoewkh.supabase.co',
+    reserve: {
+      status: 'reserved', action: 'issue', login_id: 'synthetic.pppoe.7',
+      auth_email_alias: alias, user_id: null, test_account: true,
+    },
+  });
+  const stagingResponse = await staging.handler(request('manage-customer-credentials', {
+    body: { organization_id: organizationId, customer_id: customerId, identity_verified: true, reason: 'Synthetic staging identity check completed.' },
+    authorization: 'Bearer synthetic-admin-jwt',
+  }));
+  const stagingBody = await responseJson(stagingResponse);
+  assert.equal(stagingResponse.status, 200);
+  assert.equal(stagingBody.username, 'synthetic.pppoe.7');
+  assert.equal(stagingBody.temporary_password, '123456');
+  assert.equal(stagingBody.test_account, true);
+  assert.equal(staging.calls.created[0].password, '123456');
+  assert.equal(staging.calls.rpcs[0].args.p_is_staging_project, true);
+  assert.doesNotMatch(JSON.stringify(staging.calls.rpcs), /123456/);
+
+  const nonStaging = credentialsHarness({
+    supabaseUrl: 'https://pocvrbwcfvtsupgdlouv.supabase.co',
+    reserve: {
+      status: 'reserved', action: 'issue', login_id: username,
+      auth_email_alias: alias, user_id: null, test_account: true,
+    },
+  });
+  const productionResponse = await nonStaging.handler(request('manage-customer-credentials', {
+    body: { organization_id: organizationId, customer_id: customerId, identity_verified: true, reason: 'Synthetic staging identity check completed.', test_account: true },
+    authorization: 'Bearer synthetic-admin-jwt',
+  }));
+  const productionBody = await responseJson(productionResponse);
+  assert.equal(productionResponse.status, 200);
+  assert.equal(productionBody.test_account, false);
+  assert.notEqual(productionBody.temporary_password, '123456');
+  assert.equal(nonStaging.calls.created[0].password, productionBody.temporary_password);
+  assert.equal(nonStaging.calls.rpcs[0].args.p_is_staging_project, false);
 });
 
 test('Admin reset updates only the mapped synthetic Auth user and concurrency/rate limits fail closed', async () => {

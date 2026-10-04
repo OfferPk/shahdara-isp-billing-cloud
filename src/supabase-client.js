@@ -1,5 +1,19 @@
 import { createClient } from '@supabase/supabase-js';
 
+const STAGING_SUPABASE_ORIGIN = 'https://qkdsuvmlutkatcqoewkh.supabase.co';
+
+export function isStagingProjectUrl(value) {
+  try {
+    const parsed = new URL(String(value ?? '').trim());
+    return parsed.origin === STAGING_SUPABASE_ORIGIN
+      && parsed.pathname === '/'
+      && !parsed.search
+      && !parsed.hash;
+  } catch {
+    return false;
+  }
+}
+
 function isPublishableKey(value) {
   if (value.startsWith('sb_publishable_')) return true;
   const segments = value.split('.');

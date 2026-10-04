@@ -228,6 +228,24 @@ test('profile history keeps bill balance, cash receipts, and carry-forward credi
   assert.doesNotMatch(markup, /staff_notes|recorded_by|email/);
 });
 
+test('test login control is absent from default profiles and appears only when explicitly enabled for Admin staging', () => {
+  const original = rowsForTests().find((entry) => entry.customer.id === 'synthetic-a');
+  const row = { ...original, customer: { ...original.customer } };
+  const ordinaryMarkup = renderCustomerProfile(row, { bills, receipts: [], allocations, formatMoney: (cents) => String(cents) });
+  assert.doesNotMatch(ordinaryMarkup, /customer-portal-test-account|Internal staging test login/);
+
+  row.customer.pppoe_username = 'synthetic_pppoe_7';
+  row.customer.portal_test_account = true;
+  const stagingMarkup = renderCustomerProfile(row, {
+    bills, receipts: [], allocations, formatMoney: (cents) => String(cents), portalTestModeAvailable: true,
+  });
+  assert.match(stagingMarkup, /id="customer-portal-test-account" type="checkbox" checked/);
+  assert.match(stagingMarkup, /Existing PPPoE username/);
+  assert.match(stagingMarkup, /default portal password 123456/);
+  assert.match(stagingMarkup, /before any portal data is released/);
+  assert.match(stagingMarkup, /does not change Overtake, RouterOS, or RADIUS credentials/);
+});
+
 test('list controls and mobile CSS provide labelled, keyboard-operable status and area filters', async () => {
   const main = await readFile(new URL('../src/main.js', import.meta.url), 'utf8');
   const styles = await readFile(new URL('../src/styles.css', import.meta.url), 'utf8');

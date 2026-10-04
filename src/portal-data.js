@@ -1,3 +1,5 @@
+import { isStagingProjectUrl } from './supabase-client.js';
+
 async function rowsFor(supabase, table, columns, applyFilters, orderBy) {
   const allRows = [];
   const pageSize = 1000;
@@ -19,16 +21,32 @@ export function isMissingPppoeUsernameColumn(error) {
   return ['42703', 'PGRST204'].includes(code) && /pppoe_username/i.test(message);
 }
 
+export function isMissingPortalTestAccountColumn(error) {
+  const code = String(error?.code ?? '');
+  const message = String(error?.message ?? '');
+  return ['42703', 'PGRST204'].includes(code) && /portal_test_account/i.test(message);
+}
+
 async function loadCustomerRows(supabase, context, applyFilters) {
   const coreColumns = 'id, customer_number, name, plan_name, service_address, service_status, monthly_fee_cents, archived';
+  const testMarkerColumn = context.kind === 'admin' ? ', portal_test_account' : '';
   try {
-    const rows = await rowsFor(supabase, 'customers', `${coreColumns}, pppoe_username`, applyFilters, { column: 'customer_number' });
+    const rows = await rowsFor(supabase, 'customers', `${coreColumns}, pppoe_username${testMarkerColumn}`, applyFilters, { column: 'customer_number' });
     return { rows, pppoeMappingAvailable: true };
   } catch (error) {
-    if (!isMissingPppoeUsernameColumn(error)) throw error;
+    if (context.kind === 'admin' && isMissingPortalTestAccountColumn(error)) {
+      try {
+        const rows = await rowsFor(supabase, 'customers', `${coreColumns}, pppoe_username`, applyFilters, { column: 'customer_number' });
+        return { rows: rows.map((customer) => ({ ...customer, portal_test_account: false })), pppoeMappingAvailable: true };
+      } catch (mappingError) {
+        if (!isMissingPppoeUsernameColumn(mappingError)) throw mappingError;
+      }
+    } else if (!isMissingPppoeUsernameColumn(error)) {
+      throw error;
+    }
     const rows = await rowsFor(supabase, 'customers', coreColumns, applyFilters, { column: 'customer_number' });
     return {
-      rows: rows.map((customer) => ({ ...customer, pppoe_username: null })),
+      rows: rows.map((customer) => ({ ...customer, pppoe_username: null, portal_test_account: false })),
       pppoeMappingAvailable: false,
     };
   }
@@ -156,6 +174,28 @@ export async function saveCustomerPppoeUsername(supabase, { organizationId, cust
   if (error) throw error;
   if (!data || data.id !== customerId || (data.pppoe_username ?? null) !== pppoeUsername) {
     throw new Error('The customer PPPoE mapping could not be confirmed.');
+  }
+  return data;
+}
+
+export async function saveCustomerPortalTestAccount(supabase, { organizationId, customerId, enabled }) {
+  if (!isStagingProjectUrl(supabase?.supabaseUrl)) {
+    throw new Error('Internal staging test access is unavailable for this project.');
+  }
+  if (!organizationId || !customerId || typeof enabled !== 'boolean') {
+    throw new Error('A valid organization, customer, and test-access choice are required.');
+  }
+
+  const { data, error } = await supabase
+    .from('customers')
+    .update({ portal_test_account: enabled })
+    .eq('organization_id', organizationId)
+    .eq('id', customerId)
+    .select('id, portal_test_account')
+    .maybeSingle();
+  if (error) throw error;
+  if (!data || data.id !== customerId || data.portal_test_account !== enabled) {
+    throw new Error('The staging test-access choice could not be confirmed.');
   }
   return data;
 }

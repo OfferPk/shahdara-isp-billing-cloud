@@ -153,8 +153,9 @@ test('customer portal queries and rendering never select or expose customer phon
 
   assert.ok(customerSelection, 'customer portal selection is explicit');
   assert.doesNotMatch(customerSelection[1], /phone/i);
-  assert.match(portalData, /`\$\{coreColumns\}, pppoe_username`/i, 'the profile adds only the optional mapping column');
-  assert.match(portalData, /rows: rows\.map\(\(customer\) => \(\{ \.\.\.customer, pppoe_username: null \}\)\)/);
+  assert.match(portalData, /const testMarkerColumn = context\.kind === 'admin' \? ', portal_test_account' : ''/i, 'only Admin context requests the staging-only test marker');
+  assert.match(portalData, /`\$\{coreColumns\}, pppoe_username\$\{testMarkerColumn\}`/i, 'customer and Admin profiles request their approved mapping columns');
+  assert.match(portalData, /rows: rows\.map\(\(customer\) => \(\{ \.\.\.customer, pppoe_username: null, portal_test_account: false \}\)\)/);
   assert.match(portalData, /context\.kind === 'admin'[\s\S]*rowsFor\(supabase, 'customer_private_details', 'customer_id, phone'/i);
   assert.match(portalData, /: Promise\.resolve\(\[\]\)/);
   assert.doesNotMatch(customerPortal, /phone|email|staff_notes|created_by|recorded_by/i);

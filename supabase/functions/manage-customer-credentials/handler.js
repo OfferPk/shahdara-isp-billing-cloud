@@ -11,6 +11,24 @@ import {
 } from '../_shared/customer-auth.js';
 
 const CUSTOMER_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/;
+const STAGING_SUPABASE_ORIGIN = 'https://qkdsuvmlutkatcqoewkh.supabase.co';
+
+function isApprovedStagingProject(value) {
+  try {
+    const parsed = new URL(String(value ?? '').trim());
+    return parsed.origin === STAGING_SUPABASE_ORIGIN
+      && parsed.pathname === '/'
+      && !parsed.search
+      && !parsed.hash;
+  } catch {
+    return false;
+  }
+}
+
+function isPasswordPolicyError(error) {
+  const detail = `${String(error?.code ?? '')} ${String(error?.message ?? '')}`;
+  return /weak_password|password.{0,40}(too short|at least|minimum|policy|compromised|weak)/i.test(detail);
+}
 
 function clientsFor(env, createClient, token) {
   const url = env.get('SUPABASE_URL');
@@ -84,8 +102,9 @@ export function createManageCustomerCredentialsHandler({ env, createClient }) {
     }
 
     let reserved;
+    const isStagingProject = isApprovedStagingProject(env.get('SUPABASE_URL'));
     try {
-      const { data, error } = await clients.serverClient.rpc('reserve_customer_portal_credential', {
+      const { data, error } = await clients.serverClient.rpc('reserve_customer_portal_credential_for_login', {
         p_organization_id: organizationId,
         p_customer_id: customerId,
         p_actor_id: actorId,
@@ -93,6 +112,7 @@ export function createManageCustomerCredentialsHandler({ env, createClient }) {
         p_login_id: customerLoginId(),
         p_auth_email_alias: syntheticAuthAlias(),
         p_actor_ip_hash: actorIpHash,
+        p_is_staging_project: isStagingProject,
       });
       if (error || !data?.status) return jsonResponse(503, { error: 'Credential management is temporarily unavailable.' }, origin);
       reserved = data;
@@ -104,19 +124,29 @@ export function createManageCustomerCredentialsHandler({ env, createClient }) {
     if (reserved.status === 'not_found') return jsonResponse(404, { error: 'The active customer record was not found.' }, origin);
     if (reserved.status === 'rate_limited') return jsonResponse(429, { error: 'Credential changes are temporarily limited. Try again later.' }, origin, { 'Retry-After': '3600' });
     if (reserved.status === 'in_progress') return jsonResponse(409, { error: 'A credential change is already in progress. Wait a few minutes and check again.' }, origin, { 'Retry-After': '600' });
+    if (reserved.status === 'invalid_test_mapping') return jsonResponse(409, { error: 'Link a valid existing PPPoE username of at most 64 characters before issuing a staging test login.' }, origin);
+    if (reserved.status === 'username_conflict') return jsonResponse(409, { error: 'This PPPoE username is already assigned to another customer login. Ask an administrator to review the mapping.' }, origin);
     if (reserved.status !== 'reserved' || !reserved.login_id || !reserved.auth_email_alias) {
       return jsonResponse(400, { error: 'Credential request could not be accepted.' }, origin);
     }
 
     let password;
+    const isTestAccount = isStagingProject && reserved.test_account === true;
     let authUserId = typeof reserved.user_id === 'string' ? reserved.user_id : null;
     try {
-      password = temporaryPassword();
+      password = isTestAccount ? '123456' : temporaryPassword();
       if (authUserId) {
         const { data: updated, error: updateError } = await clients.serverClient.auth.admin.updateUserById(
           authUserId, { password },
         );
-        if (updateError || !updated?.user?.id) throw new Error('auth update failed');
+        if (updateError) {
+          if (isTestAccount && isPasswordPolicyError(updateError)) {
+            await setFailureState(clients.serverClient, organizationId, customerId, actorId, authUserId);
+            return jsonResponse(503, { error: 'The staging Auth password policy rejected the default test password. The account remains locked; an administrator must review the staging Auth password rules.' }, origin);
+          }
+          throw new Error('auth update failed');
+        }
+        if (!updated?.user?.id) throw new Error('auth update failed');
       } else {
         const { data: created, error: createError } = await clients.serverClient.auth.admin.createUser({
           email: reserved.auth_email_alias,
@@ -128,6 +158,10 @@ export function createManageCustomerCredentialsHandler({ env, createClient }) {
         if (!createError && created?.user?.id) {
           authUserId = created.user.id;
         } else {
+          if (isTestAccount && isPasswordPolicyError(createError)) {
+            await setFailureState(clients.serverClient, organizationId, customerId, actorId);
+            return jsonResponse(503, { error: 'The staging Auth password policy rejected the default test password. The account remains locked; an administrator must review the staging Auth password rules.' }, origin);
+          }
           const { data: recovered, error: recoveryError } = await clients.serverClient.rpc(
             'recover_customer_portal_auth_user', {
               p_organization_id: organizationId,
@@ -166,6 +200,7 @@ export function createManageCustomerCredentialsHandler({ env, createClient }) {
         action: reserved.action,
         username: reserved.login_id,
         temporary_password: password,
+        test_account: isTestAccount,
         expires_at: completed.expires_at,
       }, origin);
     } catch {
