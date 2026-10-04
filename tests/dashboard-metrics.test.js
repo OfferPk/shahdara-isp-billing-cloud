@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { formatMoney } from '../src/ledger.js';
 import { renderDashboardMetrics } from '../src/dashboard-metrics.js';
 import { translateUi } from '../src/language.js';
+import './helpers/load-roman-urdu.js';
 
 function syntheticTotals(overrides = {}) {
   return {

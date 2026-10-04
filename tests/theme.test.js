@@ -10,10 +10,11 @@ import {
   writeThemePreference,
 } from '../src/theme.js';
 
-const [index, styles, language] = await Promise.all([
+const [index, styles, language, romanUrdu] = await Promise.all([
   readFile(new URL('../index.html', import.meta.url), 'utf8'),
   readFile(new URL('../src/styles.css', import.meta.url), 'utf8'),
   readFile(new URL('../src/language.js', import.meta.url), 'utf8'),
+  readFile(new URL('../src/roman-urdu.js', import.meta.url), 'utf8'),
 ]);
 
 function createStorage(initial = {}) {
@@ -110,11 +111,14 @@ test('theme switch is present before app initialization, accessible, localized, 
   assert.match(index, /<meta name="theme-color" content="#123c35"/);
   assert.match(styles, /:root\s*\{\s*color-scheme: light;/);
   assert.match(styles, /\.theme-toggle \{[^\n]*min-height: 44px;/);
+  assert.match(styles, /\.language-toggle__option \{ min-height: 44px;/);
+  assert.match(styles, /\.brand \{[^}]*min-height: 44px;/);
   assert.match(styles, /@media \(max-width: 600px\) \{\s+\.header-tools \{ width: 100%; align-items: stretch; flex-direction: column;/);
   assert.match(styles, /:root\[data-theme="dark"\][\s\S]*?\.app-toast/);
   assert.match(styles, /:root\[data-theme="dark"\][\s\S]*?\.profile-card/);
   assert.match(styles, /:root\[data-theme="dark"\][\s\S]*?\.record-card/);
   assert.match(styles, /:root\[data-theme="dark"\][\s\S]*?\.feature-toggle-button/);
-  assert.match(language, /'Switch to dark mode': 'Dark mode lagayen'/);
-  assert.match(language, /'Dark mode enabled\.': 'Dark mode on hai\.'/);
+  assert.match(language, /import\('\.\/roman-urdu\.js'\)/);
+  assert.match(romanUrdu, /'Switch to dark mode': 'Dark mode lagayen'/);
+  assert.match(romanUrdu, /'Dark mode enabled\.': 'Dark mode on hai\.'/);
 });

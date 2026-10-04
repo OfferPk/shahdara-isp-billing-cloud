@@ -41,7 +41,7 @@ import {
   renderAdminIncidentCards,
   renderIncidentCustomerOptions,
 } from './admin-incidents.js';
-import { applyDocumentLanguage, formatUiMessage, getStoredLanguage, normalizeLanguage, setLanguagePreference, translateUi } from './language.js';
+import { applyDocumentLanguage, formatUiMessage, getStoredLanguage, loadLanguageResources, normalizeLanguage, setLanguagePreference, translateUi } from './language.js';
 import { BRANDING_BUCKET, buildBrandLogoPath, getOrganizationBranding, getPublicBrandLogoUrl, isSafeBrandLogoPath, safeSupportPhoneHref, validateBrandLogoFile } from './organization-branding.js';
 import { renderPrintableBillHtml } from './customer-documents.js';
 import { renderCustomerUsageDashboard, renderCustomerUsageSkeleton } from './customer-usage.js';
@@ -71,6 +71,8 @@ const passwordRecoveryForm = document.querySelector('#password-recovery-form');
 const passwordRecoveryMessage = document.querySelector('#password-recovery-message');
 const cancelPasswordRecoveryButton = document.querySelector('#cancel-password-recovery');
 let currentLanguage = getStoredLanguage();
+const romanUrduResourcesAvailable = await loadLanguageResources(currentLanguage);
+if (!romanUrduResourcesAvailable) currentLanguage = 'en';
 const t = (message) => translateUi(message, currentLanguage);
 const themeControl = initializeTheme({
   root: document.documentElement,
@@ -102,6 +104,10 @@ function applyStaticTranslations(root = document) {
 
 applyDocumentLanguage(document, currentLanguage);
 applyStaticTranslations();
+if (!romanUrduResourcesAvailable) {
+  const announcement = document.querySelector('#app-announcement');
+  if (announcement) announcement.textContent = 'Roman Urdu could not be loaded. English remains in use.';
+}
 const appInstallControl = initializeAppInstall({
   windowObject: window,
   button: document.querySelector('#install-app-button'),
@@ -114,11 +120,16 @@ initializeFeatureToggles(document, {
   formatMessage: formatFeatureToggleMessage,
   observe: true,
 });
-document.querySelector('#language-toggle')?.addEventListener('click', (event) => {
+document.querySelector('#language-toggle')?.addEventListener('click', async (event) => {
   const button = event.target instanceof Element ? event.target.closest('[data-language]') : null;
   if (!button) return;
   const nextLanguage = normalizeLanguage(button.dataset.language);
   if (nextLanguage === currentLanguage) return;
+  if (nextLanguage === 'ur-Latn' && !(await loadLanguageResources(nextLanguage))) {
+    const announcement = document.querySelector('#app-announcement');
+    if (announcement) announcement.textContent = 'Roman Urdu could not be loaded. English remains in use.';
+    return;
+  }
   currentLanguage = setLanguagePreference(nextLanguage).language;
   themeControl.refreshLabels();
   applyStaticTranslations();

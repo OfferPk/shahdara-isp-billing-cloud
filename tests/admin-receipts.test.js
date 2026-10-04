@@ -7,6 +7,7 @@ import {
   renderAdminReceiptCards,
 } from '../src/admin-receipts.js';
 import { formatUiMessage, translateUi } from '../src/language.js';
+import './helpers/load-roman-urdu.js';
 
 const receipts = [
   { id: 'receipt-1', customer_id: 'customer-1', received_on: '2026-08-13', amount_cents: 150000, method: 'Bank transfer' },

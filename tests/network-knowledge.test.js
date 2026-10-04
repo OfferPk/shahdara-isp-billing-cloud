@@ -10,6 +10,7 @@ import {
   renderNetworkKnowledgePanel,
 } from '../src/network-knowledge.js';
 import { translateUi } from '../src/language.js';
+import './helpers/load-roman-urdu.js';
 
 const [mainSource, knowledgeSource, stylesSource] = await Promise.all([
   readFile(new URL('../src/main.js', import.meta.url), 'utf8'),

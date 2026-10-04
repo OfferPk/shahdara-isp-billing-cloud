@@ -14,6 +14,7 @@ import {
   summarizeCustomerRows,
 } from '../src/customer-list.js';
 import { formatUiMessage, translateUi } from '../src/language.js';
+import './helpers/load-roman-urdu.js';
 
 const customers = [
   {

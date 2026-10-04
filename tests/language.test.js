@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { applyDocumentLanguage, escapeHtml, formatUiMessage, getStoredLanguage, LANGUAGE_STORAGE_KEY, normalizeLanguage, setLanguagePreference, storeLanguage, translateUi } from '../src/language.js';
+import { applyDocumentLanguage, escapeHtml, formatUiMessage, getStoredLanguage, LANGUAGE_STORAGE_KEY, loadLanguageResources, normalizeLanguage, setLanguagePreference, storeLanguage, translateUi } from '../src/language.js';
 import { renderCustomerCards } from '../src/customer-list.js';
 import { renderAdminIncidentCards } from '../src/admin-incidents.js';
 
@@ -13,6 +13,15 @@ function memoryStorage(seed = {}) {
     setItem: (key, value) => values.set(key, String(value)),
   };
 }
+
+test('English stays usable without Roman Urdu resources and a failed locale load falls back safely', async () => {
+  const message = 'Sign in to your account';
+  assert.equal(await loadLanguageResources('en', async () => { throw new Error('English must not load a locale chunk.'); }), true);
+  assert.equal(translateUi(message, 'en'), message);
+  assert.equal(translateUi(message, 'ur-Latn'), message);
+  assert.equal(await loadLanguageResources('ur-Latn', async () => { throw new Error('Synthetic missing locale chunk.'); }), false);
+  assert.equal(translateUi(message, 'ur-Latn'), message);
+});
 
 test('language preference defaults to English, validates stored values, and persists locally', () => {
   const storage = memoryStorage();
@@ -53,7 +62,8 @@ test('storage failures fall back safely and Roman Urdu document semantics remain
   assert.equal(documentObject.documentElement.dir, 'ltr');
 });
 
-test('core labels translate to Roman Urdu while technical identifiers and data strings remain unchanged', () => {
+test('core labels translate to Roman Urdu while technical identifiers and data strings remain unchanged', async () => {
+  assert.equal(await loadLanguageResources('ur-Latn'), true);
   assert.equal(translateUi('Sign in to your account', 'en'), 'Sign in to your account');
   assert.equal(romanUrdu('Sign in to your account'), 'Apne account mein sign in karein');
   assert.equal(romanUrdu('Save incident update'), 'Service maslay ki tabdeeli save karein');
@@ -65,7 +75,8 @@ test('core labels translate to Roman Urdu while technical identifiers and data s
   assert.doesNotMatch(translated, /[\u0900-\u097f\u0600-\u06ff\u0750-\u077f]/u);
 });
 
-test('escaping remains safe in translated cards and does not translate customer-provided names or summaries', () => {
+test('escaping remains safe in translated cards and does not translate customer-provided names or summaries', async () => {
+  assert.equal(await loadLanguageResources('ur-Latn'), true);
   const injectedName = '<img src=x onerror=alert(1)>&"';
   assert.equal(escapeHtml(injectedName), '&lt;img src=x onerror=alert(1)&gt;&amp;&quot;');
   const card = renderCustomerCards([{
@@ -97,7 +108,8 @@ test('escaping remains safe in translated cards and does not translate customer-
 });
 
 
-test('feature eye controls use clear translatable action labels', () => {
+test('feature eye controls use clear translatable action labels', async () => {
+  assert.equal(await loadLanguageResources('ur-Latn'), true);
   assert.equal(formatUiMessage('Show {feature}', 'en', { feature: 'Customer records' }), 'Show Customer records');
   assert.equal(formatUiMessage('Hide {feature}', 'en', { feature: 'Customer records' }), 'Hide Customer records');
   assert.equal(formatUiMessage('Show {feature}', 'ur-Latn', { feature: 'Customer records' }), 'Customer records dikhayein');
