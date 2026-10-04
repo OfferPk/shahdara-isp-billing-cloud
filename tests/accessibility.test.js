@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-const [index, main, customerList, adminBills, adminReceipts, metrics, styles] = await Promise.all([
+const [index, main, customerList, adminBills, adminReceipts, metrics, styles, dashboardAnalytics] = await Promise.all([
   readFile(new URL('../index.html', import.meta.url), 'utf8'),
   readFile(new URL('../src/main.js', import.meta.url), 'utf8'),
   readFile(new URL('../src/customer-list.js', import.meta.url), 'utf8'),
@@ -10,6 +10,7 @@ const [index, main, customerList, adminBills, adminReceipts, metrics, styles] = 
   readFile(new URL('../src/admin-receipts.js', import.meta.url), 'utf8'),
   readFile(new URL('../src/dashboard-metrics.js', import.meta.url), 'utf8'),
   readFile(new URL('../src/styles.css', import.meta.url), 'utf8'),
+  readFile(new URL('../src/dashboard-analytics.js', import.meta.url), 'utf8'),
 ]);
 
 function luminance(hex) {
@@ -181,6 +182,16 @@ test('billing date pickers are labeled, use native inputs, and provide accessibl
   assert.match(main, /role="group" aria-label="\$\{escapeHtml\(t\('Choose an exact due date quickly'\)\)\}"/);
   assert.match(styles, /\.due-date-preset \{ min-height: 44px;/);
   assert.match(styles, /\.due-date-preset:focus-visible/);
+});
+
+test('dashboard trend controls keep accessible state, keyboard focus, and 44px touch targets', () => {
+  const buttonStyles = styles.match(/\.dashboard-view-button\s*\{([^}]*)\}/)?.[1] ?? '';
+  const minimumHeight = Number(buttonStyles.match(/min-height:\s*(\d+(?:\.\d+)?)px/)?.[1]);
+  assert.ok(minimumHeight >= 44, `trend buttons need at least 44px height; found ${minimumHeight}px`);
+  assert.match(styles, /\.dashboard-view-button:focus-visible[^}]*outline:\s*3px solid/);
+  assert.match(dashboardAnalytics, /role="group" aria-label="\$\{escapeHtml\(t\('Trend time view'\)\)\}"/);
+  assert.match(dashboardAnalytics, /\['day', 'Daily'\], \['week', 'Weekly'\], \['month', 'Monthly'\]/);
+  assert.match(dashboardAnalytics, /data-dashboard-trend-view="\$\{key\}" aria-pressed="\$\{selectedView === key\}"/);
 });
 
 test('Admin incident reporting and updates use labeled fields, explicit statuses, and responsive cards', () => {

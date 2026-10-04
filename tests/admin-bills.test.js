@@ -73,6 +73,45 @@ test('Admin bill rows use only recorded dates, calculate overdue days, and prese
   assert.equal(unpriced.overdueDays, 0);
 });
 
+test('Admin bill row indexes preserve pair-scoped balances, carry-forward credit, receipt sorting, and row order', () => {
+  const rows = buildAdminBillRows({
+    today: '2026-03-01',
+    customers: [
+      { id: 'customer-zara', name: 'Zara' },
+      { id: 'customer-ayan', name: 'Ayan' },
+    ],
+    bills: [
+      { id: 'shared-bill', customer_id: 'customer-zara', period: '2026-02-01', amount_due_cents: 1000 },
+      { id: 'shared-bill', customer_id: 'customer-ayan', period: '2026-02-01', amount_due_cents: 500 },
+      { id: 'older-bill', customer_id: 'customer-zara', period: '2026-01-01', amount_due_cents: 300 },
+    ],
+    allocations: [
+      { bill_id: 'shared-bill', customer_id: 'customer-zara', amount_cents: 250, allocation_kind: 'carry-forward' },
+      { bill_id: 'shared-bill', customer_id: 'customer-zara', amount_cents: 100, allocation_kind: 'same-month' },
+      { bill_id: 'shared-bill', customer_id: 'customer-ayan', amount_cents: 9000, allocation_kind: 'carry-forward' },
+      { bill_id: 'older-bill', customer_id: 'customer-zara', amount_cents: 50, allocation_kind: 'same-month' },
+    ],
+    receipts: [
+      { id: 'zara-late', origin_bill_id: 'shared-bill', customer_id: 'customer-zara', received_on: '2026-02-05', amount_cents: 80 },
+      { id: 'ayan-only', origin_bill_id: 'shared-bill', customer_id: 'customer-ayan', received_on: '2026-02-03', amount_cents: 40 },
+      { id: 'zara-early-1', origin_bill_id: 'shared-bill', customer_id: 'customer-zara', received_on: '2026-02-01', amount_cents: 20 },
+      { id: 'zara-early-2', origin_bill_id: 'shared-bill', customer_id: 'customer-zara', received_on: '2026-02-01', amount_cents: 30 },
+    ],
+  });
+
+  assert.deepEqual(rows.map((row) => [row.bill.id, row.customerName]), [
+    ['shared-bill', 'Ayan'],
+    ['shared-bill', 'Zara'],
+    ['older-bill', 'Zara'],
+  ]);
+  const zara = rows.find((row) => row.customerName === 'Zara' && row.bill.id === 'shared-bill');
+  const ayan = rows.find((row) => row.customerName === 'Ayan');
+  assert.deepEqual([zara.appliedCents, zara.balanceCents, zara.creditAppliedCents, zara.cashReceiptCents], [350, 650, 250, 130]);
+  assert.deepEqual(zara.receipts.map((receipt) => receipt.id), ['zara-late', 'zara-early-1', 'zara-early-2']);
+  assert.deepEqual([ayan.appliedCents, ayan.balanceCents, ayan.creditAppliedCents, ayan.cashReceiptCents], [9000, 0, 9000, 40]);
+  assert.deepEqual(ayan.receipts.map((receipt) => receipt.id), ['ayan-only']);
+});
+
 test('Admin bill search supports customer name and Admin-only phone, and status counts include overdue as unpaid', () => {
   const rows = syntheticRows();
   assert.deepEqual(filterAdminBillRows(rows, { search: 'AMINA', status: 'all' }).map((row) => row.bill.id), ['bill-overdue']);
