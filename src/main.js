@@ -50,6 +50,7 @@ import { initializeFeatureToggles, refreshFeatureToggleLabels, ALL_FEATURE_SELEC
 import { initializeTheme } from './theme.js';
 import { initializeAppInstall } from './app-install.js';
 import { renderDashboardAnalyticsSkeleton } from './dashboard-analytics-loading.js';
+import { renderPortalLoadError, safePortalErrorDetails } from './portal-load-error.js';
 import './styles.css';
 
 const app = document.querySelector('#app');
@@ -181,6 +182,7 @@ if (!supabase) {
   let pendingReceiptAttempt = null;
   const pendingFinancialAttempts = new Map();
   const dashboardControlRoots = new WeakSet();
+  let portalRetryActionsBound = false;
   let dashboardAnalyticsModulePromise = null;
   let dashboardAnalyticsRenderGeneration = 0;
 
@@ -375,6 +377,19 @@ if (!supabase) {
     portalPanel.innerHTML = `<div class="panel loading-panel" role="status" aria-live="polite" aria-busy="true"><span class="spinner" aria-hidden="true"></span><p>${escapeHtml(t('Loading records allowed for this account…'))}</p></div>${includeCustomerUsage ? renderCustomerUsageSkeleton(t) : ''}`;
   }
 
+  function showPortalLoadError({ error, scope, eyebrow, title, description, retryKind }) {
+    console.warn('Portal data load failed.', { scope, ...safePortalErrorDetails(error) });
+    portalPanel.innerHTML = renderPortalLoadError({
+      eyebrow: t(eyebrow),
+      title: t(title),
+      description: t(description),
+      retryLabel: t('Retry'),
+      signOutLabel: t('Sign out'),
+      retryKind,
+    });
+    bindSharedActions();
+  }
+
   async function selectContext(context) {
     const contextChanged = pageState.context?.organizationId !== context.organizationId
       || pageState.context?.kind !== context.kind
@@ -409,8 +424,14 @@ if (!supabase) {
       else if (contextChanged) portalPanel.querySelector('h1')?.focus();
       announceApp(context.kind === 'admin' ? 'Administrator portal loaded.' : 'Customer portal loaded.');
     } catch (error) {
-      portalPanel.innerHTML = `<div class="panel" role="alert"><p class="eyebrow">${escapeHtml(t('Could not load records'))}</p><h2>${escapeHtml(t('Access was not granted'))}</h2><p class="error-text">${escapeHtml(error.message || t('The request failed.'))}</p><p>${escapeHtml(t('Database row-level policies remain authoritative; contact the ISP administrator if this account should have portal access.'))}</p><button class="button secondary" data-action="sign-out">${escapeHtml(t('Sign out'))}</button></div>`;
-      bindSharedActions();
+      showPortalLoadError({
+        error,
+        scope: 'context-data',
+        eyebrow: 'Could not load records',
+        title: 'Portal data is temporarily unavailable.',
+        description: 'Check your connection and retry. If the problem continues, contact your ISP administrator.',
+        retryKind: 'context',
+      });
     }
   }
 
@@ -431,6 +452,11 @@ if (!supabase) {
     }
     if (pageState.loadingUserId === session.user.id) return;
     if (pageState.user?.id === session.user.id && pageState.contexts.length) return;
+    if (pageState.user?.id !== session.user.id) {
+      pageState.contexts = [];
+      pageState.context = null;
+      pageState.rows = null;
+    }
     pageState.loadingUserId = session.user.id;
     pageState.user = session.user;
     showPortalLoading();
@@ -451,8 +477,14 @@ if (!supabase) {
       }
       await selectContext(pageState.contexts[0]);
     } catch (error) {
-      portalPanel.innerHTML = `<div class="panel" role="alert"><p class="eyebrow">${escapeHtml(t('Sign-in could not be completed'))}</p><h2>${escapeHtml(t('Account access needs review'))}</h2><p class="error-text">${escapeHtml(error.message || t('The request failed.'))}</p><button class="button secondary" data-action="sign-out">${escapeHtml(t('Sign out'))}</button></div>`;
-      bindSharedActions();
+      showPortalLoadError({
+        error,
+        scope: 'account-context',
+        eyebrow: 'Sign-in could not be completed',
+        title: 'Account access could not be checked.',
+        description: 'Check your connection and retry. If the problem continues, contact your ISP administrator.',
+        retryKind: 'session',
+      });
     } finally {
       pageState.loadingUserId = null;
     }
@@ -462,6 +494,15 @@ if (!supabase) {
     portalPanel.querySelector('[data-action="sign-out"]')?.addEventListener('click', async () => {
       await supabase.auth.signOut();
       showLogin('You have signed out.');
+    });
+    if (portalRetryActionsBound) return;
+    portalRetryActionsBound = true;
+    portalPanel.addEventListener('click', async (event) => {
+      const target = event.target instanceof Element ? event.target.closest('[data-action="retry-portal-load"]') : null;
+      if (!target || target.disabled) return;
+      target.disabled = true;
+      if (target.dataset.retryKind === 'session' && pageState.user) await handleSession({ user: pageState.user });
+      else if (target.dataset.retryKind === 'context' && pageState.context) await selectContext(pageState.context);
     });
   }
 
@@ -2627,8 +2668,14 @@ if (!supabase) {
       portalPanel.querySelector('h1')?.focus();
       announceApp(announcement);
     } catch (error) {
-      portalPanel.innerHTML = `<div class="panel" role="alert"><h2>Refresh failed</h2><p class="error-text">${escapeHtml(error.message || 'The request failed.')}</p><button class="button secondary" data-action="sign-out">Sign out</button></div>`;
-      bindSharedActions();
+      showPortalLoadError({
+        error,
+        scope: 'portal-refresh',
+        eyebrow: 'Could not load records',
+        title: 'Portal data is temporarily unavailable.',
+        description: 'Check your connection and retry. If the problem continues, contact your ISP administrator.',
+        retryKind: 'context',
+      });
     }
   }
 

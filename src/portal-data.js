@@ -81,23 +81,36 @@ export async function loadContexts(supabase, user) {
   const { data: accounts, error: accountError } = await supabase
     .rpc('my_customer_portal_contexts');
   if (accountError) throw accountError;
-  const contexts = [];
-  for (const account of accounts ?? []) {
-    const { data: customer, error: customerError } = await supabase
+  const linkedAccounts = accounts ?? [];
+  if (!linkedAccounts.length) return [];
+  const customerIdsByOrganization = new Map();
+  for (const account of linkedAccounts) {
+    if (!account.organization_id || !account.customer_id) continue;
+    if (!customerIdsByOrganization.has(account.organization_id)) customerIdsByOrganization.set(account.organization_id, new Set());
+    customerIdsByOrganization.get(account.organization_id).add(account.customer_id);
+  }
+  if (!customerIdsByOrganization.size) return [];
+  const customerRows = await Promise.all([...customerIdsByOrganization].map(async ([organizationId, customerIds]) => {
+    const { data: customers, error: customerError } = await supabase
       .from('customers')
-      .select('name')
-      .eq('organization_id', account.organization_id)
-      .eq('id', account.customer_id)
-      .maybeSingle();
+      .select('organization_id, id, name')
+      .eq('organization_id', organizationId)
+      .in('id', [...customerIds]);
     if (customerError) throw customerError;
-    if (customer) contexts.push({
+    return customers ?? [];
+  }));
+  const customerByAccount = new Map(customerRows.flat().map((customer) => [
+    JSON.stringify([customer.organization_id, customer.id]), customer,
+  ]));
+  return linkedAccounts.flatMap((account) => {
+    const customer = customerByAccount.get(JSON.stringify([account.organization_id, account.customer_id]));
+    return customer ? [{
       kind: 'customer',
       organizationId: account.organization_id,
       customerId: account.customer_id,
       customerName: customer.name,
-    });
-  }
-  return contexts;
+    }] : [];
+  });
 }
 
 export async function loadOrganizationBranding(supabase, organizationId) {

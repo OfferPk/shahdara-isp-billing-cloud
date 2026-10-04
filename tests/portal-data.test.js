@@ -78,7 +78,7 @@ test('only owner and admin memberships receive administrator portal contexts', a
 test('customer contexts come only from the authenticated safe account-link RPC', async () => {
   const client = mockClient({
     organization_memberships: { data: [], error: null },
-    customers: { data: [{ name: 'Synthetic Customer' }], error: null },
+    customers: { data: [{ organization_id: 'synthetic-org', id: 'synthetic-customer', name: 'Synthetic Customer' }], error: null },
   }, { data: [{ organization_id: 'synthetic-org', customer_id: 'synthetic-customer' }], error: null });
   const contexts = await loadContexts(client, { id: 'synthetic-customer-user' });
 
@@ -88,7 +88,42 @@ test('customer contexts come only from the authenticated safe account-link RPC',
   assert.deepEqual(client.calls[1], { rpc: 'my_customer_portal_contexts', args: undefined });
   assert.deepEqual(client.calls[2].filters, [
     ['eq', 'organization_id', 'synthetic-org'],
-    ['eq', 'id', 'synthetic-customer'],
+    ['in', 'id', ['synthetic-customer']],
+  ]);
+  assert.equal(client.calls.filter((call) => call.table === 'customers').length, 1);
+});
+
+test('customer contexts batch only exact linked IDs per organization, including same-ID cross-organization links', async () => {
+  const client = mockClient({
+    organization_memberships: { data: [], error: null },
+    customers: (query) => {
+      const organizationId = query.filters.find((filter) => filter[1] === 'organization_id')?.[2];
+      const customerIds = query.filters.find((filter) => filter[1] === 'id')?.[2] ?? [];
+      const rows = [
+        { organization_id: 'synthetic-org-a', id: 'shared-id', name: 'Synthetic A' },
+        { organization_id: 'synthetic-org-a', id: 'second-id', name: 'Synthetic A2' },
+        { organization_id: 'synthetic-org-b', id: 'shared-id', name: 'Synthetic B' },
+      ];
+      return { data: rows.filter((row) => row.organization_id === organizationId && customerIds.includes(row.id)), error: null };
+    },
+  }, { data: [
+    { organization_id: 'synthetic-org-a', customer_id: 'shared-id' },
+    { organization_id: 'synthetic-org-a', customer_id: 'second-id' },
+    { organization_id: 'synthetic-org-b', customer_id: 'shared-id' },
+  ], error: null });
+  const contexts = await loadContexts(client, { id: 'synthetic-customer-user' });
+
+  assert.deepEqual(contexts, [
+    { kind: 'customer', organizationId: 'synthetic-org-a', customerId: 'shared-id', customerName: 'Synthetic A' },
+    { kind: 'customer', organizationId: 'synthetic-org-a', customerId: 'second-id', customerName: 'Synthetic A2' },
+    { kind: 'customer', organizationId: 'synthetic-org-b', customerId: 'shared-id', customerName: 'Synthetic B' },
+  ]);
+  const customerQueries = client.calls.filter((call) => call.table === 'customers');
+  assert.equal(customerQueries.length, 2, 'three linked accounts use one exact-ID query per organization, not one query per account');
+  assert.ok(customerQueries.every((query) => query.selects[0] === 'organization_id, id, name'));
+  assert.deepEqual(customerQueries.map((query) => query.filters), [
+    [['eq', 'organization_id', 'synthetic-org-a'], ['in', 'id', ['shared-id', 'second-id']]],
+    [['eq', 'organization_id', 'synthetic-org-b'], ['in', 'id', ['shared-id']]],
   ]);
 });
 

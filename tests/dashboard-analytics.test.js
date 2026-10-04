@@ -76,6 +76,11 @@ test('monthly chart reports insufficient history rather than inventing a zero pr
   assert.equal(singlePeriod.points.length, 1);
   assert.equal(singlePeriod.needsMoreMonths, true);
   assert.equal(singlePeriod.points.some((point) => point.key === '2026-09'), false);
+  const markup = renderDashboardAnalytics({
+    month: '2026-10', today, totals: totalsFor('2026-10'), customers, bills, receipts, allocations,
+    billRows, customerRows: directoryRows(), trendSeries: singlePeriod, formatMoney, t: (message) => message,
+  });
+  assert.match(markup, /role="status">A monthly trend needs recorded bill or receipt data in at least two months\./);
 });
 
 test('daily and weekly views use creation, actual-receipt, and recorded due dates separately', () => {
@@ -196,6 +201,27 @@ test('analytics renderer exposes exact accessible values, clickable categories, 
   assert.match(markup, /&lt;script&gt;bad&lt;\/script&gt;/);
   assert.doesNotMatch(markup, /<script>/);
   assert.match(markup, /status-change events are not recorded/);
+});
+
+test('empty dashboard analytics use explicit accessible states rather than fabricated trends or records', () => {
+  const totals = calculateDashboard({ month: '2026-10', today, customers: [], bills: [], receipts: [], allocations: [] });
+  const markup = renderDashboardAnalytics({
+    month: '2026-10', today, now: new Date('2026-10-15T12:00:00Z'), totals,
+    customers: [], bills: [], receipts: [], allocations: [], billRows: [], customerRows: [], incidents: [],
+    formatMoney, t: (message) => translateUi(message, 'en'),
+  });
+
+  for (const message of [
+    'No dated billing, receipt, or due-date records are available for this view.',
+    'Collection rate is unavailable until the selected month has a priced bill.',
+    'No bill snapshots are recorded for the selected month.',
+    'No outstanding customer balances are recorded.',
+    'No actual receipts are recorded for this month.',
+    'No recent recorded activity is available.',
+  ]) {
+    assert.ok(markup.includes(`role="status">${message}</p>`), `expected accessible empty state: ${message}`);
+  }
+  assert.doesNotMatch(markup, /role="img" aria-label="Billing and collection trend"/, 'an empty data set must not render a fabricated chart');
 });
 
 test('new analytics controls and summaries have Roman Urdu labels', () => {
