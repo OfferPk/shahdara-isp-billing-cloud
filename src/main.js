@@ -185,6 +185,7 @@ if (!supabase) {
   let portalRetryActionsBound = false;
   let dashboardAnalyticsModulePromise = null;
   let networkDiagnosticsModulePromise = null;
+  let networkKnowledgeModulePromise = null;
   let dashboardAnalyticsRenderGeneration = 0;
 
   function loadDashboardAnalyticsModule() {
@@ -205,6 +206,16 @@ if (!supabase) {
       });
     }
     return networkDiagnosticsModulePromise;
+  }
+
+  function loadNetworkKnowledgeModule() {
+    if (!networkKnowledgeModulePromise) {
+      networkKnowledgeModulePromise = import('./network-knowledge.js').catch((error) => {
+        networkKnowledgeModulePromise = null;
+        throw error;
+      });
+    }
+    return networkKnowledgeModulePromise;
   }
 
   function requestNetworkDiagnostics() {
@@ -231,9 +242,52 @@ if (!supabase) {
     });
   }
 
+  function requestNetworkKnowledge() {
+    const context = pageState.context;
+    if (context?.kind !== 'admin' || !['owner', 'admin'].includes(context.role)) return;
+    const section = portalPanel.querySelector('#admin-network-knowledge');
+    const button = section?.querySelector('[data-load-network-knowledge]');
+    const content = section?.querySelector('#network-knowledge-content');
+    if (!section || !button || !content || section.dataset.knowledgeLoading === 'true') return;
+    if (section.dataset.knowledgeLoaded === 'true') {
+      const expanded = button.getAttribute('aria-expanded') === 'true';
+      content.hidden = expanded;
+      button.setAttribute('aria-expanded', String(!expanded));
+      button.textContent = t(expanded ? 'Open concept reference' : 'Hide concept reference');
+      return;
+    }
+    section.dataset.knowledgeLoading = 'true';
+    button.disabled = true;
+    button.textContent = t('Loading reference…');
+    button.setAttribute('aria-expanded', 'true');
+    content.hidden = false;
+    content.setAttribute('aria-busy', 'true');
+    content.innerHTML = `<p class="network-knowledge__loading" role="status">${escapeHtml(t('Loading reference…'))}</p>`;
+    loadNetworkKnowledgeModule().then(({ mountNetworkKnowledgePanel }) => {
+      if (pageState.context?.kind !== 'admin' || !['owner', 'admin'].includes(pageState.context.role)) return;
+      const currentSection = portalPanel.querySelector('#admin-network-knowledge');
+      if (!currentSection || currentSection !== section || !portalPanel.contains(section)) return;
+      if (!mountNetworkKnowledgePanel(content, { t })) throw new Error('Reference panel could not be mounted.');
+      delete section.dataset.knowledgeLoading;
+      section.dataset.knowledgeLoaded = 'true';
+      button.disabled = false;
+      button.setAttribute('aria-expanded', 'true');
+      button.textContent = t('Hide concept reference');
+      content.removeAttribute('aria-busy');
+    }).catch(() => {
+      delete section.dataset.knowledgeLoading;
+      button.disabled = false;
+      button.setAttribute('aria-expanded', 'true');
+      button.textContent = t('Retry reference load');
+      content.removeAttribute('aria-busy');
+      content.innerHTML = `<p class="network-knowledge__error" role="alert">${escapeHtml(t('Could not load the reference panel. No device or customer lookup was attempted.'))}</p>`;
+    });
+  }
+
   function bindNetworkDiagnostics(context) {
     if (context.kind !== 'admin' || !['owner', 'admin'].includes(context.role)) return;
     portalPanel.querySelector('.portal-nav a[href="#admin-network-diagnostics"]')?.addEventListener('click', requestNetworkDiagnostics);
+    portalPanel.querySelector('#admin-network-knowledge [data-load-network-knowledge]')?.addEventListener('click', requestNetworkKnowledge);
     if (window.location.hash === '#admin-network-diagnostics') requestNetworkDiagnostics();
   }
 
@@ -1666,6 +1720,10 @@ if (!supabase) {
         <div class="section-heading"><div><p class="eyebrow">${escapeHtml(t('SIMULATION ONLY'))}</p><h2 id="admin-network-diagnostics-title" tabindex="-1">${escapeHtml(t('AI Network Engineer'))}</h2></div><span class="network-diagnostics__badge">${escapeHtml(t('Fictional examples'))}</span></div>
         <p class="network-diagnostics__notice" role="note"><strong>${escapeHtml(t('No live router is connected.'))}</strong> ${escapeHtml(t('This deterministic local demo uses fictional fixtures only. It does not read portal customer or billing records, query network devices, call an external AI, or apply changes.'))}</p>
         <p class="muted">${escapeHtml(t('This simulator never verifies a real customer issue. All router changes and customer or profile changes are unavailable.'))}</p>
+        <section id="admin-network-knowledge" class="network-knowledge" aria-labelledby="admin-network-knowledge-title">
+          <div class="network-knowledge__toggle-row"><div><h3 id="admin-network-knowledge-title">${escapeHtml(t('RouterOS concept reference'))}</h3><p class="muted">${escapeHtml(t('Fixed educational notes only; no customer query or device check is used.'))}</p></div><button class="button secondary small" type="button" data-load-network-knowledge aria-controls="network-knowledge-content" aria-expanded="false">${escapeHtml(t('Open concept reference'))}</button></div>
+          <div id="network-knowledge-content" class="network-knowledge__content" role="region" aria-label="${escapeHtml(t('MikroTik reference notes'))}" hidden></div>
+        </section>
         <div class="network-diagnostics__content" aria-live="polite"><p class="network-diagnostics__loading" role="status">${escapeHtml(t('Open this section to load the local simulation.'))}</p></div>
       </section>
       <div class="admin-grid">
