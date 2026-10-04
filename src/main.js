@@ -30,6 +30,7 @@ import {
   renderAdminBillCards,
   renderPrintableReceiptHtml,
 } from './admin-bills.js';
+import { filterAdminReceiptRows, paginateAdminReceiptRows, renderAdminReceiptCards } from './admin-receipts.js';
 import { parseDashboardDrilldownHash } from './dashboard-drilldown.js';
 import { renderAdminIncidentCards, renderIncidentCustomerOptions } from './admin-incidents.js';
 import { applyDocumentLanguage, formatUiMessage, getStoredLanguage, normalizeLanguage, setLanguagePreference, translateUi } from './language.js';
@@ -146,6 +147,8 @@ if (!supabase) {
     cashflowThroughDate: '',
     billSearch: '',
     billStatus: 'all',
+    receiptSearch: '',
+    receiptPage: 1,
     customerBillingMonth: '',
     customerReceiptFrom: '',
     customerReceiptThrough: '',
@@ -917,6 +920,35 @@ if (!supabase) {
     }
   }
 
+  function updateAdminReceiptResults() {
+    const root = portalPanel.querySelector('#admin-receipt-results');
+    if (!root || !pageState.rows) return;
+    const allReceipts = [...pageState.rows.receipts]
+      .sort((left, right) => String(right.received_on).localeCompare(String(left.received_on)));
+    const filteredReceipts = filterAdminReceiptRows(allReceipts, {
+      search: pageState.receiptSearch,
+      customerNameForReceipt: (receipt) => pageState.rows.customers.find((customer) => customer.id === receipt.customer_id)?.name ?? t('Customer'),
+      formatMoney,
+    });
+    const page = paginateAdminReceiptRows(filteredReceipts, { page: pageState.receiptPage, pageSize: 10 });
+    pageState.receiptPage = page.page;
+    const count = formatUiMessage('Showing {shownStart}–{shownEnd} of {matching} matching receipts; {total} total records.', currentLanguage, {
+      shownStart: page.start,
+      shownEnd: page.end,
+      matching: page.total,
+      total: allReceipts.length,
+    });
+    const pageControls = page.pageCount > 1
+      ? `<nav class="receipt-pagination" aria-label="${escapeHtml(t('Receipt history pages'))}"><button class="button secondary small" type="button" data-receipt-page="-1" aria-label="${escapeHtml(t('Previous page'))}" ${page.page <= 1 ? 'disabled' : ''}>${escapeHtml(t('Previous page'))}</button><span class="receipt-pagination__current" aria-live="polite">${escapeHtml(formatUiMessage('Page {page} of {pageCount}.', currentLanguage, { page: page.page, pageCount: page.pageCount }))}</span><button class="button secondary small" type="button" data-receipt-page="1" aria-label="${escapeHtml(t('Next page'))}" ${page.page >= page.pageCount ? 'disabled' : ''}>${escapeHtml(t('Next page'))}</button></nav>`
+      : '';
+    root.innerHTML = `<p id="admin-receipt-count" class="admin-receipt-count" role="status" aria-live="polite">${escapeHtml(count)}</p>${renderAdminReceiptCards(page.items, {
+      customerNameForReceipt: (receipt) => pageState.rows.customers.find((customer) => customer.id === receipt.customer_id)?.name ?? t('Customer'),
+      formatMoney,
+      t,
+      emptyMessage: allReceipts.length ? t('No receipts match this search.') : t('No receipts recorded yet.'),
+    })}${pageControls}`;
+  }
+
   function openReceiptFormForBill(billRow) {
     if (!billRow || billRow.status !== 'unpaid' || billRow.balanceCents == null || billRow.balanceCents <= 0) return false;
     const bill = billRow.bill;
@@ -1309,16 +1341,8 @@ if (!supabase) {
         <p class="muted">${escapeHtml(t('Summary cards above use the selected dashboard month: billed and pending follow bill periods, while collected follows actual receipt dates. Carry-forward credit reduces pending balances but is never counted as cash. WhatsApp opens a draft only; receipts can be printed only from existing receipt records.'))}</p>
       </section>
       <section id="admin-receipts" class="panel data-panel"><div class="section-heading"><div><p class="eyebrow">${escapeHtml(t('Dated cash entries'))}</p><h2>${escapeHtml(t('Receipts'))}</h2></div><span class="muted">${receipts.length} ${escapeHtml(t('actual receipts'))}</span></div>
-        <ul class="record-card-grid admin-receipt-card-grid" aria-label="${escapeHtml(t('Actual receipts'))}">${receipts.slice(0, 100).map((receipt) => {
-          const receiptId = escapeHtml(receipt.id);
-          const receiptDate = escapeHtml(receipt.received_on);
-          const receiptCustomer = escapeHtml(customerName(receipt.customer_id));
-          return `<li><article class="record-card receipt-record-card">
-            <header class="record-card__top"><div><h3>${receiptCustomer}</h3><p class="record-card__subtitle"><time datetime="${receiptDate}">${receiptDate}</time></p></div></header>
-            <dl class="record-card__facts"><div><dt>${escapeHtml(t('Method'))}</dt><dd>${escapeHtml(receipt.method || t('Method not recorded'))}</dd></div><div><dt>${escapeHtml(t('Amount'))}</dt><dd>${escapeHtml(formatMoney(receipt.amount_cents))}</dd></div></dl>
-            <div class="record-card__actions" role="group" aria-label="${escapeHtml(t('Actions'))}"><button class="text-button" type="button" data-action="edit-receipt" data-id="${receiptId}" aria-label="${escapeHtml(t('Edit receipt for'))} ${receiptCustomer}, ${escapeHtml(t('dated'))} ${receiptDate}">${escapeHtml(t('Edit'))}</button><button class="text-button danger" type="button" data-action="delete-receipt" data-id="${receiptId}" aria-label="${escapeHtml(t('Delete receipt for'))} ${receiptCustomer}, ${escapeHtml(t('dated'))} ${receiptDate}">${escapeHtml(t('Delete'))}</button></div>
-          </article></li>`;
-        }).join('') || `<li class="record-card-empty" role="status">${escapeHtml(t('No receipts recorded yet.'))}</li>`}</ul>
+        <div class="admin-receipt-search"><label for="admin-receipt-search">${escapeHtml(t('Search receipts by customer name, date, method, or amount'))}</label><input id="admin-receipt-search" type="search" autocomplete="off" value="${escapeHtml(pageState.receiptSearch)}" placeholder="${escapeHtml(t('Search customer, date, method, or amount'))}"></div>
+        <div id="admin-receipt-results"></div>
       </section>
       <section id="admin-incidents" class="panel data-panel incident-management" aria-labelledby="admin-incidents-title">
         <div class="section-heading"><div><p class="eyebrow">${escapeHtml(t('Service operations'))}</p><h2 id="admin-incidents-title">${escapeHtml(t('Incident management'))}</h2></div><span class="muted">${rows.incidents.length} ${escapeHtml(t('records'))}</span></div>
@@ -1361,6 +1385,8 @@ if (!supabase) {
       setMessage(portalPanel.querySelector('#bill-message'), 'Due date set to {date}.', false, { date: dueDate });
     }));
     portalPanel.querySelector('#receipt-customer')?.addEventListener('change', (event) => populateReceiptBills(event.target.value));
+    updateAdminReceiptResults();
+    bindAdminReceiptActions(context);
     bindAdminForms(context);
     bindAdminCashflowActions(context);
     bindPppoeMappingActions(context);
@@ -1851,34 +1877,6 @@ if (!supabase) {
       billEditForm.elements.issued_on.focus();
     }));
 
-    portalPanel.querySelectorAll('[data-action="edit-receipt"]').forEach((button) => button.addEventListener('click', () => {
-      const receipt = pageState.rows.receipts.find((row) => row.id === button.dataset.id);
-      if (!receipt) return;
-      const dialog = portalPanel.querySelector('#receipt-dialog');
-      const form = portalPanel.querySelector('#receipt-edit-form');
-      const availableBills = pageState.rows.bills.filter((bill) => bill.customer_id === receipt.customer_id);
-      form.elements.receipt_id.value = receipt.id;
-      form.elements.bill_id.innerHTML = availableBills.map((bill) => `<option value="${escapeHtml(bill.id)}" ${bill.id === receipt.origin_bill_id ? 'selected' : ''}>${escapeHtml(bill.period.slice(0, 7))}</option>`).join('');
-      form.elements.received_on.value = receipt.received_on;
-      form.elements.amount.value = (Number(receipt.amount_cents) / 100).toFixed(2);
-      form.elements.method.value = receipt.method;
-      dialog.showModal();
-    }));
-
-    portalPanel.querySelectorAll('[data-action="delete-receipt"]').forEach((button) => button.addEventListener('click', async () => {
-      const receipt = pageState.rows.receipts.find((row) => row.id === button.dataset.id);
-      if (!receipt || !window.confirm(t('Delete this cash receipt? Its allocations will be recalculated, and this deletion cannot be undone.'))) return;
-      try {
-        await invokeRpc(supabase, 'delete_cash_receipt', {
-          p_organization_id: context.organizationId,
-          p_receipt_id: receipt.id,
-        });
-        await refreshCurrentContext('Receipt deleted. Any dependent allocations were recalculated.');
-      } catch (error) {
-        window.alert(error.message || t('Receipt could not be deleted.'));
-      }
-    }));
-
     portalPanel.querySelectorAll('[data-action="close-dialog"]').forEach((button) => button.addEventListener('click', () => {
       portalPanel.querySelector('#receipt-dialog')?.close();
     }));
@@ -1898,6 +1896,54 @@ if (!supabase) {
         await refreshCurrentContext('Receipt correction saved.');
       } catch (error) {
         window.alert(error.message || t('Receipt correction could not be saved.'));
+      }
+    });
+  }
+
+  function bindAdminReceiptActions(context) {
+    if (context.kind !== 'admin') return;
+    const root = portalPanel.querySelector('#admin-receipts');
+    if (!root) return;
+    root.addEventListener('input', (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.id !== 'admin-receipt-search') return;
+      pageState.receiptSearch = target.value;
+      pageState.receiptPage = 1;
+      updateAdminReceiptResults();
+    });
+    root.addEventListener('click', async (event) => {
+      const target = event.target instanceof Element ? event.target.closest('[data-action], [data-receipt-page]') : null;
+      if (!target) return;
+      if (target.dataset.receiptPage) {
+        pageState.receiptPage += Number(target.dataset.receiptPage);
+        updateAdminReceiptResults();
+        root.querySelector('.receipt-pagination button:not(:disabled)')?.focus();
+        return;
+      }
+      if (target.dataset.action === 'edit-receipt') {
+        const receipt = pageState.rows.receipts.find((row) => row.id === target.dataset.id);
+        if (!receipt) return;
+        const dialog = portalPanel.querySelector('#receipt-dialog');
+        const form = portalPanel.querySelector('#receipt-edit-form');
+        const availableBills = pageState.rows.bills.filter((bill) => bill.customer_id === receipt.customer_id);
+        form.elements.receipt_id.value = receipt.id;
+        form.elements.bill_id.innerHTML = availableBills.map((bill) => `<option value="${escapeHtml(bill.id)}" ${bill.id === receipt.origin_bill_id ? 'selected' : ''}>${escapeHtml(bill.period.slice(0, 7))}</option>`).join('');
+        form.elements.received_on.value = receipt.received_on;
+        form.elements.amount.value = (Number(receipt.amount_cents) / 100).toFixed(2);
+        form.elements.method.value = receipt.method;
+        dialog.showModal();
+      } else if (target.dataset.action === 'delete-receipt') {
+        const receipt = pageState.rows.receipts.find((row) => row.id === target.dataset.id);
+        if (!receipt || !window.confirm(t('Delete this cash receipt? Its allocations will be recalculated, and this deletion cannot be undone.'))) return;
+        try {
+          await invokeRpc(supabase, 'delete_cash_receipt', {
+            p_organization_id: context.organizationId,
+            p_receipt_id: receipt.id,
+          });
+          await refreshCurrentContext('Receipt deleted. Any dependent allocations were recalculated.');
+        } catch (error) {
+          window.alert(error.message || t('Receipt could not be deleted.'));
+        }
       }
     });
   }

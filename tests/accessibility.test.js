@@ -2,11 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-const [index, main, customerList, adminBills, metrics, styles] = await Promise.all([
+const [index, main, customerList, adminBills, adminReceipts, metrics, styles] = await Promise.all([
   readFile(new URL('../index.html', import.meta.url), 'utf8'),
   readFile(new URL('../src/main.js', import.meta.url), 'utf8'),
   readFile(new URL('../src/customer-list.js', import.meta.url), 'utf8'),
   readFile(new URL('../src/admin-bills.js', import.meta.url), 'utf8'),
+  readFile(new URL('../src/admin-receipts.js', import.meta.url), 'utf8'),
   readFile(new URL('../src/dashboard-metrics.js', import.meta.url), 'utf8'),
   readFile(new URL('../src/styles.css', import.meta.url), 'utf8'),
 ]);
@@ -47,22 +48,26 @@ test('billing and receipt collections use named semantic card lists instead of w
   const cardLists = (source) => [...source.matchAll(/<ul class="record-card-grid[^\"]*" aria-label=/g)].length;
   assert.equal(tableRegions(main), 0, 'Admin receipts and Customer billing history no longer need horizontal table scrolling');
   assert.equal(tableRegions(customerList), 0, 'customer-profile history no longer needs horizontal table scrolling');
-  assert.equal(cardLists(main), 3, 'Admin receipt and Customer bill and receipt history use named lists');
+  assert.equal(cardLists(main), 2, 'Customer bill and receipt history use named lists in the portal');
+  assert.equal(cardLists(adminReceipts), 1, 'Admin receipt history uses a named list');
   assert.equal(cardLists(customerList), 3, 'customer-profile bills, receipts, and effective cost history use named lists');
-  for (const [name, source] of [['portal', main], ['customer profile', customerList]]) {
+  for (const [name, source] of [['portal', main], ['Admin receipt history', adminReceipts], ['customer profile', customerList]]) {
     assert.match(source, /<li><article class="record-card/ , `${name} records are articles within native lists`);
     assert.match(source, /class="record-card__facts"/, `${name} card fields use definition lists`);
     assert.match(source, /class="record-card-empty" role="status"/, `${name} empty states remain announced`);
   }
-  assert.match(main, /class="record-card-grid admin-receipt-card-grid" aria-label=/);
-  assert.match(main, /data-action="edit-receipt"/);
-  assert.match(main, /data-action="delete-receipt"/);
+  assert.match(adminReceipts, /class="record-card-grid admin-receipt-card-grid" aria-label=/);
+  assert.match(adminReceipts, /data-action="edit-receipt"/);
+  assert.match(adminReceipts, /data-action="delete-receipt"/);
   assert.match(main, /data-action="print-bill"/);
   assert.match(styles, /\.record-card-grid \{ display: grid; grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
   assert.match(styles, /@media \(max-width: 760px\) \{\s+\.record-card-grid \{ grid-template-columns: 1fr; \}/);
   assert.match(adminBills, /aria-label="\$\{escapeHtml\(t\('Correct bill for'\)\)\} \$\{customerName\}/);
-  assert.match(main, /aria-label="\$\{escapeHtml\(t\('Edit receipt for'\)\)\} \$\{receiptCustomer\}, \$\{escapeHtml\(t\('dated'\)\)\} \$\{receiptDate\}/);
+  assert.match(adminReceipts, /aria-label="\$\{escapeHtml\(t\('Edit receipt for'\)\)\} \$\{receiptCustomer\}, \$\{escapeHtml\(t\('dated'\)\)\} \$\{receiptDate\}/);
   assert.match(main, /aria-label="\$\{escapeHtml\(t\('Filter bills by payment status'\)\)\}"/);
+  assert.match(main, /<label for="admin-receipt-search">/);
+  assert.match(main, /class="receipt-pagination" aria-label=/);
+  assert.match(main, /id="admin-receipt-count" class="admin-receipt-count" role="status" aria-live="polite"/);
   assert.match(main, /id="admin-bill-count" class="bill-list-count" role="status" aria-live="\$\{billDrilldown \? 'off' : 'polite'\}"/);
   assert.match(main, /id="admin-bill-drilldown-message" role="status" aria-live="polite" aria-atomic="true"/);
   assert.match(main, /data-action="clear-dashboard-drilldown" data-target="admin-bills"/);
