@@ -49,6 +49,7 @@ import { prepareSuccessSound } from './success-sound.js';
 import { initializeFeatureToggles, refreshFeatureToggleLabels, ALL_FEATURE_SELECTOR } from './feature-toggles.js';
 import { initializeTheme } from './theme.js';
 import { initializeAppInstall } from './app-install.js';
+import { renderDashboardAnalyticsSkeleton } from './dashboard-analytics-loading.js';
 import './styles.css';
 
 const app = document.querySelector('#app');
@@ -200,6 +201,11 @@ if (!supabase) {
     if (!section || !props || section.dataset.analyticsLoaded === 'true' || section.dataset.analyticsLoading === 'true') return;
     section.dataset.analyticsLoading = 'true';
     section.setAttribute('aria-busy', 'true');
+    const loadingMessage = section.querySelector('.dashboard-analytics-loading');
+    if (loadingMessage) {
+      loadingMessage.classList.add('dashboard-analytics-loading--skeleton');
+      loadingMessage.innerHTML = renderDashboardAnalyticsSkeleton(t);
+    }
     loadDashboardAnalyticsModule().then(({ renderDashboardAnalytics }) => {
       if (generation !== pageState.dashboardAnalyticsRenderGeneration || pageState.context?.kind !== 'admin') return;
       const currentSection = portalPanel.querySelector('#admin-dashboard-analytics');
