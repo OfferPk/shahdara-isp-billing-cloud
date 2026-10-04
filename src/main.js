@@ -1808,7 +1808,7 @@ if (!supabase) {
     populateReceiptBills(portalPanel.querySelector('#receipt-customer')?.value);
     window.setTimeout(() => {
       const section = portalPanel.querySelector('#admin-dashboard-analytics');
-      if (generation === pageState.dashboardAnalyticsRenderGeneration && section?.dataset.featureExpanded === 'true') {
+      if (renderGeneration === pageState.dashboardAnalyticsRenderGeneration && section?.dataset.featureExpanded === 'true') {
         requestDashboardAnalytics();
       }
     }, 0);
