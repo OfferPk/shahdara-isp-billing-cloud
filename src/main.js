@@ -36,6 +36,7 @@ import { BRANDING_BUCKET, buildBrandLogoPath, getOrganizationBranding, getPublic
 import { renderPrintableBillHtml } from './customer-documents.js';
 import { renderCustomerUsageDashboard, renderCustomerUsageSkeleton } from './customer-usage.js';
 import { prepareSuccessSound } from './success-sound.js';
+import { initializeFeatureToggles, refreshFeatureToggleLabels, ALL_FEATURE_SELECTOR } from './feature-toggles.js';
 import './styles.css';
 
 const app = document.querySelector('#app');
@@ -80,6 +81,12 @@ function applyStaticTranslations(root = document) {
 
 applyDocumentLanguage(document, currentLanguage);
 applyStaticTranslations();
+const formatFeatureToggleMessage = (message, values = {}) => formatUiMessage(message, currentLanguage, values);
+initializeFeatureToggles(document, {
+  selector: ALL_FEATURE_SELECTOR,
+  formatMessage: formatFeatureToggleMessage,
+  observe: true,
+});
 document.querySelector('#language-toggle')?.addEventListener('click', (event) => {
   const button = event.target instanceof Element ? event.target.closest('[data-language]') : null;
   if (!button) return;
@@ -95,6 +102,7 @@ document.querySelector('#language-toggle')?.addEventListener('click', (event) =>
       : t(message.dataset.messageSource);
   }
   rerenderForLanguage();
+  refreshFeatureToggleLabels(document, { formatMessage: formatFeatureToggleMessage });
   const announcement = document.querySelector('#app-announcement');
   if (announcement) announcement.textContent = t(currentLanguage === 'ur-Latn' ? 'Language changed to Roman Urdu.' : 'Language changed to English.');
 });

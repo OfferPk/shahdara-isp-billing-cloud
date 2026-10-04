@@ -95,3 +95,11 @@ test('escaping remains safe in translated cards and does not translate customer-
   assert.doesNotMatch(incident, /<script>alert/);
   assert.doesNotMatch(incident, /<b>staff-only/);
 });
+
+
+test('feature eye controls use clear translatable action labels', () => {
+  assert.equal(formatUiMessage('Show {feature}', 'en', { feature: 'Customer records' }), 'Show Customer records');
+  assert.equal(formatUiMessage('Hide {feature}', 'en', { feature: 'Customer records' }), 'Hide Customer records');
+  assert.equal(formatUiMessage('Show {feature}', 'ur-Latn', { feature: 'Customer records' }), 'Customer records dikhayein');
+  assert.equal(formatUiMessage('Hide {feature}', 'ur-Latn', { feature: 'Customer records' }), 'Customer records chhupayein');
+});

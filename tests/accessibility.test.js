@@ -173,3 +173,28 @@ test('Admin PPPoE controls are schema-gated and explicitly mapping-only', async 
   assert.match(portalData, /\.eq\('organization_id', organizationId\)[\s\S]*?\.eq\('id', customerId\)/);
   assert.doesNotMatch(portalData, /service_role|change-password|ppp secret|radius.*write/i);
 });
+
+
+test('feature panels have default-collapsed eye controls without unmounting state or stopping work', async () => {
+  const featureToggles = await readFile(new URL('../src/feature-toggles.js', import.meta.url), 'utf8');
+  for (const key of ['auth-customer-username', 'auth-email-password', 'auth-email-link', 'auth-password-recovery']) {
+    assert.match(index, new RegExp(`data-feature-key="${key}"`));
+  }
+  assert.match(main, /initializeFeatureToggles\(document,\s*\{[\s\S]*?observe: true/);
+  assert.match(featureToggles, /expandedFeatureKeys\.has\(key\)/, 'unknown panels start folded');
+  assert.match(featureToggles, /button\.type = 'button'/);
+  assert.match(featureToggles, /button\.setAttribute\('aria-controls'/);
+  assert.match(featureToggles, /controlledIds\.join\(' '\)/);
+  assert.match(featureToggles, /child\.inert = nextExpanded \? originalInertState\.get\(child\) : true/);
+  assert.match(featureToggles, /button\.setAttribute\('aria-expanded'/);
+  assert.match(featureToggles, /button\.setAttribute\('aria-label'/);
+  assert.match(featureToggles, /button\.addEventListener\('click'/);
+  assert.match(featureToggles, /trackFeatureRunning/);
+  assert.match(featureToggles, /observeInsertedFeatures/);
+  assert.doesNotMatch(featureToggles, /\.innerHTML\s*=|replaceChildren\(/, 'folding leaves forms and pending actions mounted');
+  assert.match(styles, /\[data-feature-toggle\]\[data-feature-expanded="false"\] > :not\(\.feature-toggle-button\) \{ display: none !important; \}/);
+  assert.match(styles, /data-feature-running="true"/);
+  assert.match(styles, /linear-gradient\(125deg, #4de5ae 0%, #7ce8f1/);
+  assert.match(styles, /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.feature-toggle-button \{ transition: none; \}/);
+  assert.match(styles, /\.feature-toggle-button \{ display: flex; width: 100%;[^\n]*min-height: 44px;/);
+});
