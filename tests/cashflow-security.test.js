@@ -46,3 +46,9 @@ test('global cashflow uses actual receipts and cash expense rows only, never all
   assert.match(main, /issued or unpaid bills and allocations are not income/i);
   assert.doesNotMatch(main.slice(main.indexOf('function renderCashflowAnalysis'), main.indexOf('function renderAdmin()')), /customerServiceCosts|customer_service_cost_history/);
 });
+
+test('cash expense form calls the deployed RPC with the migration argument names', () => {
+  assert.match(main, /invokeRpc\(supabase, 'record_cashflow_expense', \{\s*p_organization_id: context\.organizationId,\s*p_entry_id: entryId,\s*p_category: category,\s*p_amount_paisa: amountPaisa,\s*p_note: note \|\| null,/);
+  assert.match(migration, /create or replace function public\.record_cashflow_expense\(\s*p_organization_id uuid,\s*p_entry_id uuid,\s*p_category text,\s*p_amount_paisa bigint,\s*p_note text default null/i);
+  assert.doesNotMatch(main, /invokeRpc\(supabase, 'record_cash_expense'/);
+});

@@ -1794,7 +1794,7 @@ if (!supabase) {
         submitButton.disabled = true;
         setMessage(message, 'Recording cash expense…');
         const entryId = getFinancialAttemptId('cashflow-expense', context);
-        await invokeRpc(supabase, 'record_cash_expense', {
+        await invokeRpc(supabase, 'record_cashflow_expense', {
           p_organization_id: context.organizationId,
           p_entry_id: entryId,
           p_category: category,
