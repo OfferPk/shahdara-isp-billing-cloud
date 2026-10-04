@@ -119,6 +119,43 @@ test('account balance sums multiple open bill balances and points to the oldest 
   assert.equal(row.paymentBill.id, 'older-open');
 });
 
+test('customer row indexes preserve customer order, period selection, and composite-key allocation balances', () => {
+  const rows = buildCustomerListRows({
+    customers: [customers[0], customers[1]],
+    bills: [
+      { id: 'shared-month', customer_id: 'synthetic-a', period: '2026-02-01', amount_due_cents: 500 },
+      { id: 'shared-month', customer_id: 'synthetic-b', period: '2026-02-01', amount_due_cents: 800 },
+      { id: 'future-a', customer_id: 'synthetic-a', period: '2026-12-01', amount_due_cents: 9000 },
+      { id: 'older-a', customer_id: 'synthetic-a', period: '2026-01-01', amount_due_cents: 1000 },
+    ],
+    allocations: [
+      { bill_id: 'shared-month', customer_id: 'synthetic-a', amount_cents: '500' },
+      { bill_id: 'shared-month', customer_id: 'synthetic-b', amount_cents: 300 },
+      { bill_id: 'shared-month', customer_id: 'unrelated-customer', amount_cents: 9000 },
+      { bill_id: 'older-a', customer_id: 'synthetic-a', amount_cents: 400 },
+      { bill_id: 'future-a', customer_id: 'synthetic-a', amount_cents: 9000 },
+    ],
+    currentMonth: '2026-02',
+  });
+
+  assert.deepEqual(rows.map((row) => ({
+    customerId: row.customer.id,
+    billId: row.bill?.id,
+    dueBillId: row.dueBill?.id,
+    paymentBillId: row.paymentBill?.id,
+    billing: row.billing,
+  })), [
+    {
+      customerId: 'synthetic-a', billId: 'shared-month', dueBillId: 'older-a', paymentBillId: 'older-a',
+      billing: { status: 'unpaid', balanceCents: 600, appliedCents: 900 },
+    },
+    {
+      customerId: 'synthetic-b', billId: 'shared-month', dueBillId: 'shared-month', paymentBillId: 'shared-month',
+      billing: { status: 'unpaid', balanceCents: 500, appliedCents: 300 },
+    },
+  ]);
+});
+
 test('search matches name, Admin phone digits, and the account number replacing a missing username field', () => {
   const rows = rowsForTests();
   assert.deepEqual(filterCustomerRows(rows, { search: 'AISHA' }).map((row) => row.customer.id), ['synthetic-a']);

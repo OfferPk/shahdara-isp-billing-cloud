@@ -17,19 +17,41 @@ function sumCents(rows) {
   return rows.reduce((total, row) => total + Number(row.amount_cents || 0), 0);
 }
 
+function indexRowsByBillAndCustomer(rows, billIdField) {
+  const byBill = new Map();
+  rows.forEach((row) => {
+    let byCustomer = byBill.get(row[billIdField]);
+    if (!byCustomer) {
+      byCustomer = new Map();
+      byBill.set(row[billIdField], byCustomer);
+    }
+    let matches = byCustomer.get(row.customer_id);
+    if (!matches) {
+      matches = [];
+      byCustomer.set(row.customer_id, matches);
+    }
+    matches.push(row);
+  });
+  return byBill;
+}
+
+function rowsForBillAndCustomer(index, billId, customerId) {
+  return index.get(billId)?.get(customerId) ?? [];
+}
+
 export function buildAdminBillRows({
   customers = [], bills = [], receipts = [], allocations = [], privateDetails = [], today = '', t = (value) => value,
 } = {}) {
   const customerById = new Map(customers.map((customer) => [customer.id, customer]));
   const phoneByCustomer = new Map(privateDetails.map((detail) => [detail.customer_id, String(detail.phone ?? '')]));
+  const allocationsByBill = indexRowsByBillAndCustomer(allocations, 'bill_id');
+  const receiptsByBill = indexRowsByBillAndCustomer(receipts, 'origin_bill_id');
   const todayKey = validIsoDate(today);
 
   return bills.map((bill) => {
     const customer = customerById.get(bill.customer_id) ?? null;
-    const billAllocations = allocations.filter((allocation) =>
-      allocation.bill_id === bill.id && allocation.customer_id === bill.customer_id);
-    const billReceipts = receipts.filter((receipt) =>
-      receipt.origin_bill_id === bill.id && receipt.customer_id === bill.customer_id);
+    const billAllocations = rowsForBillAndCustomer(allocationsByBill, bill.id, bill.customer_id);
+    const billReceipts = rowsForBillAndCustomer(receiptsByBill, bill.id, bill.customer_id);
     const isPriced = bill.amount_due_cents !== null && bill.amount_due_cents !== undefined
       && Number.isFinite(Number(bill.amount_due_cents));
     const appliedCents = sumCents(billAllocations);

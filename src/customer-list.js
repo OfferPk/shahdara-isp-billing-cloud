@@ -18,8 +18,10 @@ function customerBillState(bill, allocations) {
       || !Number.isFinite(Number(bill.amount_due_cents))) {
     return { status: 'not-set', balanceCents: null, appliedCents: 0 };
   }
-  const appliedCents = allocations
-    .filter((row) => row.bill_id === bill.id && row.customer_id === bill.customer_id)
+  const matchingAllocations = allocations instanceof Map
+    ? allocations.get(bill.id)?.get(bill.customer_id) ?? []
+    : allocations.filter((row) => row.bill_id === bill.id && row.customer_id === bill.customer_id);
+  const appliedCents = matchingAllocations
     .reduce((total, row) => total + Number(row.amount_cents || 0), 0);
   const balanceCents = Math.max(0, Number(bill.amount_due_cents) - appliedCents);
   return {
@@ -29,9 +31,9 @@ function customerBillState(bill, allocations) {
   };
 }
 
-function billsForCustomerThroughMonth(customerId, bills, currentMonth) {
-  return bills
-    .filter((bill) => bill.customer_id === customerId && periodOf(bill) <= currentMonth)
+function billsForCustomerThroughMonth(customerId, billsByCustomer, currentMonth) {
+  return (billsByCustomer.get(customerId) ?? [])
+    .filter((bill) => periodOf(bill) <= currentMonth)
     .sort((left, right) => String(left.period).localeCompare(String(right.period)));
 }
 
@@ -39,9 +41,9 @@ function latestBillForCustomer(customerBills) {
   return customerBills.at(-1) ?? null;
 }
 
-function customerAccountBillingState(customerBills, allocations) {
+function customerAccountBillingState(customerBills, allocations, preparedBillStates = null) {
   if (!customerBills.length) return { status: 'no-bill', balanceCents: null, appliedCents: 0 };
-  const billStates = customerBills.map((bill) => customerBillState(bill, allocations));
+  const billStates = preparedBillStates ?? customerBills.map((bill) => customerBillState(bill, allocations));
   const pricedStates = billStates.filter((state) => state.balanceCents !== null);
   if (!pricedStates.length) return { status: 'not-set', balanceCents: null, appliedCents: 0 };
 
@@ -67,10 +69,35 @@ export function buildCustomerListRows({
 }) {
   const phoneByCustomer = new Map(privateDetails.map((row) => [row.customer_id, row.phone ?? '']));
   const connectionDateByCustomer = new Map(privateDetails.map((row) => [row.customer_id, row.connection_date ?? '']));
+  const billsByCustomer = new Map();
+  bills.forEach((bill) => {
+    let customerBills = billsByCustomer.get(bill.customer_id);
+    if (!customerBills) {
+      customerBills = [];
+      billsByCustomer.set(bill.customer_id, customerBills);
+    }
+    customerBills.push(bill);
+  });
+  const allocationsByBill = new Map();
+  allocations.forEach((allocation) => {
+    let byCustomer = allocationsByBill.get(allocation.bill_id);
+    if (!byCustomer) {
+      byCustomer = new Map();
+      allocationsByBill.set(allocation.bill_id, byCustomer);
+    }
+    let billAllocations = byCustomer.get(allocation.customer_id);
+    if (!billAllocations) {
+      billAllocations = [];
+      byCustomer.set(allocation.customer_id, billAllocations);
+    }
+    billAllocations.push(allocation);
+  });
   return customers.map((customer) => {
-    const customerBills = billsForCustomerThroughMonth(customer.id, bills, currentMonth);
+    const customerBills = billsForCustomerThroughMonth(customer.id, billsByCustomer, currentMonth);
+    const billStates = customerBills.map((bill) => customerBillState(bill, allocationsByBill));
     const bill = latestBillForCustomer(customerBills);
-    const oldestOpenBill = customerBills.find((candidate) => customerBillState(candidate, allocations).balanceCents > 0) ?? null;
+    const oldestOpenIndex = billStates.findIndex((state) => state.balanceCents > 0);
+    const oldestOpenBill = customerBills[oldestOpenIndex] ?? null;
     return {
       customer,
       phone: phoneByCustomer.get(customer.id) ?? '',
@@ -79,7 +106,7 @@ export function buildCustomerListRows({
       bill,
       dueBill: oldestOpenBill ?? bill,
       paymentBill: oldestOpenBill ?? bill,
-      billing: customerAccountBillingState(customerBills, allocations),
+      billing: customerAccountBillingState(customerBills, allocationsByBill, billStates),
     };
   });
 }
