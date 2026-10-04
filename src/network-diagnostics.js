@@ -457,7 +457,7 @@ export function renderNetworkActionPolicyPreview(t = (message) => message) {
 }
 
 export function renderSyntheticDiagnosticResult(result, t = (message) => message) {
-  if (!result || result.simulated !== true || result.fictional !== true || result.outcome !== 'simulated-only'
+  if (!result || result.state !== 'simulated-only' || result.simulated !== true || result.fictional !== true || result.outcome !== 'simulated-only'
       || result.liveCheckPerformed !== false || result.changesApplied !== false || result.serviceVerified !== false) {
     throw new TypeError('Only an explicitly simulated diagnostic result can be rendered.');
   }

@@ -1,6 +1,6 @@
-# Phase 20 — initial-load and mobile readiness
+# Initial-load and mobile readiness — performance milestone
 
-This phase defers the Roman Urdu translation dictionary until a visitor selects Roman Urdu or has that preference saved. English remains the default, and a missing locale file falls back to English without blocking the setup/sign-in shell. The existing dashboard-analytics, network-diagnostics, and network-knowledge lazy imports remain unchanged; no vendor-only split or warning-threshold change was made.
+This performance milestone defers the Roman Urdu translation dictionary until a visitor selects Roman Urdu or has that preference saved. English remains the default, and a missing locale file falls back to English without blocking the setup/sign-in shell. The existing dashboard-analytics, network-diagnostics, and network-knowledge lazy imports remain unchanged; no vendor-only split or warning-threshold change was made.
 
 ## Initial load measured
 
@@ -20,6 +20,6 @@ The existing synthetic-network checks continue to fail closed: live-only diagnos
 
 ## Remaining readiness
 
-The checked-in roadmap docs, [all 63 existing pull requests](https://github.com/OfferPk/shahdara-isp-billing-cloud/pulls), and [the issue tracker](https://github.com/OfferPk/shahdara-isp-billing-cloud/issues) contain no prior formal Phase 20–23 work items; this change records Phase 20, while Phases 21–23 have no tracked definitions or coverage to claim. No live router is connected and no live customers exist. Router identity/mapping, an approved read-only device path, and real connectivity/telemetry validation still await a device and their own authorization; the simulation-only policy cannot execute actions.
+This performance and mobile-readiness record is separate from the AI Network Engineer roadmap; it is not Phase 20. That roadmap numbers Phase 20 as Fail-safe, Phase 21 as Existing System Protection, Phase 22 as Testing, and Phase 23 as Implementation Style. No live router is connected and no live customers exist. Router identity/mapping, an approved read-only device path, and real connectivity/telemetry validation still await a device and separate authorization; the simulation-only policy cannot execute actions.
 
-This branch has **not** been merged or deployed. The repository's Pages workflow deploys on every push to `main`, so a protected merge would change the live site. That conflicts with the task's explicit instruction to make no production changes; required PR checks can be completed, but merge and live Pages verification must wait until that scope is clarified.
+The change was squash-merged through [PR #64](https://github.com/OfferPk/shahdara-isp-billing-cloud/pull/64) as `ccd115aa` after the required `app-tests` and `disposable-pgtap` checks passed. The [Pages workflow run](https://github.com/OfferPk/shahdara-isp-billing-cloud/actions/runs/37243113094) and [post-merge test workflow](https://github.com/OfferPk/shahdara-isp-billing-cloud/actions/runs/37243113005) both succeeded. The published [internal staging portal](https://offerpk.github.io/shahdara-isp-billing-cloud/) returned HTTP 200 for the HTML, its initial assets, and the deferred locale, diagnostics, network-knowledge, and analytics chunks. One immediate asset fetch briefly returned 404; every asset returned 200 on subsequent checks. Verification fetched static files only; it did not execute the site JavaScript or contact Supabase/Auth/customer data or a router.
