@@ -36,6 +36,7 @@
           <h1 data-i18n="Sign in to your account">Sign in to your account</h1>
           <p data-i18n="Customer usernames and temporary passwords are issued by an authorized Shahdara administrator. Temporary passwords must be changed at first sign-in. Email-invited accounts can sign in with a password or a secure sign-in link. Use Forgot password once to choose an initial password. Self-service sign-up is disabled.">Customer usernames and temporary passwords are issued by an authorized Shahdara administrator. Temporary passwords must be changed at first sign-in. Email-invited accounts can sign in with a password or a secure sign-in link. Use Forgot password once to choose an initial password. Self-service sign-up is disabled.</p>
           <div id="login-options">
+            <section class="auth-method-panel" data-feature-toggle data-feature-key="auth-customer-username">
             <h2 data-i18n="Customer username sign-in">Customer username sign-in</h2>
             <form id="customer-login-form" class="stack">
               <label for="customer-login-username" data-i18n="Username">Username</label>
@@ -46,6 +47,8 @@
               <button class="button primary" type="submit" data-i18n="Sign in with username">Sign in with username</button>
             </form>
             <p class="form-message" id="customer-login-message" role="status"></p>
+            </section>
+            <section class="auth-method-panel" data-feature-toggle data-feature-key="auth-email-password">
             <h2 data-i18n="Email and password sign-in">Email and password sign-in</h2>
             <form id="email-password-login-form" class="stack">
               <label for="email-password-email" data-i18n="Email address">Email address</label>
@@ -56,6 +59,8 @@
               <button class="button secondary" id="request-password-recovery" type="button" data-i18n="Forgot password? Send a recovery email">Forgot password? Send a recovery email</button>
             </form>
             <p class="form-message" id="email-password-login-message" role="status"></p>
+            </section>
+            <section class="auth-method-panel" data-feature-toggle data-feature-key="auth-email-link">
             <h2 data-i18n="Email sign-in for invited accounts">Email sign-in for invited accounts</h2>
             <form id="login-form" class="stack">
               <label for="login-email" data-i18n="Email address">Email address</label>
@@ -64,8 +69,9 @@
             </form>
             <p class="form-message" id="login-message" role="status"></p>
             <p class="muted" data-i18n="A Shahdara administrator can request a customer portal invitation. This page cannot confirm email delivery.">A Shahdara administrator can request a customer portal invitation. This page cannot confirm email delivery.</p>
+            </section>
           </div>
-          <section id="password-recovery-panel" aria-labelledby="password-recovery-title" hidden>
+          <section id="password-recovery-panel" data-feature-toggle data-feature-key="auth-password-recovery" aria-labelledby="password-recovery-title" hidden>
             <h2 id="password-recovery-title" data-i18n="Choose a new password">Choose a new password</h2>
             <p data-i18n="The recovery link is for this app. Set a password here; future sign-ins can use email and password without another email.">The recovery link is for this app. Set a password here; future sign-ins can use email and password without another email.</p>
             <form id="password-recovery-form" class="stack">

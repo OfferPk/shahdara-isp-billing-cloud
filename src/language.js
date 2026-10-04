@@ -3,6 +3,9 @@ export const LANGUAGE_STORAGE_KEY = 'shahdara-cloud-ui-language';
 const ROMAN_URDU = Object.freeze({
   'Skip to main content': 'Asal mazmoon par jayen',
   'Language': 'Zaban',
+  'Show {feature}': '{feature} dikhayein',
+  'Hide {feature}': '{feature} chhupayein',
+  'Customer account metrics': 'Customer account ke hisaab',
   'Cloud billing portal': 'Cloud par billing ka portal',
   'Isolated review edition': 'Alag review nuskha',
   'Setup pending': 'Setup baqi hai',
