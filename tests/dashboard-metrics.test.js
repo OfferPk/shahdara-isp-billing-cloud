@@ -33,6 +33,10 @@ test('Admin monitoring cards show billing, actual cash, pending, overdue, unpric
   assert.equal((markup.match(/<(?:article|a) class="metric metric--/g) ?? []).length, 6);
   assert.match(markup, /Total Billed · 2026-02/);
   assert.match(markup, /Collected · 2026-02/);
+  assert.match(markup, /href="#admin-bills\?scope=all&amp;period=2026-02" aria-label="Total Billed,/);
+  assert.match(markup, /href="#admin-receipts\?scope=received&amp;period=2026-02" aria-label="Collected,/);
+  assert.match(markup, /data-dashboard-drilldown="billed"/);
+  assert.match(markup, /data-dashboard-drilldown="collected"/);
   assert.match(markup, /Pending · 2026-02/);
   assert.match(markup, /href="#admin-bills\?scope=unpaid&amp;period=2026-02" aria-label="Pending,/);
   assert.match(markup, /data-dashboard-drilldown="unpaid"/);
@@ -52,6 +56,8 @@ test('Admin monitoring cards show billing, actual cash, pending, overdue, unpric
   assert.match(markup, /data-dashboard-drilldown="unpriced"/);
   assert.match(markup, /href="#customer-list\?scope=missing-snapshot&amp;period=2026-02" aria-label="Active accounts without a bill snapshot/);
   assert.match(markup, /View overdue bills/);
+  assert.match(markup, /View all bills/);
+  assert.match(markup, /View receipts/);
   assert.match(markup, /View unpaid bills/);
   assert.match(markup, /View unpriced bills/);
   assert.match(markup, /View matching active customers/);
@@ -132,6 +138,8 @@ test('collection cards update in English and Roman Urdu when the language prefer
   assert.match(romanUrdu, /Baqaya bills dekhein/);
   assert.match(romanUrdu, /Baghair price ke bills dekhein/);
   assert.match(romanUrdu, /Mutabiq active customers dekhein/);
+  assert.match(romanUrdu, /Tamam bills dekhein/);
+  assert.match(romanUrdu, /Receipts dekhein/);
 
   const oneReceipt = renderDashboardMetrics({
     month: '2026-02',

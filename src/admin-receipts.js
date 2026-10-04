@@ -12,6 +12,13 @@ function escapeHtml(value) {
   })[character]);
 }
 
+export function filterAdminReceiptsByPeriod(receipts, period = '') {
+  const selectedPeriod = String(period ?? '');
+  if (!selectedPeriod) return receipts;
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(selectedPeriod)) return [];
+  return receipts.filter((receipt) => String(receipt.received_on ?? '').slice(0, 7) === selectedPeriod);
+}
+
 export function filterAdminReceiptRows(receipts, {
   search = '',
   customerNameForReceipt = () => '',

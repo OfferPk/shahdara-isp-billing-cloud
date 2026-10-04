@@ -108,6 +108,7 @@ export function filterCollectionBillRows(rows, { scope = '', period = '' } = {})
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(String(period))) return [];
   return rows.filter((row) => {
     if (row.period !== period) return false;
+    if (scope === 'all') return true;
     if (scope === 'paid') return row.status === 'paid';
     if (scope === 'pending') {
       return row.status === 'unpaid'

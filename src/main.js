@@ -33,7 +33,7 @@ import {
   renderAdminBillCards,
   renderPrintableReceiptHtml,
 } from './admin-bills.js';
-import { filterAdminReceiptRows, paginateAdminReceiptRows, renderAdminReceiptCards } from './admin-receipts.js';
+import { filterAdminReceiptRows, filterAdminReceiptsByPeriod, paginateAdminReceiptRows, renderAdminReceiptCards } from './admin-receipts.js';
 import { createDashboardDrilldown, parseDashboardDrilldownHash } from './dashboard-drilldown.js';
 import {
   countAdminIncidentFilters,
@@ -976,6 +976,7 @@ if (!supabase) {
   function getAdminBillDrilldownMessage(drilldown, count) {
     if (!drilldown) return '';
     const messages = {
+      all: 'Showing all bill snapshots for {period}. {count} bill snapshots match. Unpriced bill snapshots have no billed amount.',
       paid: 'Showing paid bills for {period}. {count} bills match. Paid means the recorded priced balance is zero after allocations.',
       pending: 'Showing current pending bills for {period}. {count} bills match. These priced bills have a positive balance and are not overdue; missing or future due dates remain pending.',
       unpaid: 'Showing unpaid bills for {period}. {count} bills match. Unpaid means a priced bill with a positive remaining balance; missing or future due dates are not overdue.',
@@ -987,8 +988,10 @@ if (!supabase) {
   }
 
   function focusDashboardDrilldown(route) {
-    const sectionId = route.target === 'admin-bills' ? 'admin-bills' : 'customer-list';
-    const headingId = route.target === 'admin-bills' ? 'admin-bills-title' : 'customer-list-title';
+    const sectionId = route.target === 'admin-bills' ? 'admin-bills'
+      : route.target === 'admin-receipts' ? 'admin-receipts' : 'customer-list';
+    const headingId = route.target === 'admin-bills' ? 'admin-bills-title'
+      : route.target === 'admin-receipts' ? 'admin-receipts-title' : 'customer-list-title';
     const section = portalPanel.querySelector(`#${sectionId}`);
     const heading = portalPanel.querySelector(`#${headingId}`);
     const featureToggle = section?.querySelector('[data-feature-toggle-button]');
@@ -1012,6 +1015,8 @@ if (!supabase) {
       pageState.selectedMonth = nextRoute.period;
       pageState.billSearch = '';
       pageState.billStatus = 'all';
+      pageState.receiptSearch = '';
+      pageState.receiptPage = 1;
       pageState.customerListSearch = '';
       pageState.customerListStatus = 'all';
       pageState.customerListServiceStatus = 'all';
@@ -1021,11 +1026,14 @@ if (!supabase) {
       if (monthInput) monthInput.value = nextRoute.period;
       const billSearch = portalPanel.querySelector('#admin-bill-search');
       if (billSearch) billSearch.value = '';
+      const receiptSearch = portalPanel.querySelector('#admin-receipt-search');
+      if (receiptSearch) receiptSearch.value = '';
       const customerSearch = portalPanel.querySelector('#customer-search');
       if (customerSearch) customerSearch.value = '';
     }
     updateAdminBillResults();
     updateCustomerListResults();
+    updateAdminReceiptResults();
     if (focus && nextRoute) focusDashboardDrilldown(nextRoute);
     if (!nextRoute && current) announceApp('Dashboard filter cleared.');
   }
@@ -1190,10 +1198,12 @@ if (!supabase) {
   }
 
   function clearDashboardDrilldown(target) {
-    const sectionId = target === 'admin-bills' ? 'admin-bills' : 'customer-list';
+    const sectionId = target === 'admin-bills' ? 'admin-bills'
+      : target === 'admin-receipts' ? 'admin-receipts' : 'customer-list';
     history.pushState({ ...(history.state ?? {}), dashboardDrilldown: null }, '', `#${sectionId}`);
     applyDashboardDrilldown(null);
-    const headingId = sectionId === 'admin-bills' ? 'admin-bills-title' : 'customer-list-title';
+    const headingId = sectionId === 'admin-bills' ? 'admin-bills-title'
+      : sectionId === 'admin-receipts' ? 'admin-receipts-title' : 'customer-list-title';
     portalPanel.querySelector(`#${headingId}`)?.focus({ preventScroll: true });
   }
 
@@ -1232,7 +1242,9 @@ if (!supabase) {
     if (!root || !pageState.rows) return;
     const allReceipts = [...pageState.rows.receipts]
       .sort((left, right) => String(right.received_on).localeCompare(String(left.received_on)));
-    const filteredReceipts = filterAdminReceiptRows(allReceipts, {
+    const drilldown = pageState.dashboardDrilldown?.target === 'admin-receipts' ? pageState.dashboardDrilldown : null;
+    const periodReceipts = filterAdminReceiptsByPeriod(allReceipts, drilldown?.period ?? '');
+    const filteredReceipts = filterAdminReceiptRows(periodReceipts, {
       search: pageState.receiptSearch,
       customerNameForReceipt: (receipt) => pageState.rows.customers.find((customer) => customer.id === receipt.customer_id)?.name ?? t('Customer'),
       formatMoney,
@@ -1243,16 +1255,28 @@ if (!supabase) {
       shownStart: page.start,
       shownEnd: page.end,
       matching: page.total,
-      total: allReceipts.length,
+      total: periodReceipts.length,
     });
+    const emptyMessage = drilldown
+      ? periodReceipts.length
+        ? t('No receipts match this search.')
+        : formatUiMessage('No actual receipts were recorded during {period}.', currentLanguage, { period: drilldown.period })
+      : allReceipts.length ? t('No receipts match this search.') : t('No receipts recorded yet.');
+    const drilldownMessage = drilldown
+      ? formatUiMessage('Showing receipts received during {period}.', currentLanguage, { period: drilldown.period })
+      : '';
+    const drilldownSummary = drilldown
+      ? `<div id="admin-receipt-drilldown-summary" class="filter-summary"><p id="admin-receipt-drilldown-message">${escapeHtml(drilldownMessage)}</p><button class="button secondary small" type="button" data-action="clear-dashboard-drilldown" data-target="admin-receipts">${escapeHtml(t('Clear dashboard filter'))}</button></div>`
+      : '';
+    const drilldownAnnouncement = drilldown ? `<span class="sr-only">${escapeHtml(drilldownMessage)} </span>` : '';
     const pageControls = page.pageCount > 1
       ? `<nav class="receipt-pagination" aria-label="${escapeHtml(t('Receipt history pages'))}"><button class="button secondary small" type="button" data-receipt-page="-1" aria-label="${escapeHtml(t('Previous page'))}" ${page.page <= 1 ? 'disabled' : ''}>${escapeHtml(t('Previous page'))}</button><span class="receipt-pagination__current" aria-live="polite">${escapeHtml(formatUiMessage('Page {page} of {pageCount}.', currentLanguage, { page: page.page, pageCount: page.pageCount }))}</span><button class="button secondary small" type="button" data-receipt-page="1" aria-label="${escapeHtml(t('Next page'))}" ${page.page >= page.pageCount ? 'disabled' : ''}>${escapeHtml(t('Next page'))}</button></nav>`
       : '';
-    root.innerHTML = `<p id="admin-receipt-count" class="admin-receipt-count" role="status" aria-live="polite">${escapeHtml(count)}</p>${renderAdminReceiptCards(page.items, {
+    root.innerHTML = `${drilldownSummary}<p id="admin-receipt-count" class="admin-receipt-count" role="status" aria-live="polite">${drilldownAnnouncement}${escapeHtml(count)}</p>${renderAdminReceiptCards(page.items, {
       customerNameForReceipt: (receipt) => pageState.rows.customers.find((customer) => customer.id === receipt.customer_id)?.name ?? t('Customer'),
       formatMoney,
       t,
-      emptyMessage: allReceipts.length ? t('No receipts match this search.') : t('No receipts recorded yet.'),
+      emptyMessage,
     })}${pageControls}`;
   }
 
@@ -1714,7 +1738,7 @@ if (!supabase) {
         <div id="admin-bill-card-grid" class="bill-card-grid">${renderAdminBillCards(filteredAdminBillRows, formatMoney, t)}</div>
         <p class="muted">${escapeHtml(t('Summary cards above use the selected dashboard month: billed and pending follow bill periods, while collected follows actual receipt dates. Carry-forward credit reduces pending balances but is never counted as cash. WhatsApp opens a draft only; receipts can be printed only from existing receipt records.'))}</p>
       </section>
-      <section id="admin-receipts" class="panel data-panel"><div class="section-heading"><div><p class="eyebrow">${escapeHtml(t('Dated cash entries'))}</p><h2>${escapeHtml(t('Receipts'))}</h2></div><span class="muted">${receipts.length} ${escapeHtml(t('actual receipts'))}</span></div>
+      <section id="admin-receipts" class="panel data-panel" aria-labelledby="admin-receipts-title"><div class="section-heading"><div><p class="eyebrow">${escapeHtml(t('Dated cash entries'))}</p><h2 id="admin-receipts-title" tabindex="-1">${escapeHtml(t('Receipts'))}</h2></div><span class="muted">${receipts.length} ${escapeHtml(t('actual receipts'))}</span></div>
         <div class="admin-receipt-search"><label for="admin-receipt-search">${escapeHtml(t('Search receipts by customer name, date, method, or amount'))}</label><input id="admin-receipt-search" type="search" autocomplete="off" value="${escapeHtml(pageState.receiptSearch)}" placeholder="${escapeHtml(t('Search customer, date, method, or amount'))}"></div>
         <div id="admin-receipt-results"></div>
       </section>
@@ -2374,6 +2398,10 @@ if (!supabase) {
     root.addEventListener('click', async (event) => {
       const target = event.target instanceof Element ? event.target.closest('[data-action], [data-receipt-page]') : null;
       if (!target) return;
+      if (target.dataset.action === 'clear-dashboard-drilldown') {
+        clearDashboardDrilldown(target.dataset.target);
+        return;
+      }
       if (target.dataset.receiptPage) {
         pageState.receiptPage += Number(target.dataset.receiptPage);
         updateAdminReceiptResults();

@@ -97,6 +97,7 @@ export function renderDashboardMetrics({ month, today, totals, previousTotals = 
       trendPoints,
       trendKey: 'billedCents',
       trendLabel: 'Billed trend',
+      drilldown: makeDrilldown('billed', 'View all bills', `${t('Total Billed')}, ${formatMoney(totals.billedCents)}, ${t('for bill period')} ${month}. ${t('View all bills for')} ${month}.`),
     },
     {
       tone: 'cash',
@@ -108,6 +109,7 @@ export function renderDashboardMetrics({ month, today, totals, previousTotals = 
       trendPoints,
       trendKey: 'collectedCents',
       trendLabel: 'Collection trend',
+      drilldown: makeDrilldown('collected', 'View receipts', `${t('Collected')}, ${formatMoney(totals.cashReceivedCents)}. ${t('View receipts received in')} ${month}.`),
     },
     {
       tone: 'outstanding',
