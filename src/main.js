@@ -1,7 +1,7 @@
-import { createPortalClient } from './supabase-client.js';
+import { createPortalClient, isStagingProjectUrl } from './supabase-client.js';
 import { hasPasswordRecoveryMarker, requestPasswordRecovery, setRecoveredPassword, signInWithEmailPassword } from './auth-flows.js';
 import { validatePakistanPhone } from './customer-input.js';
-import { createCustomer, invokeRpc, loadContexts, loadOrganizationBranding, loadPortalRows, manageServiceIncident, saveCustomerPppoeUsername } from './portal-data.js';
+import { createCustomer, invokeRpc, loadContexts, loadOrganizationBranding, loadPortalRows, manageServiceIncident, saveCustomerPppoeUsername, saveCustomerPortalTestAccount } from './portal-data.js';
 import { getBillingCycleQuickDate, isValidBillingMonth, localDateString, localMonthString } from './bill-dates.js';
 import { amountToMinorUnits, calculateDashboard, formatMoney } from './ledger.js';
 import { renderDashboardMetrics } from './dashboard-metrics.js';
@@ -100,6 +100,9 @@ document.querySelector('#language-toggle')?.addEventListener('click', (event) =>
 });
 
 const supabase = createPortalClient(import.meta.env);
+const portalTestModeAvailable = isStagingProjectUrl(supabase?.supabaseUrl);
+const stagingLoginHelp = document.querySelector('#staging-customer-login-help');
+if (stagingLoginHelp) stagingLoginHelp.hidden = !portalTestModeAvailable;
 
 if (!supabase) {
   configMessage.hidden = false;
@@ -613,6 +616,7 @@ if (!supabase) {
       allocations: pageState.rows.allocations,
       formatMoney,
       t,
+      portalTestModeAvailable: pageState.context?.kind === 'admin' && portalTestModeAvailable,
     });
     content.dataset.customerId = customerId;
     content.querySelector('[data-action="close-customer-profile"]')?.addEventListener('click', () => dialog.close());
@@ -621,6 +625,34 @@ if (!supabase) {
       oneTimeResult?.replaceChildren();
       if (oneTimeResult) oneTimeResult.hidden = true;
     }, { once: true });
+    content.querySelector('#customer-portal-test-account')?.addEventListener('change', async (event) => {
+      const checkbox = event.currentTarget;
+      const enabled = checkbox.checked;
+      const message = content.querySelector('#customer-portal-test-account-message');
+      checkbox.disabled = true;
+      setMessage(message, 'Updating staging test access…');
+      try {
+        await saveCustomerPortalTestAccount(supabase, {
+          organizationId: pageState.context.organizationId,
+          customerId,
+          enabled,
+        });
+        row.customer.portal_test_account = enabled;
+        setMessage(message, enabled
+          ? 'Staging test access is enabled. The initial portal password is 123456; customer data stays blocked until it is changed.'
+          : 'Staging test access is disabled. Existing PPPoE test sign-in is blocked; issue a standard credential reset before restoring access.', false);
+      } catch (error) {
+        checkbox.checked = !enabled;
+        const errorMessage = error?.code === '42501'
+          ? 'Only organization administrators can update staging test access.'
+          : error?.code === '23514'
+            ? 'Link a valid existing PPPoE username before enabling staging test access.'
+            : 'Staging test access could not be saved. Verify the staging migration and Admin access, then try again.';
+        setMessage(message, errorMessage, true);
+      } finally {
+        checkbox.disabled = false;
+      }
+    });
     content.querySelector('#customer-credential-form')?.addEventListener('submit', async (event) => {
       event.preventDefault();
       if (pageState.context?.kind !== 'admin') return;
@@ -655,7 +687,9 @@ if (!supabase) {
         }
         result.replaceChildren();
         const warning = document.createElement('p');
-        warning.textContent = t('Show this temporary password to the customer through the approved staff handoff. It will not be shown again.');
+        warning.textContent = data.test_account === true
+          ? t('Staging test only: share username and password 123456 with this test customer. Their first sign-in must set a new password before portal data is unlocked.')
+          : t('Show this temporary password to the customer through the approved staff handoff. It will not be shown again.');
         const usernameLabel = document.createElement('p');
         usernameLabel.textContent = `${t('Username')}: `;
         const usernameValue = document.createElement('code');
@@ -974,9 +1008,10 @@ if (!supabase) {
         </section>
         <section class="panel"><p class="eyebrow">${escapeHtml(t('Customer access'))}</p><h2>${escapeHtml(t('Invite a customer'))}</h2>
           <p class="muted">${escapeHtml(t('Choose an existing active customer and request a portal invitation. This page cannot confirm email delivery. Repeating the same customer and email safely recovers an earlier request without sending a second invitation.'))}</p>
+          ${portalTestModeAvailable ? `<p class="muted">${escapeHtml(t('Internal staging test accounts can use their saved PPPoE username without an email invitation. Mark only synthetic test accounts in the customer profile; first sign-in still requires a password change.'))}</p>` : ''}
           <form id="invite-form" class="stack">
             <label for="invite-customer">${escapeHtml(t('Existing customer'))}</label><select id="invite-customer" name="customer_id" required ${inviteCustomers.length ? '' : 'disabled'}>${inviteCustomerOptions || `<option value="">${escapeHtml(t('No active customers available'))}</option>`}</select>
-            <label for="invite-email">${escapeHtml(t('Email address'))}</label><input id="invite-email" name="email" type="email" autocomplete="email" maxlength="254" required ${inviteCustomers.length ? '' : 'disabled'}>
+            <label for="invite-email">${escapeHtml(t('Email address'))}</label><input id="invite-email" name="email" type="email" inputmode="email" autocomplete="email" enterkeyhint="go" maxlength="254" required ${inviteCustomers.length ? '' : 'disabled'}>
             <button class="button primary" type="submit" ${inviteCustomers.length ? '' : 'disabled'}>${escapeHtml(t('Request invitation'))}</button>
           </form><p class="form-message" id="invite-message" role="status" aria-live="polite">${inviteCustomers.length ? '' : escapeHtml(t('Add an active customer before requesting an invitation.'))}</p>
           <p class="muted">${escapeHtml(t('Customer-to-account links remain server-managed and cannot be written from the browser. If a result is uncertain, use the same customer and email to recover; unresolved account states stop for administrator review.'))}</p>
@@ -1102,7 +1137,7 @@ if (!supabase) {
       const context = error?.context;
       if (context && typeof context.clone === 'function') {
         const payload = await context.clone().json();
-        if (typeof payload?.error === 'string' && payload.error.length <= 300) return payload.error;
+        if (typeof payload?.error === 'string' && payload.error.length <= 500) return t(payload.error);
       }
     } catch { /* Use the safe fallback for network and non-JSON errors. */ }
     return 'The invitation result could not be confirmed. Submit the same customer and email again to recover safely; no second invitation will be sent.';
@@ -1152,6 +1187,8 @@ if (!supabase) {
       } catch (error) {
         const errorMessage = error?.code === '23505'
           ? 'This PPPoE username is already linked to another customer.'
+          : error?.code === '23514' && /Disable staging test access/i.test(String(error?.message ?? ''))
+            ? 'Disable staging test access before changing the PPPoE username.'
           : error?.code === '42501'
             ? 'Only organization administrators can update a PPPoE mapping.'
             : 'PPPoE username link could not be saved. Ask the project administrator to verify the mapping schema and your Admin access.';
@@ -1801,7 +1838,7 @@ if (!supabase) {
   customerLoginForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const submitButton = customerLoginForm.querySelector('button[type="submit"]');
-    const username = String(new FormData(customerLoginForm).get('username') ?? '').trim().toLowerCase();
+    const username = String(new FormData(customerLoginForm).get('username') ?? '').trim();
     const passwordInput = customerLoginForm.elements.password;
     const password = String(passwordInput.value ?? '');
     submitButton.disabled = true;

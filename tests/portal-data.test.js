@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { createCustomer, invokeRpc, isMissingPppoeUsernameColumn, loadContexts, loadPortalRows, manageServiceIncident, saveCustomerPppoeUsername } from '../src/portal-data.js';
+import { createCustomer, invokeRpc, isMissingPortalTestAccountColumn, isMissingPppoeUsernameColumn, loadContexts, loadPortalRows, manageServiceIncident, saveCustomerPppoeUsername, saveCustomerPortalTestAccount } from '../src/portal-data.js';
 
 function mockClient(results = {}, rpcResult = { data: null, error: null }) {
   const calls = [];
@@ -212,6 +212,33 @@ test('Admin phone query uses only the private phone column and is scoped to the 
   assert.ok(billQuery.filters.some(([kind, field, value]) => kind === 'eq' && field === 'organization_id' && value === 'synthetic-org'));
 });
 
+test('Admin customer query selects the test marker but customer query never requests it', async () => {
+  const admin = mockClient({ customers: { data: [{ id: 'synthetic-customer', portal_test_account: true }], error: null } });
+  await loadPortalRows(admin, { kind: 'admin', organizationId: 'synthetic-org' });
+  const adminQuery = admin.calls.find((query) => query.table === 'customers');
+  assert.match(adminQuery.selects[0], /pppoe_username, portal_test_account$/);
+
+  const customer = mockClient({ customers: { data: [{ id: 'synthetic-customer', pppoe_username: 'synthetic-pppoe' }], error: null } });
+  await loadPortalRows(customer, { kind: 'customer', organizationId: 'synthetic-org', customerId: 'synthetic-customer' });
+  const customerQuery = customer.calls.find((query) => query.table === 'customers');
+  assert.doesNotMatch(customerQuery.selects[0], /portal_test_account/);
+});
+
+test('Admin query falls back safely when the staging marker migration is not yet applied', async () => {
+  const client = mockClient({
+    customers: (query) => query.selects.at(-1).includes('portal_test_account')
+      ? { data: null, error: { code: 'PGRST204', message: "Could not find the 'portal_test_account' column of 'customers' in the schema cache" } }
+      : { data: [{ id: 'synthetic-customer', pppoe_username: 'synthetic-pppoe' }], error: null },
+  });
+  const rows = await loadPortalRows(client, { kind: 'admin', organizationId: 'synthetic-org' });
+  const customerQueries = client.calls.filter((query) => query.table === 'customers');
+  assert.equal(customerQueries.length, 2);
+  assert.match(customerQueries[0].selects[0], /portal_test_account/);
+  assert.doesNotMatch(customerQueries[1].selects[0], /portal_test_account/);
+  assert.equal(rows.customers[0].portal_test_account, false);
+  assert.equal(rows.customers[0].pppoe_username, 'synthetic-pppoe');
+});
+
 test('collection monitoring uses only existing organization-scoped public billing fields', async () => {
   const client = mockClient({
     customers: { data: [], error: null },
@@ -223,7 +250,7 @@ test('collection monitoring uses only existing organization-scoped public billin
   await loadPortalRows(client, { kind: 'admin', organizationId: 'synthetic-org' });
 
   const expectedColumns = {
-    customers: 'id, customer_number, name, plan_name, service_address, service_status, monthly_fee_cents, archived, pppoe_username',
+    customers: 'id, customer_number, name, plan_name, service_address, service_status, monthly_fee_cents, archived, pppoe_username, portal_test_account',
     bills: 'id, customer_id, period, amount_due_cents, issued_on, due_date, plan_snapshot',
     receipts: 'id, customer_id, origin_bill_id, received_on, amount_cents, method',
     receipt_allocations: 'receipt_id, bill_id, customer_id, amount_cents, allocation_kind',
@@ -375,7 +402,7 @@ test('missing PPPoE schema falls back to customer records without breaking porta
   });
   const rows = await loadPortalRows(client, { kind: 'admin', organizationId: 'synthetic-org' });
   assert.equal(rows.pppoeMappingAvailable, false);
-  assert.deepEqual(rows.customers, [{ id: 'synthetic-customer', name: 'Synthetic Customer', pppoe_username: null }]);
+  assert.deepEqual(rows.customers, [{ id: 'synthetic-customer', name: 'Synthetic Customer', pppoe_username: null, portal_test_account: false }]);
   const customerQueries = client.calls.filter((query) => query.table === 'customers');
   assert.equal(customerQueries.length, 2);
   assert.match(customerQueries[0].selects[0], /pppoe_username/);
@@ -399,6 +426,29 @@ test('PPPoE mapping writes only the existing customer username and scopes by org
   assert.equal(client.calls.some((entry) => entry.rpc), false);
 });
 
+test('test marker writes are exact-staging-only and remain organization/customer scoped', async () => {
+  const client = mockClient({ customers: { data: [{ id: 'synthetic-customer', portal_test_account: true }], error: null } });
+  client.supabaseUrl = 'https://qkdsuvmlutkatcqoewkh.supabase.co';
+  const result = await saveCustomerPortalTestAccount(client, {
+    organizationId: 'synthetic-org', customerId: 'synthetic-customer', enabled: true,
+  });
+  assert.deepEqual(result, { id: 'synthetic-customer', portal_test_account: true });
+  const query = client.calls.find((entry) => entry.table === 'customers');
+  assert.deepEqual(query.updates, [{ portal_test_account: true }]);
+  assert.deepEqual(query.filters, [
+    ['eq', 'organization_id', 'synthetic-org'],
+    ['eq', 'id', 'synthetic-customer'],
+  ]);
+  assert.deepEqual(query.selects, ['id, portal_test_account']);
+
+  const production = mockClient();
+  production.supabaseUrl = 'https://pocvrbwcfvtsupgdlouv.supabase.co';
+  await assert.rejects(saveCustomerPortalTestAccount(production, {
+    organizationId: 'synthetic-org', customerId: 'synthetic-customer', enabled: true,
+  }), /unavailable for this project/);
+  assert.equal(production.calls.length, 0);
+});
+
 test('PPPoE clearing is explicit, and an unconfirmed update is never treated as success', async () => {
   const clearedClient = mockClient({ customers: { data: [{ id: 'synthetic-customer', pppoe_username: null }], error: null } });
   await saveCustomerPppoeUsername(clearedClient, {
@@ -412,4 +462,6 @@ test('PPPoE clearing is explicit, and an unconfirmed update is never treated as 
   }), /could not be confirmed/i);
   assert.equal(isMissingPppoeUsernameColumn({ code: 'PGRST204', message: "Could not find 'pppoe_username' column" }), true);
   assert.equal(isMissingPppoeUsernameColumn({ code: '42501', message: 'permission denied' }), false);
+  assert.equal(isMissingPortalTestAccountColumn({ code: 'PGRST204', message: "Could not find 'portal_test_account' column" }), true);
+  assert.equal(isMissingPortalTestAccountColumn({ code: '42501', message: 'permission denied' }), false);
 });

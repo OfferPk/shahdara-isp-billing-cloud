@@ -39,9 +39,10 @@
             <h2 data-i18n="Customer username sign-in">Customer username sign-in</h2>
             <form id="customer-login-form" class="stack">
               <label for="customer-login-username" data-i18n="Username">Username</label>
-              <input id="customer-login-username" name="username" type="text" autocomplete="username" required maxlength="64" />
+              <input id="customer-login-username" name="username" type="text" autocomplete="username" inputmode="text" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="next" required maxlength="64" />
+              <p class="muted" id="staging-customer-login-help" hidden data-i18n="Internal staging test accounts sign in with their linked PPPoE username and the initial portal password shared by a Shahdara administrator. Change it at first sign-in before customer data is available.">Internal staging test accounts sign in with their linked PPPoE username and the initial portal password shared by a Shahdara administrator. Change it at first sign-in before customer data is available.</p>
               <label for="customer-login-password" data-i18n="Password">Password</label>
-              <input id="customer-login-password" name="password" type="password" autocomplete="current-password" required maxlength="512" />
+              <input id="customer-login-password" name="password" type="password" autocomplete="current-password" enterkeyhint="go" required maxlength="512" />
               <button class="button primary" type="submit" data-i18n="Sign in with username">Sign in with username</button>
             </form>
             <p class="form-message" id="customer-login-message" role="status"></p>

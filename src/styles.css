@@ -181,6 +181,13 @@ td { color: #25433b; }
 .edit-dialog { width: min(100% - 28px, 520px); padding: 22px; border: 1px solid var(--line); border-radius: 18px; box-shadow: 0 30px 100px rgba(5,25,18,.3); }
 .edit-dialog::backdrop { background: rgba(11,31,25,.42); backdrop-filter: blur(2px); }
 .edit-dialog form { display: grid; gap: 13px; }
+.customer-test-login-access { display: grid; gap: 10px; padding: 15px; border: 1px solid #cfe3d5; border-radius: 14px; background: linear-gradient(145deg, #fbfefc, #f0f8f3); }
+.customer-test-login-access h3 { margin: 0; font-size: 16px; }
+.customer-test-login-access > p { margin: 0; }
+.customer-test-login-toggle { grid-template-columns: 22px minmax(0, 1fr); align-items: start; gap: 10px; min-height: 44px; padding: 10px 12px; border: 1px solid #d7e6dd; border-radius: 12px; background: #fff; line-height: 1.45; }
+.customer-test-login-toggle input { width: 20px; min-height: 20px; height: 20px; margin: 1px 0 0; accent-color: var(--green); }
+.customer-test-login-access .form-message { min-height: 22px; margin: 0; overflow-wrap: anywhere; }
+.customer-credential-access code { overflow-wrap: anywhere; }
 .icon-button { width: 44px; height: 44px; border: 1px solid var(--line); border-radius: 50%; color: var(--ink); background: white; font-size: 22px; }
 .form-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 8px; }
 .site-footer { max-width: 900px; margin: 22px auto 0; color: var(--muted); font-size: 11px; line-height: 1.5; text-align: center; }
@@ -215,6 +222,8 @@ td { color: #25433b; }
   .month-panel { align-items: flex-start; flex-direction: column; }
   .month-panel label { flex-direction: column; align-items: flex-start; }
   .customer-welcome { align-items: flex-start; flex-direction: column; }
+  .edit-dialog { max-height: calc(100dvh - 24px); overflow-y: auto; padding: 16px; }
+  .customer-test-login-access { padding: 12px; }
   .profile-card { grid-template-columns: 1fr; gap: 14px; }
   .profile-card__details { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .profile-card__status { grid-column: auto; }

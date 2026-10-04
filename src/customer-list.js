@@ -201,7 +201,7 @@ function billStatus(bill, allocations) {
   return customerBillState(bill, allocations).status;
 }
 
-export function renderCustomerProfile(row, { bills = [], receipts = [], allocations = [], formatMoney, t = (value) => value }) {
+export function renderCustomerProfile(row, { bills = [], receipts = [], allocations = [], formatMoney, t = (value) => value, portalTestModeAvailable = false }) {
   const { customer, phone, area, billing } = row;
   const name = escapeHtml(customer.name);
   const phoneMarkup = phoneLinks(phone).tel
@@ -240,11 +240,19 @@ export function renderCustomerProfile(row, { bills = [], receipts = [], allocati
       <div class="profile-field"><span>${escapeHtml(t('Billing status'))}</span><strong>${escapeHtml(statusLabel)} · ${escapeHtml(dueLabel)}</strong></div>
       <div class="profile-field"><span>${escapeHtml(t('Current balance'))}</span><strong>${escapeHtml(formatMoney(billing.balanceCents))}</strong></div>
       <div class="profile-field"><span>${escapeHtml(t('Package'))}</span><strong>${escapeHtml(packageLabel)}</strong></div>
+      ${portalTestModeAvailable ? `<div class="profile-field profile-field--wide"><span>${escapeHtml(t('Existing PPPoE username'))}</span><strong>${escapeHtml(customer.pppoe_username || t('Not linked'))}</strong></div>` : ''}
       <div class="profile-field profile-field--wide"><span>${escapeHtml(t('Service address'))}</span><strong>${escapeHtml(area || t('Service address not recorded'))}</strong></div>
       <div class="profile-field profile-field--wide"><span>${escapeHtml(t('Admin-only phone'))}</span><strong>${phoneMarkup}</strong></div>
     </div>
     <section class="customer-profile-history"><h3>${escapeHtml(t('Billing history'))}</h3><ul class="record-card-grid customer-profile-card-grid" aria-label="${escapeHtml(t('Billing history'))}">${billHistory || `<li class="record-card-empty" role="status">${escapeHtml(t('No bills recorded yet.'))}</li>`}</ul><p class="muted">${escapeHtml(t('Cash is counted only from actual receipts; allocations and carry-forward credits reduce balances but are not additional payments.'))}</p></section>
     <section class="customer-profile-history"><h3>${escapeHtml(t('Receipt history'))}</h3><ul class="record-card-grid customer-profile-card-grid" aria-label="${escapeHtml(t('Receipt history'))}">${customerReceipts || `<li class="record-card-empty" role="status">${escapeHtml(t('No receipts recorded yet.'))}</li>`}</ul></section>
+    ${portalTestModeAvailable ? `<section class="customer-profile-history customer-test-login-access">
+      <h3>${escapeHtml(t('Internal staging test login'))}</h3>
+      <p class="muted">${escapeHtml(t('Enable only for an internal test customer. It uses this customer’s existing PPPoE username and the default portal password 123456; the customer must change it before any portal data is released. This does not change Overtake, RouterOS, or RADIUS credentials.'))}</p>
+      <label class="checkbox-label customer-test-login-toggle"><input id="customer-portal-test-account" type="checkbox" ${customer.portal_test_account ? 'checked' : ''} ${/^[\x21-\x7e]{1,64}$/.test(String(customer.pppoe_username ?? '')) ? '' : 'disabled'} /> ${escapeHtml(t('Allow PPPoE username sign-in for this staging test account'))}</label>
+      <p class="muted">${escapeHtml(/^[\x21-\x7e]{1,64}$/.test(String(customer.pppoe_username ?? '')) ? t('Changing this setting blocks old test sessions when disabled; issue a standard credential reset before changing a test mapping.') : t('Link a valid existing PPPoE username of at most 64 characters before enabling test access.'))}</p>
+      <p id="customer-portal-test-account-message" class="form-message" role="status" aria-live="polite" aria-atomic="true"></p>
+    </section>` : ''}
     <section class="customer-profile-history customer-credential-access">
       <h3>${escapeHtml(t('Username + temporary password'))}</h3>
       <p class="muted">${escapeHtml(t('Issue or reset a separate customer username and temporary password. Customer data stays blocked until the password is changed. The password is shown once; closing this profile clears it. The internal synthetic address is not an inbox and never proves inbox ownership.'))}</p>

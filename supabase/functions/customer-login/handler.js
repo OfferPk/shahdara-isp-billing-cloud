@@ -10,7 +10,8 @@ import {
 const INVALID_CREDENTIALS = 'Username or password is incorrect or unavailable.';
 const SERVICE_UNAVAILABLE = 'Sign-in is temporarily unavailable. Try again later.';
 const DUMMY_AUTH_DOMAIN = 'internal.shahdara.net';
-const LOGIN_ID_PATTERN = /^sf-[0-9a-f]{32}$/;
+const OPAQUE_LOGIN_ID_PATTERN = /^sf-[0-9a-f]{32}$/;
+const PPPoE_LOGIN_ID_PATTERN = /^[\x21-\x7e]{1,64}$/;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+$/;
 
 function functionClients(env, createClient) {
@@ -47,8 +48,9 @@ export function createCustomerLoginHandler({ env, createClient }) {
     const ipAddress = forwardedClientIp(request);
     if (!ipAddress) return genericFailure(503, origin);
     const payload = await readJson(request, 8192);
-    const rawLogin = typeof payload?.username === 'string' ? payload.username.trim().toLowerCase() : '';
-    const usernameValid = LOGIN_ID_PATTERN.test(rawLogin);
+    const rawLogin = typeof payload?.username === 'string' ? payload.username.trim() : '';
+    const normalizedLogin = rawLogin.toLowerCase();
+    const usernameValid = OPAQUE_LOGIN_ID_PATTERN.test(rawLogin) || PPPoE_LOGIN_ID_PATTERN.test(rawLogin);
     const rawPassword = typeof payload?.password === 'string' ? payload.password : '';
     const passwordValid = rawPassword.length > 0 && rawPassword.length <= 512;
     const hmacSecret = env.get('PORTAL_RATE_LIMIT_HMAC_KEY');
@@ -56,7 +58,7 @@ export function createCustomerLoginHandler({ env, createClient }) {
     let loginHash;
     try {
       ipHash = await hmacHex(hmacSecret, 'ip', ipAddress);
-      loginHash = await hmacHex(hmacSecret, 'username', rawLogin.slice(0, 128) || '(missing)');
+      loginHash = await hmacHex(hmacSecret, 'username', normalizedLogin.slice(0, 128) || '(missing)');
     } catch {
       return genericFailure(503, origin);
     }

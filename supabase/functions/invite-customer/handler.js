@@ -24,6 +24,9 @@ async function sha256Hex(value) {
 
 const genericRecoveryError = 'The invitation result is uncertain. Submit the same customer and email again to recover safely; the server will not send a second invitation. If recovery cannot be confirmed, an administrator must review the account state.';
 const authEmailRateLimitError = 'Supabase Auth rejected the invitation because its email-send rate limit was reached. This request is locked for safe review; ask a Shahdara administrator to check the same customer/email request before any retry. Email delivery is not confirmed.';
+const customerEmailMismatchError = 'This customer already has a pending invitation for a different email address. No new invitation was sent. Re-enter the original email to recover it, or ask the organization owner to review the old request before using a new address.';
+const emailReservedError = 'This email address is already reserved by another customer’s unfinished invitation. No new invitation was sent. Ask an organization administrator to check which customer should use it before trying again.';
+const invitationReviewError = 'The previous invitation could not be safely reconciled. No new invitation was sent. Stop retrying; an organization administrator must review the prior account state before restarting.';
 
 export function createInviteHandler({ env, createClient }) {
   return async (request) => {
@@ -134,7 +137,11 @@ export function createInviteHandler({ env, createClient }) {
         email_delivery_confirmed: false,
         ...(recovered ? { recovered: true } : {}),
       }, appOrigin);
-      const recoveryRequired = () => response(409, { error: genericRecoveryError }, appOrigin);
+      const recoveryRequired = (needsReview = false) => response(409, {
+        code: needsReview ? 'INVITATION_REVIEW_REQUIRED' : 'INVITATION_RESULT_UNCONFIRMED',
+        error: needsReview ? invitationReviewError : genericRecoveryError,
+        retryable: !needsReview,
+      }, appOrigin);
 
       if (reservation.status === 'linked') return linkedResponse(true);
       if (reservation.status === 'recover') {
@@ -155,10 +162,13 @@ export function createInviteHandler({ env, createClient }) {
       if (reservation.status === 'not_found') {
         return response(404, { error: 'Customer record not found.' }, appOrigin);
       }
-      if (reservation.status === 'email_mismatch' || reservation.status === 'email_in_progress') {
-        return response(409, { error: 'An invitation request for this customer or address needs review. No new invitation was sent.' }, appOrigin);
+      if (reservation.status === 'email_mismatch') {
+        return response(409, { code: 'INVITATION_EMAIL_MISMATCH', error: customerEmailMismatchError, retryable: false }, appOrigin);
       }
-      if (reservation.status === 'needs_review') return recoveryRequired();
+      if (reservation.status === 'email_in_progress') {
+        return response(409, { code: 'INVITATION_EMAIL_RESERVED', error: emailReservedError, retryable: false }, appOrigin);
+      }
+      if (reservation.status === 'needs_review') return recoveryRequired(true);
       if (reservation.status !== 'reserved' || !isUuid(reservation.invitation_id)) {
         return response(503, { error: 'The invitation request could not be started safely.' }, appOrigin);
       }
