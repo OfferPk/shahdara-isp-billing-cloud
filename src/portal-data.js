@@ -127,7 +127,7 @@ export async function loadPortalRows(supabase, context) {
     ? rowsFor(supabase, 'customer_service_cost_history', 'organization_id, customer_id, id, effective_on, monthly_cost_paisa, note, created_at', byOrganization, { column: 'effective_on', ascending: false })
     : Promise.resolve([]);
   const billColumns = context.kind === 'admin'
-    ? 'id, customer_id, period, amount_due_cents, issued_on, due_date, plan_snapshot'
+    ? 'id, customer_id, period, amount_due_cents, issued_on, due_date, plan_snapshot, created_at'
     : 'id, customer_id, period, amount_due_cents, plan_snapshot';
   const customerQuery = loadCustomerRows(
     supabase,
@@ -141,7 +141,7 @@ export async function loadPortalRows(supabase, context) {
       .catch((error) => ({ data: [], error }))
     : Promise.resolve({ data: [], error: null });
   const receiptColumns = context.kind === 'admin'
-    ? 'organization_id, id, customer_id, origin_bill_id, received_on, amount_cents, method'
+    ? 'organization_id, id, customer_id, origin_bill_id, received_on, amount_cents, method, created_at'
     : 'id, customer_id, origin_bill_id, received_on, amount_cents, method';
   const [customerResult, bills, receipts, allocations, incidents, privateCustomerDetails, privateIncidentDetails, cashflowExpenses, customerServiceCosts, branding, customerBandwidthUsage] = await Promise.all([
     customerQuery,

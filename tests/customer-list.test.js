@@ -139,6 +139,19 @@ test('Paid and Unpaid filters follow allocated balance and Area filters use only
   assert.doesNotMatch(JSON.stringify(getCustomerAreaOptions(rows)), /Private Mohalla|Private Zone/);
 });
 
+test('service-state filters use only stored states and keep archived accounts separate', () => {
+  const rows = rowsForTests({ customers: [
+    ...customers,
+    { id: 'synthetic-d', customer_number: 44, name: 'Not Set', service_status: 'not-set', archived: false },
+    { id: 'synthetic-null', customer_number: 45, name: 'Legacy unknown', service_status: null, archived: false },
+  ] });
+
+  assert.deepEqual(filterCustomerRows(rows, { serviceStatus: 'active' }).map((row) => row.customer.id), ['synthetic-a']);
+  assert.deepEqual(filterCustomerRows(rows, { serviceStatus: 'offline' }).map((row) => row.customer.id), ['synthetic-b']);
+  assert.deepEqual(filterCustomerRows(rows, { serviceStatus: 'not-set' }).map((row) => row.customer.id), ['synthetic-d', 'synthetic-null']);
+  assert.deepEqual(filterCustomerRows(rows, { serviceStatus: 'archived' }).map((row) => row.customer.id), ['synthetic-c']);
+});
+
 test('customer sorting is deterministic, keeps unknown balances last, and applies after filters', () => {
   const rows = rowsForTests();
   assert.deepEqual(sortCustomerRows(rows, 'account-number').map((row) => row.customer.id), [
@@ -390,5 +403,11 @@ test('Mark as Paid only opens the existing receipt form and never writes a statu
   assert.match(handler, /openReceiptFormForBill\(billRow\)/);
   assert.match(actionBinder, /openReceiptFormForCustomer\(row\)/);
   assert.match(main, /invokeRpc\(supabase,\s*'record_cash_receipt'/);
-  assert.match(main, /data-action="open-add-customer"[\s\S]*?Add customer/);
+  assert.match(main, /data-dashboard-quick-action="customer"[\s\S]*?Add customer/);
+  assert.match(main, /data-dashboard-quick-action="unpaid"[\s\S]*?View unpaid/);
+  assert.match(main, /data-dashboard-quick-action="overdue"[\s\S]*?View overdue/);
+  assert.match(main, /data-dashboard-quick-action="reports"[\s\S]*?Reports/);
+  assert.match(main, /createDashboardDrilldown\(action, pageState\.selectedMonth\)/);
+  assert.match(main, /section\?\.querySelector\('#admin-cashflow-title'\)\?\.focus/);
+  assert.match(main, /action === 'customer' \? '#customer-form'/);
 });

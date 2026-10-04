@@ -28,7 +28,8 @@ function syntheticTotals(overrides = {}) {
 test('Admin monitoring cards show billing, actual cash, pending, overdue, unpriced, and missing-snapshot scopes', () => {
   const markup = renderDashboardMetrics({ month: '2026-02', today: '2026-02-15', totals: syntheticTotals() });
 
-  assert.match(markup, /<section id="admin-overview" class="metric-grid admin-metrics" aria-label="Dashboard billing and collection monitoring">/);
+  assert.match(markup, /<section id="admin-overview" class="metric-grid admin-metrics" data-feature-key="admin-overview" data-feature-default-expanded="true" aria-label="Dashboard billing and collection monitoring">/);
+  assert.match(markup, /id="admin-overview" class="metric-grid admin-metrics" data-feature-key="admin-overview" data-feature-default-expanded="true"/);
   assert.equal((markup.match(/<(?:article|a) class="metric metric--/g) ?? []).length, 6);
   assert.match(markup, /Total Billed · 2026-02/);
   assert.match(markup, /Collected · 2026-02/);
@@ -54,6 +55,44 @@ test('Admin monitoring cards show billing, actual cash, pending, overdue, unpric
   assert.match(markup, /View unpaid bills/);
   assert.match(markup, /View unpriced bills/);
   assert.match(markup, /View matching active customers/);
+  assert.doesNotMatch(markup, /metric__comparison/);
+  assert.doesNotMatch(markup, /metric__sparkline/);
+});
+
+test('month-over-month KPI comparisons use prior values and suppress missing per-card baselines', () => {
+  const current = syntheticTotals();
+  const previous = syntheticTotals({ billedCents: 1000000, cashReceivedCents: 600000, outstandingCents: 550000, overdueCents: 250000 });
+  const markup = renderDashboardMetrics({
+    month: '2026-10', today: '2026-10-15', totals: current, previousTotals: previous,
+  });
+
+  assert.match(markup, /\+25% vs previous month/);
+  assert.match(markup, /\+30% vs previous month/);
+  assert.match(markup, /−7\.3% vs previous month/);
+  assert.match(markup, /−10% vs previous month/);
+  assert.equal((markup.match(/metric__comparison/g) ?? []).length, 4);
+});
+
+test('KPI mini-trends use exact recorded monthly points and hide when fewer than two months exist', () => {
+  const points = [
+    { fullLabel: 'September 2026', billedCents: 8000, collectedCents: 2000, pendingCents: 7000 },
+    { fullLabel: 'October 2026', billedCents: 15000, collectedCents: 3000, pendingCents: 10000 },
+  ];
+  const withTrend = renderDashboardMetrics({
+    month: '2026-10', today: '2026-10-15', totals: syntheticTotals(),
+    trendSeries: { month: '2026-10', view: 'month', points },
+  });
+  assert.equal((withTrend.match(/class="metric__sparkline"/g) ?? []).length, 3);
+  assert.match(withTrend, /Trend for Billed trend across 2 recorded months/);
+  assert.match(withTrend, /September 2026 · Billed trend: Rs\s?80/);
+  assert.match(withTrend, /October 2026 · Pending-balance trend: Rs\s?100/);
+  assert.doesNotMatch(withTrend.slice(withTrend.indexOf('metric--overdue'), withTrend.indexOf('metric--unpriced')), /metric__sparkline/);
+
+  const oneMonth = renderDashboardMetrics({
+    month: '2026-10', today: '2026-10-15', totals: syntheticTotals(),
+    trendSeries: { month: '2026-10', view: 'month', points: points.slice(1) },
+  });
+  assert.doesNotMatch(oneMonth, /metric__sparkline/);
 });
 
 test('Admin KPI renderer escapes dates and ignores private or unknown properties', () => {
@@ -114,6 +153,8 @@ test('Admin metric tones and mobile breakpoints keep all cards readable on narro
   for (const tone of ['billed', 'cash', 'outstanding', 'overdue', 'unpriced', 'missing-bill']) {
     assert.match(styles, new RegExp(`^\\.admin-metrics \\.metric--${tone}`, 'm'));
   }
+  assert.match(styles, /^\.admin-metrics \.metric__sparkline polyline \{/m);
+  assert.match(styles, /\.customer-fab-options \{[^}]*max-height: min\(68vh, 480px\);[^}]*overflow-y: auto;/);
   assert.match(styles, /@media \(max-width: 600px\)[\s\S]*?\.admin-metrics \{ grid-template-columns: 1fr; \}/);
   assert.doesNotMatch(styles, /^\.metric::before/m);
   assert.doesNotMatch(styles, /^\.metric__(?:icon|label|top)\b/m);

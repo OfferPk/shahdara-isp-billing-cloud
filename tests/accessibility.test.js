@@ -241,7 +241,14 @@ test('feature panels have default-collapsed eye controls without unmounting stat
     assert.match(index, new RegExp(`data-feature-key="${key}"`));
   }
   assert.match(main, /initializeFeatureToggles\(document,\s*\{[\s\S]*?observe: true/);
+  assert.doesNotMatch(main, /from ['"]\.\/dashboard-analytics\.js['"]/);
+  assert.match(main, /import\(['"]\.\/dashboard-analytics\.js['"]\)/);
+  assert.match(main, /analyticsToggle\?\.parentElement\?\.id === 'admin-dashboard-analytics'/);
   assert.match(featureToggles, /expandedFeatureKeys\.has\(key\)/, 'unknown panels start folded');
+  assert.match(featureToggles, /feature\.dataset\.featureDefaultExpanded === 'true'/);
+  assert.match(featureToggles, /collapsedFeatureKeys\.has\(key\)/);
+  assert.match(featureToggles, /collapsedFeatureKeys\.add\(key\)/);
+  assert.match(main, /data-feature-key="admin-month-controls" data-feature-default-expanded="true"/);
   assert.match(featureToggles, /button\.type = 'button'/);
   assert.match(featureToggles, /button\.setAttribute\('aria-controls'/);
   assert.match(featureToggles, /controlledIds\.join\(' '\)/);

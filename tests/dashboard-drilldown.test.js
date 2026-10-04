@@ -5,6 +5,8 @@ import { createDashboardDrilldown, parseDashboardDrilldownHash } from '../src/da
 test('collection cards map to the correct scoped destination and selected billing period', () => {
   const expected = [
     ['unpaid', 'admin-bills', 'unpaid'],
+    ['paid', 'admin-bills', 'paid'],
+    ['pending', 'admin-bills', 'pending'],
     ['overdue', 'admin-bills', 'overdue'],
     ['unpriced', 'admin-bills', 'unpriced'],
     ['missing-snapshot', 'customer-list', 'missing-snapshot'],
