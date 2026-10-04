@@ -415,6 +415,17 @@ test('bounds, malformed identities, and provider restrictions remain in force', 
   ]);
 });
 
+test('the exported complaint classifier rejects oversized raw input before trimming and preserves Unicode normalization', () => {
+  const exactLimitComplaint = `internet is slow${' '.repeat(500 - 'internet is slow'.length)}`;
+  assert.equal(exactLimitComplaint.length, 500);
+  assert.equal(classifySyntheticComplaint(exactLimitComplaint).state, 'supported');
+  assert.equal(classifySyntheticComplaint('ｉｎｔｅｒｎｅｔ　ｉｓ　ｓｌｏｗ').scenarioId, 'slow-speed-profile-mismatch');
+  assert.throws(() => classifySyntheticComplaint(`${' '.repeat(501)}internet is slow`), /1 to 500/);
+  assert.throws(() => classifySyntheticComplaint({ toString: () => 'internet is slow' }), /plain text/);
+  assert.throws(() => runSyntheticDiagnostics(provider, 'demo-ahmed-a', null), /plain text/);
+  assert.match(moduleSource, /rawComplaint\.length <= MAX_COMPLAINT_LENGTH[\s\S]*?rawComplaint\.trim\(\)/);
+});
+
 test('recent simulation history retains only allowlisted metadata, never complaint or customer identifiers', () => {
   const result = runSyntheticDiagnostics(provider, 'demo-ahmed-a', 'Ahmed internet slow hai');
   const timestamp = new Date(2026, 9, 5, 14, 32, 0);
@@ -490,6 +501,20 @@ test('Admin UI remains role-gated and the simulator module stays lazy with demo-
   assert.doesNotMatch(main, /import\s+[^;]*network-diagnostics\.js/);
   assert.match(main, /\['#admin-network-diagnostics', 'AI Network Engineer · Simulation'\]/);
   assert.match(main, /context\.kind !== 'admin' \|\| !\['owner', 'admin'\]\.includes\(context\.role\)/);
+  const requestStart = main.indexOf('function requestNetworkDiagnostics()');
+  const requestEnd = main.indexOf('\n  function requestNetworkKnowledge()', requestStart);
+  const request = main.slice(requestStart, requestEnd);
+  assert.ok(requestStart >= 0 && requestEnd > requestStart, 'diagnostic request handler is present');
+  const preLoadGuard = request.indexOf("context?.kind !== 'admin' || !['owner', 'admin'].includes(context.role)");
+  const lazyImport = request.indexOf('loadNetworkDiagnosticsModule()');
+  const postLoadGuard = request.indexOf("pageState.context?.kind !== 'admin' || !['owner', 'admin'].includes(pageState.context.role)");
+  const mount = request.indexOf('mountNetworkDiagnosticsPanel(section, { t })');
+  assert.ok(preLoadGuard >= 0 && preLoadGuard < lazyImport, 'Admin/owner guard precedes the dynamic import');
+  assert.ok(postLoadGuard > lazyImport && postLoadGuard < mount, 'role is rechecked after import and before mount');
+  const bindStart = main.indexOf('function bindNetworkDiagnostics(context)');
+  const bindEnd = main.indexOf('\n  function requestDashboardAnalytics()', bindStart);
+  const binding = main.slice(bindStart, bindEnd);
+  assert.match(binding, /context\.kind !== 'admin' \|\| !\['owner', 'admin'\]\.includes\(context\.role\)/);
   assert.match(main, /No live router is connected\./);
   assert.match(main, /does not read portal customer or billing records, query network devices, call an external AI, or apply changes\./);
   assert.match(main, /renderPortalNavigation\('customer'\)/);
