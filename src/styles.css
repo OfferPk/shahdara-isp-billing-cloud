@@ -1084,7 +1084,7 @@ td { color: #25433b; }
 .network-diagnostics__risk li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 9px; font-size: 12px; }
 .network-diagnostics__risk li span { color: var(--muted); }
 .network-diagnostics__error { color: var(--red); }
-.network-diagnostics :is(button, textarea, summary):focus-visible { outline: 3px solid #102e27; outline-offset: 3px; box-shadow: 0 0 0 5px var(--paper); }
+.network-diagnostics :is(button, input, select, textarea, summary):focus-visible { outline: 3px solid #102e27; outline-offset: 3px; box-shadow: 0 0 0 5px var(--paper); }
 :root[data-theme="dark"] .network-diagnostics__notice { border-color: #705b35; color: #f4d394; background: #3c321f; }
 :root[data-theme="dark"] :is(.network-diagnostics__badge, .network-diagnostics__simulation-tag) { border-color: #4a557a; color: #d5ddff; background: #252e49; }
 :root[data-theme="dark"] :is(.network-diagnostics__matches, .network-diagnostics__unknown, .network-diagnostics__result, .network-diagnostics__finding, .network-diagnostics__form, .network-diagnostics__recommendation, .network-diagnostics__risk, .network-diagnostics__technical) { border-color: var(--line); color: var(--ink); background: var(--paper); }
