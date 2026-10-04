@@ -1,6 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { renderAdminIncidentCards, renderIncidentCustomerOptions, toLocalDateTimeInput } from '../src/admin-incidents.js';
+import {
+  countAdminIncidentFilters,
+  filterAdminIncidentRows,
+  renderAdminIncidentCards,
+  renderIncidentCustomerOptions,
+  toLocalDateTimeInput,
+} from '../src/admin-incidents.js';
 
 const sampleIncident = {
   id: 'synthetic-incident-1',
@@ -11,6 +17,30 @@ const sampleIncident = {
   offline_at: '2026-03-01T09:45:00.000Z',
   restored_at: null,
 };
+
+test('Admin incident filters search customer names and dates while keeping unknown statuses only in All', () => {
+  const incidents = [
+    { ...sampleIncident, id: 'open-a', customer_id: 'customer-a', status: 'open', reported_at: '2026-04-12T09:00:00.000Z' },
+    { ...sampleIncident, id: 'resolved-b', customer_id: 'customer-b', status: 'resolved', reported_at: '2026-04-15T12:30:00.000Z' },
+    { ...sampleIncident, id: 'legacy-a', customer_id: 'customer-a', status: 'legacy', reported_at: '2026-04-16T08:00:00.000Z' },
+    { ...sampleIncident, id: 'organization-wide', customer_id: null, status: null, reported_at: null },
+  ];
+  const customers = [
+    { id: 'customer-a', customer_number: 7, name: 'Aisha Example' },
+    { id: 'customer-b', customer_number: 8, name: 'Bashir Example' },
+  ];
+
+  assert.deepEqual(filterAdminIncidentRows(incidents, { customers }).map((row) => row.id), ['open-a', 'resolved-b', 'legacy-a', 'organization-wide']);
+  assert.deepEqual(filterAdminIncidentRows(incidents, { customers, status: 'open' }).map((row) => row.id), ['open-a']);
+  assert.deepEqual(filterAdminIncidentRows(incidents, { customers, status: 'resolved' }).map((row) => row.id), ['resolved-b']);
+  assert.deepEqual(filterAdminIncidentRows(incidents, { customers, search: 'aIsHa' }).map((row) => row.id), ['open-a', 'legacy-a']);
+  assert.deepEqual(filterAdminIncidentRows(incidents, { customers, status: 'resolved', search: '2026-04-15' }).map((row) => row.id), ['resolved-b']);
+  assert.deepEqual(filterAdminIncidentRows(incidents, { customers, search: 'organization-wide' }).map((row) => row.id), ['organization-wide']);
+  assert.deepEqual(filterAdminIncidentRows(incidents, { customers, search: 'router outage' }), [], 'customer-visible summaries and private notes are not search fields');
+  assert.equal(countAdminIncidentFilters(incidents, { customers, search: 'aisha' }).all, 2);
+  assert.equal(countAdminIncidentFilters(incidents, { customers, search: 'aisha' }).open, 1);
+  assert.equal(countAdminIncidentFilters(incidents, { customers, search: 'aisha' }).resolved, 0);
+});
 
 test('incident cards keep public summaries and private notes in separate labeled fields', () => {
   const html = renderAdminIncidentCards({
@@ -26,6 +56,21 @@ test('incident cards keep public summaries and private notes in separate labeled
   assert.match(html, /Synthetic staff-only note/);
   assert.match(html, /name="status" required><option value="open" selected>Open<\/option><option value="resolved"/);
   assert.doesNotMatch(html, /customer_visible_summary[^<]*Synthetic staff-only note/);
+});
+
+test('filtered incident cards preserve only in-memory drafts and show a distinct no-match message', () => {
+  const draftsByIncidentId = new Map([[sampleIncident.id, {
+    customer_visible_summary: 'Synthetic local draft',
+    status: 'resolved',
+    offline_at: '2026-03-01T09:30',
+    restored_at: '',
+    staff_notes: 'Synthetic private draft',
+  }]]);
+  const html = renderAdminIncidentCards({ incidents: [sampleIncident], draftsByIncidentId });
+  assert.match(html, /Synthetic local draft/);
+  assert.match(html, /option value="resolved" selected/);
+  assert.match(html, /Synthetic private draft/);
+  assert.match(renderAdminIncidentCards({ incidents: [], emptyMessage: 'No incidents match these filters.' }), /No incidents match these filters\./);
 });
 
 test('incident form status values match the existing schema and invalid values are not silently rewritten', () => {
