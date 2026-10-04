@@ -213,6 +213,20 @@ function normalizeText(value) {
   return String(value ?? '').normalize('NFKC').toLocaleLowerCase().replace(/[.,!?;:()\[\]{}"“”'’،؟۔؛/\\_-]/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
+function normalizeComplaintInput(complaint) {
+  if (typeof complaint !== 'string') {
+    throw new TypeError('Complaint must be plain text.');
+  }
+  if (complaint.length > MAX_COMPLAINT_LENGTH) {
+    throw new RangeError(`Complaint must contain 1 to ${MAX_COMPLAINT_LENGTH} characters.`);
+  }
+  const normalized = complaint.trim();
+  if (!normalized) {
+    throw new RangeError(`Complaint must contain 1 to ${MAX_COMPLAINT_LENGTH} characters.`);
+  }
+  return normalized;
+}
+
 function phrasePattern(phrase) {
   const escaped = normalizeText(phrase).replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
   return new RegExp(`(?:^|[^a-z0-9])${escaped}(?:$|[^a-z0-9])`, 'u');
@@ -223,7 +237,7 @@ const SYMPTOM_SCENARIO_MATCHERS = Object.freeze(SYNTHETIC_SYMPTOM_SCENARIOS.map(
 )));
 
 export function classifySyntheticComplaint(complaint) {
-  const normalized = normalizeText(complaint);
+  const normalized = normalizeText(normalizeComplaintInput(complaint));
   const matchingScenarios = SYMPTOM_SCENARIO_MATCHERS.filter(({ patterns }) => (
     patterns.some((pattern) => pattern.test(normalized))
   ));
@@ -328,10 +342,7 @@ export function runSyntheticDiagnosticSteps(provider, fixtureId, classification,
 
 export function runSyntheticDiagnostics(provider, fixtureId, complaint) {
   assertMockDiagnosticsProvider(provider);
-  const normalizedComplaint = String(complaint ?? '').trim();
-  if (!normalizedComplaint || normalizedComplaint.length > MAX_COMPLAINT_LENGTH) {
-    throw new RangeError(`Complaint must contain 1 to ${MAX_COMPLAINT_LENGTH} characters.`);
-  }
+  const normalizedComplaint = normalizeComplaintInput(complaint);
   const classification = classifySyntheticComplaint(normalizedComplaint);
   if (classification.state !== 'supported') {
     throw new RangeError('Complaint is not covered by the demo or is ambiguous; no real check was run.');
@@ -567,11 +578,15 @@ export function mountNetworkDiagnosticsPanel(root, { t = (message) => message } 
     event.preventDefault();
     const identifierType = String(identifierTypeInput?.value ?? '');
     const identifier = String(identifierInput?.value ?? '').trim();
-    const complaint = String(complaintInput?.value ?? '').trim();
+    const rawComplaint = complaintInput?.value;
+    const complaint = typeof rawComplaint === 'string' && rawComplaint.length <= MAX_COMPLAINT_LENGTH
+      ? rawComplaint.trim()
+      : '';
     results.replaceChildren();
     selectableFixtureIds = new Set();
     latestComplaint = '';
     if (!identifier || identifier.length > MAX_SYNTHETIC_IDENTIFIER_LENGTH
+        || typeof rawComplaint !== 'string' || rawComplaint.length > MAX_COMPLAINT_LENGTH
         || !complaint || complaint.length > MAX_COMPLAINT_LENGTH) {
       status.textContent = translated(t, 'Enter a synthetic demo identifier (1 to 120 characters) and a demo complaint (1 to 500 characters).');
       return;
