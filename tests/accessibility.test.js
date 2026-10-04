@@ -25,6 +25,13 @@ function contrastRatio(foreground, background) {
   return (lighter + 0.05) / (darker + 0.05);
 }
 
+function mixHex(first, second, firstWeight = 0.91) {
+  const channels = (color) => [1, 3, 5].map((offset) => Number.parseInt(color.slice(offset, offset + 2), 16));
+  const [a, b] = [channels(first), channels(second)];
+  return `#${a.map((channel, index) => Math.round(channel * firstWeight + b[index] * (1 - firstWeight))
+    .toString(16).padStart(2, '0')).join('')}`;
+}
+
 test('portal updates use concise live announcements and assertive error messages', () => {
   assert.doesNotMatch(index, /<main id="app"[^>]*aria-live=/);
   assert.match(index, /id="app-announcement" class="sr-only" role="status" aria-live="polite" aria-atomic="true"/);
@@ -116,6 +123,33 @@ test('cashflow reconciliation is announced as a note and distinguishes list filt
   assert.match(main, /History search and date filters only narrow this list; they do not change the selected-period cashflow summary above\./);
   assert.match(styles, /\.cashflow-reconciliation \{[^}]*overflow-wrap: anywhere;/);
   assert.match(styles, /\.cashflow-filter-scope \{ margin: 0 0 12px;/);
+});
+
+test('cashflow reconciliation text keeps WCAG AA contrast in both theme palettes', () => {
+  const palettes = [
+    {
+      name: 'light',
+      root: styles.match(/(?:^|\n):root \{([^}]*)\}/)?.[1],
+      panel: styles.match(/(?:^|\n)\.cashflow-panel \{([^}]*)\}/)?.[1],
+    },
+    {
+      name: 'dark',
+      root: styles.match(/:root\[data-theme="dark"\] \{([^}]*)\}/)?.[1],
+      panel: styles.match(/:root\[data-theme="dark"\] \.cashflow-panel \{([^}]*)\}/)?.[1],
+    },
+  ];
+  const cssColor = (block, variable) => block?.match(new RegExp(`${variable}:\\s*(#[0-9a-f]{6})`, 'i'))?.[1];
+
+  for (const palette of palettes) {
+    const foreground = cssColor(palette.root, '--ink');
+    const paper = cssColor(palette.root, '--paper');
+    const accent = cssColor(palette.panel, '--cashflow-net');
+    assert.ok(foreground && paper && accent, `${palette.name} theme tokens are available`);
+    const background = mixHex(paper, accent);
+    assert.ok(contrastRatio(foreground, background) >= 4.5,
+      `${palette.name} note text contrast against ${background} must meet WCAG AA`);
+  }
+  assert.match(styles, /\.cashflow-reconciliation \{[^}]*color: var\(--ink\); background: color-mix\(in srgb, var\(--paper\) 91%, var\(--cashflow-net\)\)/);
 });
 
 test('customer usage meter is responsive, accessible, color-coded, and keeps status text at WCAG AA contrast', async () => {

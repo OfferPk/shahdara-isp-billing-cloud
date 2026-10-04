@@ -53,6 +53,28 @@ test('admin contexts are selected from the signed-in user membership and organiz
   assert.deepEqual(client.calls[1].filters, [['in', 'id', ['synthetic-org']]]);
 });
 
+test('only owner and admin memberships receive administrator portal contexts', async () => {
+  const client = mockClient({
+    organization_memberships: { data: [
+      { organization_id: 'synthetic-owner-org', role: 'owner' },
+      { organization_id: 'synthetic-admin-org', role: 'admin' },
+      { organization_id: 'synthetic-operator-org', role: 'operator' },
+    ], error: null },
+    organizations: { data: [
+      { id: 'synthetic-owner-org', name: 'Synthetic Owner ISP' },
+      { id: 'synthetic-admin-org', name: 'Synthetic Admin ISP' },
+      { id: 'synthetic-operator-org', name: 'Synthetic Operator ISP' },
+    ], error: null },
+  });
+  const contexts = await loadContexts(client, { id: 'synthetic-user' });
+
+  assert.deepEqual(contexts.map(({ organizationId, role }) => [organizationId, role]), [
+    ['synthetic-owner-org', 'owner'],
+    ['synthetic-admin-org', 'admin'],
+  ]);
+  assert.ok(contexts.every(({ role }) => ['owner', 'admin'].includes(role)));
+});
+
 test('customer contexts come only from the authenticated safe account-link RPC', async () => {
   const client = mockClient({
     organization_memberships: { data: [], error: null },
