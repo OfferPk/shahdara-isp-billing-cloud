@@ -1016,6 +1016,11 @@ td { color: #25433b; }
   .dashboard-activity-list time { grid-column: 2; }
   .customer-fab-menu { right: max(15px, env(safe-area-inset-right)); bottom: max(15px, env(safe-area-inset-bottom)); }
 }
+@media (max-width: 380px) {
+  .dashboard-rate-content { flex-wrap: wrap; }
+  .dashboard-rate-facts { flex-basis: 100%; min-width: 0; }
+  .dashboard-rate-facts > div { flex-wrap: wrap; }
+}
 @media (prefers-reduced-motion: reduce) {
   .customer-fab-menu .customer-fab[aria-expanded="true"] { transform: none; }
 }
