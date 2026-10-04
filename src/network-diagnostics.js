@@ -1,5 +1,6 @@
 const MAX_COMPLAINT_LENGTH = 500;
 export const MAX_SYNTHETIC_IDENTIFIER_LENGTH = 120;
+export const MAX_RECENT_SIMULATIONS = 10;
 
 export const SYNTHETIC_IDENTIFIER_TYPES = Object.freeze([
   Object.freeze({ value: 'name', label: 'Synthetic display name or alias', placeholder: 'Example: Ali Khan or Ahmed Raza' }),
@@ -346,6 +347,44 @@ export function runSyntheticDiagnostics(provider, fixtureId, complaint) {
   });
 }
 
+export function createRecentSimulationHistory() {
+  let entries = Object.freeze([]);
+  return Object.freeze({
+    list() {
+      return entries;
+    },
+    record(result, now = new Date()) {
+      const validResult = result && typeof result === 'object'
+        && result.simulated === true
+        && result.fictional === true
+        && result.liveCheckPerformed === false
+        && result.changesApplied === false
+        && result.serviceVerified === false
+        && result.state === 'simulated-only'
+        && result.outcome === 'simulated-only'
+        && MOCK_DIAGNOSTIC_FIXTURES.some(({ id }) => id === result.id)
+        && SYNTHETIC_SYMPTOM_SCENARIOS.some(({ id }) => id === result.symptomScenarioId);
+      if (!validResult) throw new TypeError('Only a completed fictional simulation can enter simulation history.');
+      if (!(now instanceof Date) || !Number.isFinite(now.getTime())) {
+        throw new TypeError('Simulation history needs a valid local display timestamp.');
+      }
+
+      const entry = Object.freeze({
+        fixtureId: result.id,
+        scenarioId: result.symptomScenarioId,
+        status: result.outcome,
+        displayTimestamp: now.toLocaleString(),
+      });
+      entries = Object.freeze([entry, ...entries].slice(0, MAX_RECENT_SIMULATIONS));
+      return entries;
+    },
+    clear() {
+      entries = Object.freeze([]);
+      return entries;
+    },
+  });
+}
+
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, (character) => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
@@ -354,6 +393,22 @@ function escapeHtml(value) {
 
 function translated(t, message) {
   return escapeHtml(t(message));
+}
+
+export function renderRecentSimulations(entries, t = (message) => message) {
+  if (!Array.isArray(entries) || entries.length > MAX_RECENT_SIMULATIONS
+      || !entries.every((entry) => entry && typeof entry === 'object'
+        && MOCK_DIAGNOSTIC_FIXTURES.some(({ id }) => id === entry.fixtureId)
+        && SYNTHETIC_SYMPTOM_SCENARIOS.some(({ id }) => id === entry.scenarioId)
+        && entry.status === 'simulated-only'
+        && typeof entry.displayTimestamp === 'string')) {
+    throw new TypeError('Recent simulations may contain only bounded synthetic result metadata.');
+  }
+  const rows = entries.map(({ fixtureId, scenarioId, status, displayTimestamp }) => (
+    `<li><dl><div><dt>${translated(t, 'Fixture')}</dt><dd>${escapeHtml(fixtureId)}</dd></div><div><dt>${translated(t, 'Scenario')}</dt><dd>${escapeHtml(scenarioId)}</dd></div><div><dt>${translated(t, 'Result')}</dt><dd>${translated(t, 'Simulated only')}</dd></div><div><dt>${translated(t, 'Displayed')}</dt><dd><time>${escapeHtml(displayTimestamp)}</time></dd></div></dl></li>`
+  )).join('');
+  const emptyState = entries.length ? '' : `<p class="network-diagnostics__history-empty">${translated(t, 'No simulations are in this view yet.')}</p>`;
+  return `<section class="network-diagnostics__history-panel" aria-labelledby="network-diagnostics-history-title"><div class="network-diagnostics__history-heading"><h3 id="network-diagnostics-history-title">${translated(t, 'Recent simulations')}</h3><button class="button secondary small" type="button" data-clear-simulation-history="true" aria-label="${translated(t, 'Clear recent simulations')}">${translated(t, 'Clear history')}</button></div><p class="network-diagnostics__history-notice" role="note">${translated(t, 'Simulation history only — no actions or changes occurred')}</p><p class="muted">${translated(t, 'Only this view’s in-memory simulation history is cleared.')}</p><ul class="network-diagnostics__history-list" aria-label="${translated(t, 'Recent simulations')}">${rows}</ul>${emptyState}</section>`;
 }
 
 function renderFindings(findings, t) {
@@ -412,7 +467,7 @@ export function renderSyntheticSymptomDecision(classification, t = (message) => 
 function renderExperience(t) {
   const typeOptions = SYNTHETIC_IDENTIFIER_TYPES.map(({ value, label }) => `<option value="${escapeHtml(value)}">${translated(t, label)}</option>`).join('');
   const examples = SIMULATION_EXAMPLES.map(({ id, label }) => `<button class="button secondary network-diagnostics__example" type="button" data-synthetic-example="${escapeHtml(id)}">${translated(t, label)}</button>`).join('');
-  return `<div class="network-diagnostics__experience"><div class="network-diagnostics__examples" role="group" aria-label="${translated(t, 'Synthetic complaint examples')}">${examples}</div><form id="network-diagnostics-form" class="network-diagnostics__form"><label for="network-diagnostics-identifier-type">${translated(t, 'Synthetic demo identifier type')}</label><select id="network-diagnostics-identifier-type" name="identifierType" required>${typeOptions}</select><label for="network-diagnostics-identifier">${translated(t, 'Synthetic demo identifier value')}</label><input id="network-diagnostics-identifier" name="identifier" type="text" maxlength="${MAX_SYNTHETIC_IDENTIFIER_LENGTH}" autocomplete="off" autocapitalize="none" spellcheck="false" aria-describedby="network-diagnostics-identifier-help" required><p id="network-diagnostics-identifier-help" class="muted">${translated(t, 'Use fictional demo values only. Never enter a real customer name, login, PPPoE credential, account number, or phone number. Inputs stay local and are not saved or sent.')}</p><label for="network-diagnostics-complaint">${translated(t, 'Describe a synthetic demo complaint (English, Roman Urdu, or Urdu)')}</label><textarea id="network-diagnostics-complaint" name="complaint" maxlength="${MAX_COMPLAINT_LENGTH}" rows="3" aria-describedby="network-diagnostics-help" required></textarea><p id="network-diagnostics-help" class="muted">${translated(t, 'Use a fictional demo complaint only. Complaint text is processed locally in this browser and is not saved or sent.')}</p><button class="button primary" type="submit">${translated(t, 'Run simulated check')}</button></form><p class="network-diagnostics__status" id="network-diagnostics-status" role="status" aria-live="polite" aria-atomic="true"></p><div id="network-diagnostics-results"></div></div>`;
+  return `<div class="network-diagnostics__experience"><div class="network-diagnostics__examples" role="group" aria-label="${translated(t, 'Synthetic complaint examples')}">${examples}</div><form id="network-diagnostics-form" class="network-diagnostics__form"><label for="network-diagnostics-identifier-type">${translated(t, 'Synthetic demo identifier type')}</label><select id="network-diagnostics-identifier-type" name="identifierType" required>${typeOptions}</select><label for="network-diagnostics-identifier">${translated(t, 'Synthetic demo identifier value')}</label><input id="network-diagnostics-identifier" name="identifier" type="text" maxlength="${MAX_SYNTHETIC_IDENTIFIER_LENGTH}" autocomplete="off" autocapitalize="none" spellcheck="false" aria-describedby="network-diagnostics-identifier-help" required><p id="network-diagnostics-identifier-help" class="muted">${translated(t, 'Use fictional demo values only. Never enter a real customer name, login, PPPoE credential, account number, or phone number. Inputs stay local and are not saved or sent.')}</p><label for="network-diagnostics-complaint">${translated(t, 'Describe a synthetic demo complaint (English, Roman Urdu, or Urdu)')}</label><textarea id="network-diagnostics-complaint" name="complaint" maxlength="${MAX_COMPLAINT_LENGTH}" rows="3" aria-describedby="network-diagnostics-help" required></textarea><p id="network-diagnostics-help" class="muted">${translated(t, 'Use a fictional demo complaint only. Complaint text is processed locally in this browser and is not saved or sent.')}</p><button class="button primary" type="submit">${translated(t, 'Run simulated check')}</button></form><p class="network-diagnostics__status" id="network-diagnostics-status" role="status" aria-live="polite" aria-atomic="true"></p><div id="network-diagnostics-results"></div><div id="network-diagnostics-history">${renderRecentSimulations([], t)}</div></div>`;
 }
 
 export function mountNetworkDiagnosticsPanel(root, { t = (message) => message } = {}) {
@@ -421,12 +476,14 @@ export function mountNetworkDiagnosticsPanel(root, { t = (message) => message } 
   if (!content) return false;
   content.innerHTML = `${renderNetworkActionPolicyPreview(t)}${renderExperience(t)}`;
   const provider = new MockDiagnosticsProvider();
+  const recentSimulationHistory = createRecentSimulationHistory();
   const form = content.querySelector('#network-diagnostics-form');
   const identifierTypeInput = content.querySelector('#network-diagnostics-identifier-type');
   const identifierInput = content.querySelector('#network-diagnostics-identifier');
   const complaintInput = content.querySelector('#network-diagnostics-complaint');
   const status = content.querySelector('#network-diagnostics-status');
   const results = content.querySelector('#network-diagnostics-results');
+  const historyRoot = content.querySelector('#network-diagnostics-history');
   let selectableFixtureIds = new Set();
   let latestComplaint = '';
 
@@ -454,6 +511,12 @@ export function mountNetworkDiagnosticsPanel(root, { t = (message) => message } 
   content.addEventListener('click', (event) => {
     const target = event.target instanceof Element ? event.target.closest('button') : null;
     if (!target) return;
+    if (target.dataset.clearSimulationHistory === 'true') {
+      recentSimulationHistory.clear();
+      historyRoot.innerHTML = renderRecentSimulations(recentSimulationHistory.list(), t);
+      status.textContent = translated(t, 'Simulation history cleared from this view.');
+      return;
+    }
     const example = SIMULATION_EXAMPLES.find(({ id }) => id === target.dataset.syntheticExample);
     if (example && identifierInput && complaintInput && identifierTypeInput) {
       identifierTypeInput.value = example.identifierType;
@@ -471,6 +534,8 @@ export function mountNetworkDiagnosticsPanel(root, { t = (message) => message } 
       const result = runSyntheticDiagnostics(provider, fixtureId, latestComplaint);
       selectableFixtureIds = new Set();
       results.innerHTML = renderSyntheticDiagnosticResult(result, t);
+      recentSimulationHistory.record(result);
+      historyRoot.innerHTML = renderRecentSimulations(recentSimulationHistory.list(), t);
       status.textContent = translated(t, 'Simulation complete. This is not a live diagnosis.');
     } catch {
       results.innerHTML = `<p class="network-diagnostics__error" role="alert">${translated(t, 'The local simulation could not produce this example.')}</p>`;

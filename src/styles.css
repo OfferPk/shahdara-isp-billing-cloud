@@ -1088,6 +1088,21 @@ td { color: #25433b; }
 .network-diagnostics__risk ul { margin-top: 10px; }
 .network-diagnostics__risk li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 9px; font-size: 12px; }
 .network-diagnostics__risk li span { color: var(--muted); }
+.network-diagnostics__history-panel { display: grid; gap: 10px; min-width: 0; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); }
+.network-diagnostics__history-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.network-diagnostics__history-heading h3 { margin: 0; font-size: 17px; }
+.network-diagnostics__history-heading .button { min-height: 44px; }
+.network-diagnostics__history-notice { margin: 0; padding: 10px; border-radius: 9px; color: #513b12; background: #fff8e6; font-weight: 750; line-height: 1.5; overflow-wrap: anywhere; }
+.network-diagnostics__history-panel > .muted, .network-diagnostics__history-empty { margin: 0; }
+.network-diagnostics__history-list { display: grid; gap: 8px; min-width: 0; margin: 0; padding: 0; list-style: none; }
+.network-diagnostics__history-list li { min-width: 0; padding: 10px; border: 1px solid var(--line); border-radius: 9px; background: color-mix(in srgb, var(--paper) 92%, var(--mint)); }
+.network-diagnostics__history-list dl { display: grid; gap: 6px; margin: 0; }
+.network-diagnostics__history-list dl > div { display: grid; grid-template-columns: minmax(84px, .35fr) minmax(0, 1fr); gap: 8px; }
+.network-diagnostics__history-list dt { color: var(--muted); font-weight: 750; }
+.network-diagnostics__history-list dd { min-width: 0; margin: 0; overflow-wrap: anywhere; }
+:root[data-theme="dark"] .network-diagnostics__history-panel { border-color: var(--line); background: var(--paper); }
+:root[data-theme="dark"] .network-diagnostics__history-notice { color: #f4d394; background: #3c321f; }
+:root[data-theme="dark"] .network-diagnostics__history-list li { background: color-mix(in srgb, var(--paper) 92%, var(--mint)); }
 .network-diagnostics__error { color: var(--red); }
 .network-diagnostics :is(button, input, select, textarea, summary):focus-visible { outline: 3px solid #102e27; outline-offset: 3px; box-shadow: 0 0 0 5px var(--paper); }
 :root[data-theme="dark"] .network-diagnostics__notice { border-color: #705b35; color: #f4d394; background: #3c321f; }
@@ -1104,5 +1119,6 @@ td { color: #25433b; }
   .network-diagnostics__example, .network-diagnostics__form .button { width: 100%; }
   .network-diagnostics__form { padding: 12px; }
   .network-diagnostics__technical dl > div { grid-template-columns: 1fr; gap: 2px; }
+  .network-diagnostics__history-list dl > div { grid-template-columns: 1fr; gap: 2px; }
   .network-diagnostics__risk li { align-items: flex-start; flex-direction: column; }
 }

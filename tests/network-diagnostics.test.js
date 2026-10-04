@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import {
+  MAX_RECENT_SIMULATIONS,
   MAX_SYNTHETIC_IDENTIFIER_LENGTH,
   LIVE_ONLY_DIAGNOSTIC_CHECKS,
   MOCK_DIAGNOSTIC_FIXTURES,
@@ -13,8 +14,10 @@ import {
   SYNTHETIC_IDENTIFIER_TYPES,
   SYNTHETIC_SYMPTOM_SCENARIOS,
   classifySyntheticComplaint,
+  createRecentSimulationHistory,
   previewNetworkActionPolicy,
   renderNetworkActionPolicyPreview,
+  renderRecentSimulations,
   renderSyntheticDiagnosticResult,
   renderSyntheticSymptomDecision,
   runSyntheticDiagnosticSteps,
@@ -361,6 +364,64 @@ test('bounds, malformed identities, and provider restrictions remain in force', 
   ]);
 });
 
+test('recent simulation history retains only allowlisted metadata, never complaint or customer identifiers', () => {
+  const result = runSyntheticDiagnostics(provider, 'demo-ahmed-a', 'Ahmed internet slow hai');
+  const timestamp = new Date(2026, 9, 5, 14, 32, 0);
+  const history = createRecentSimulationHistory();
+  const [entry] = history.record({
+    ...result,
+    complaint: 'PRIVATE-COMPLAINT-MUST-NOT-BE-STORED',
+    phone: 'PRIVATE-PHONE-MUST-NOT-BE-STORED',
+    pppoeUsername: 'PRIVATE-PPPOE-MUST-NOT-BE-STORED',
+    accountNumber: 'PRIVATE-ACCOUNT-MUST-NOT-BE-STORED',
+    customerId: 'PRIVATE-CUSTOMER-ID-MUST-NOT-BE-STORED',
+    customerData: { name: 'PRIVATE-CUSTOMER-MUST-NOT-BE-STORED' },
+  }, timestamp);
+  assert.deepEqual(Object.keys(entry), ['fixtureId', 'scenarioId', 'status', 'displayTimestamp']);
+  assert.deepEqual(entry, {
+    fixtureId: 'demo-ahmed-a',
+    scenarioId: 'slow-speed-profile-mismatch',
+    status: 'simulated-only',
+    displayTimestamp: timestamp.toLocaleString(),
+  });
+  assert.equal(Object.isFrozen(entry), true);
+  assert.equal(Object.isFrozen(history.list()), true);
+  assert.doesNotMatch(JSON.stringify(entry), /PRIVATE-|Ahmed internet slow hai|Ahmed Raza|SIM\.PPPOE|DEMO-CUSTOMER/);
+  assert.throws(() => history.record({ ...result, changesApplied: true }, timestamp), /completed fictional simulation/);
+  assert.throws(() => history.record(result, 'not-a-date'), /valid local display timestamp/);
+});
+
+test('recent simulation history is capped at 10, clear affects only local memory, and a new mount starts empty', () => {
+  assert.equal(MAX_RECENT_SIMULATIONS, 10);
+  const result = runSyntheticDiagnostics(provider, 'demo-ali-a', 'Ali ka internet nahi chal raha');
+  const history = createRecentSimulationHistory();
+  const timestamps = Array.from({ length: 11 }, (_, index) => new Date(2026, 9, 5, 14, index));
+  for (const timestamp of timestamps) history.record(result, timestamp);
+  assert.equal(history.list().length, 10);
+  assert.equal(history.list()[0].displayTimestamp, timestamps[10].toLocaleString());
+  assert.equal(history.list()[9].displayTimestamp, timestamps[1].toLocaleString());
+  assert.deepEqual(history.clear(), []);
+  assert.deepEqual(history.list(), []);
+  assert.deepEqual(createRecentSimulationHistory().list(), [], 'a fresh panel instance has no persisted history');
+});
+
+test('recent simulations are explicitly not an action log and expose a local clear control with safe accessible status', () => {
+  const result = runSyntheticDiagnostics(provider, 'demo-ahmed-a', 'Ahmed internet slow hai');
+  const history = createRecentSimulationHistory();
+  const markup = renderRecentSimulations(history.record(result, new Date(2026, 9, 5, 14, 32, 0)));
+  assert.match(markup, /Recent simulations/);
+  assert.match(markup, /Simulation history only — no actions or changes occurred/);
+  assert.match(markup, /data-clear-simulation-history="true"/);
+  assert.match(markup, /Clear history/);
+  assert.match(markup, /demo-ahmed-a/);
+  assert.match(markup, /slow-speed-profile-mismatch/);
+  assert.match(markup, /<dt>Result<\/dt><dd>Simulated only<\/dd>/);
+  assert.doesNotMatch(markup, /action log|attempted|succeeded|customer|phone|pppoe|account/i);
+  assert.match(moduleSource, /const recentSimulationHistory = createRecentSimulationHistory\(\)/);
+  assert.match(moduleSource, /historyRoot\.innerHTML = renderRecentSimulations\(recentSimulationHistory\.list\(\), t\)/);
+  assert.match(moduleSource, /recentSimulationHistory\.clear\(\)/);
+});
+
 test('module has no live data, network, persistence, router, provider, AI, or customer-action call path', () => {
   assert.doesNotMatch(moduleSource, /function\s+(?:apply|change|write|execute|reboot|disconnect|refresh)\w*\s*\(/i);
   assert.doesNotMatch(moduleSource, /fetch\s*\(|XMLHttpRequest|WebSocket|child_process|supabase|routeros|radius|olt|indexedDB|localStorage|sessionStorage|\.rpc\s*\(|\.insert\s*\(|\.update\s*\(|\.delete\s*\(/i);
@@ -418,6 +479,10 @@ test('diagnostics is keyboard usable, responsive, state-labeled, and translated 
     'Future action policy · simulation only',
     'No router is connected, no approved adapter is available, and there are no live customers. Every action class is unavailable today.',
     'A confirmation shown or tested here is only a simulation; it does not approve, queue, or apply a real action.',
+    'Recent simulations', 'Simulation history only — no actions or changes occurred',
+    'Only this view’s in-memory simulation history is cleared.', 'No simulations are in this view yet.',
+    'Clear history', 'Clear recent simulations', 'Simulation history cleared from this view.',
+    'Fixture', 'Scenario', 'Result', 'Displayed', 'Simulated only',
     ...NETWORK_ACTION_POLICY.map(({ futureRequirement }) => futureRequirement),
   ];
   for (const copy of translatedCopy) assert.notEqual(translateUi(copy, 'ur-Latn'), copy, `diagnostics copy has Roman Urdu: ${copy}`);
