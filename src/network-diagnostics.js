@@ -66,7 +66,6 @@ export const SYNTHETIC_SYMPTOM_SCENARIOS = Object.freeze([
     diagnosis: 'Fictional no-internet scenario: this sample represents a disconnected PPPoE session. It does not identify a real cause or confirm service status.',
     findings: Object.freeze([
       Object.freeze({ label: 'Synthetic session state', value: 'Disconnected · fictional demo scenario', state: 'mock' }),
-      Object.freeze({ label: 'Router, WAN, DNS and cause analysis', value: 'Unavailable · no live device is connected', state: 'unavailable' }),
     ]),
   }),
   Object.freeze({
@@ -82,7 +81,6 @@ export const SYNTHETIC_SYMPTOM_SCENARIOS = Object.freeze([
     findings: Object.freeze([
       Object.freeze({ label: 'Example package', value: '20 Mbps · fictional demo scenario', state: 'mock' }),
       Object.freeze({ label: 'Example assigned speed profile', value: '5 Mbps · fictional demo scenario', state: 'mock' }),
-      Object.freeze({ label: 'Measured throughput', value: 'Unavailable · no speed test was run', state: 'unavailable' }),
     ]),
   }),
   Object.freeze({
@@ -98,9 +96,27 @@ export const SYNTHETIC_SYMPTOM_SCENARIOS = Object.freeze([
     diagnosis: 'Fictional intermittent/disconnect scenario: the sample shows repeated connection drops. No live session history was checked.',
     findings: Object.freeze([
       Object.freeze({ label: 'Synthetic session stability', value: 'Intermittent · fictional demo scenario', state: 'mock' }),
-      Object.freeze({ label: 'Live session history', value: 'Unavailable · no live device is connected', state: 'unavailable' }),
     ]),
   }),
+]);
+
+export const SYNTHETIC_DIAGNOSTIC_STEPS = Object.freeze([
+  Object.freeze({ id: 'profile-fixture', label: 'Synthetic profile fixture' }),
+  Object.freeze({ id: 'symptom-classification', label: 'Symptom classification' }),
+  Object.freeze({ id: 'scenario-evidence', label: 'Fictional scenario evidence' }),
+]);
+
+export const LIVE_ONLY_DIAGNOSTIC_CHECKS = Object.freeze([
+  Object.freeze({ id: 'router-status', label: 'Router status', value: 'Unavailable · no live device is connected' }),
+  Object.freeze({ id: 'router-management-ip-address', label: 'Router management IP address', value: 'Unavailable · no live device is connected' }),
+  Object.freeze({ id: 'subscriber-ip-address', label: 'Subscriber IP address', value: 'Unavailable · no live device is connected' }),
+  Object.freeze({ id: 'wan-link-status', label: 'WAN link status', value: 'Unavailable · no live device is connected' }),
+  Object.freeze({ id: 'dns-resolution', label: 'DNS resolution', value: 'Unavailable · no live device is connected' }),
+  Object.freeze({ id: 'routing-table', label: 'Routing table', value: 'Unavailable · no live device is connected' }),
+  Object.freeze({ id: 'live-traffic', label: 'Live traffic', value: 'Unavailable · no live device is connected' }),
+  Object.freeze({ id: 'packet-loss', label: 'Packet loss', value: 'Unavailable · no live device is connected' }),
+  Object.freeze({ id: 'measured-throughput', label: 'Measured throughput', value: 'Unavailable · no speed test was run' }),
+  Object.freeze({ id: 'live-pppoe-session-history', label: 'Live PPPoE session history', value: 'Unavailable · no live device is connected' }),
 ]);
 
 export const SIMULATION_EXAMPLES = Object.freeze([
@@ -155,6 +171,14 @@ function selectableCandidate({ id, displayName }) {
   return Object.freeze({ id, displayName });
 }
 
+function assertMockDiagnosticsProvider(provider) {
+  if (!(provider instanceof MockDiagnosticsProvider)
+      || Object.getPrototypeOf(provider) !== MockDiagnosticsProvider.prototype
+      || provider.mode !== 'simulation') {
+    throw new TypeError('Only the built-in simulation provider is allowed.');
+  }
+}
+
 export class MockDiagnosticsProvider {
   constructor() {
     this.mode = 'simulation';
@@ -189,12 +213,45 @@ export class MockDiagnosticsProvider {
   }
 }
 
-export function runSyntheticDiagnostics(provider, fixtureId, complaint) {
-  if (!(provider instanceof MockDiagnosticsProvider)
-      || Object.getPrototypeOf(provider) !== MockDiagnosticsProvider.prototype
-      || provider.mode !== 'simulation') {
-    throw new TypeError('Only the built-in simulation provider is allowed.');
+export function runSyntheticDiagnosticSteps(provider, fixtureId, classification, requestedStepIds = SYNTHETIC_DIAGNOSTIC_STEPS.map(({ id }) => id)) {
+  assertMockDiagnosticsProvider(provider);
+  if (!classification || classification.state !== 'supported'
+      || classification.source !== 'deterministic-local-phrase-rules'
+      || classification.liveCheckPerformed !== false) {
+    throw new TypeError('Diagnostic steps require a locally supported synthetic symptom classification.');
   }
+  if (!Array.isArray(requestedStepIds)) {
+    throw new TypeError('Synthetic diagnostic steps must be selected from the local allowlist.');
+  }
+  const allowedStepIds = SYNTHETIC_DIAGNOSTIC_STEPS.map(({ id }) => id);
+  if (requestedStepIds.some((id) => !allowedStepIds.includes(id))
+      || new Set(requestedStepIds).size !== requestedStepIds.length) {
+    throw new RangeError('Unknown synthetic diagnostic step; live network tools are unavailable.');
+  }
+
+  const evidence = provider.getSyntheticEvidence(fixtureId);
+  if (!evidence) throw new RangeError('Choose a listed synthetic fixture.');
+  const scenario = SYNTHETIC_SYMPTOM_SCENARIOS.find(({ id }) => id === classification.scenarioId);
+  if (!scenario) throw new RangeError('Choose a supported local symptom scenario.');
+
+  const findingsByStep = {
+    'profile-fixture': [
+      { label: 'Synthetic profile fixture', value: 'Fictional local profile fixture', state: 'mock', synthetic: true, stepId: 'profile-fixture' },
+    ],
+    'symptom-classification': [
+      { label: 'Symptom classification', value: 'Deterministic local phrase rules', state: 'mock', synthetic: true, stepId: 'symptom-classification' },
+    ],
+    'scenario-evidence': scenario.findings.map((finding) => ({ ...finding, synthetic: true, stepId: 'scenario-evidence' })),
+  };
+  const syntheticFindings = requestedStepIds.flatMap((id) => findingsByStep[id]);
+  const unavailableFindings = LIVE_ONLY_DIAGNOSTIC_CHECKS.map(({ id, label, value }) => ({
+    label, value, state: 'unavailable', synthetic: true, stepId: id,
+  }));
+  return Object.freeze([...syntheticFindings, ...unavailableFindings].map((finding) => Object.freeze(finding)));
+}
+
+export function runSyntheticDiagnostics(provider, fixtureId, complaint) {
+  assertMockDiagnosticsProvider(provider);
   const normalizedComplaint = String(complaint ?? '').trim();
   if (!normalizedComplaint || normalizedComplaint.length > MAX_COMPLAINT_LENGTH) {
     throw new RangeError(`Complaint must contain 1 to ${MAX_COMPLAINT_LENGTH} characters.`);
@@ -206,10 +263,11 @@ export function runSyntheticDiagnostics(provider, fixtureId, complaint) {
   const evidence = provider.getSyntheticEvidence(fixtureId);
   if (!evidence) throw new RangeError('Choose a listed synthetic fixture.');
   const scenario = SYNTHETIC_SYMPTOM_SCENARIOS.find(({ id }) => id === classification.scenarioId);
+  const findings = runSyntheticDiagnosticSteps(provider, fixtureId, classification);
   return Object.freeze({
     ...evidence,
     diagnosis: scenario.diagnosis,
-    findings: scenario.findings.map((finding) => ({ ...finding })),
+    findings,
     complaint: normalizedComplaint,
     symptomScenario: scenario.label,
     symptomScenarioId: scenario.id,
@@ -239,7 +297,7 @@ function translated(t, message) {
 function renderFindings(findings, t) {
   return findings.map(({ label, value, state }) => {
     const safeState = state === 'mock' ? 'mock' : 'unavailable';
-    return `<li><article class="network-diagnostics__finding"><h4>${translated(t, label)}</h4><p>${translated(t, value)}</p><span class="network-diagnostics__evidence network-diagnostics__evidence--${safeState}">${translated(t, safeState === 'mock' ? 'Synthetic fixture evidence' : 'Unavailable')}</span></article></li>`;
+    return `<li><article class="network-diagnostics__finding"><h4>${translated(t, label)}</h4><p>${translated(t, value)}</p><span class="network-diagnostics__evidence network-diagnostics__evidence--${safeState}">${translated(t, safeState === 'mock' ? 'Synthetic fixture evidence' : 'Synthetic · unavailable')}</span></article></li>`;
   }).join('');
 }
 
@@ -252,7 +310,12 @@ export function renderSyntheticDiagnosticResult(result, t = (message) => message
       || result.liveCheckPerformed !== false || result.changesApplied !== false || result.serviceVerified !== false) {
     throw new TypeError('Only an explicitly simulated diagnostic result can be rendered.');
   }
-  const findings = Array.isArray(result.findings) ? result.findings : [];
+  if (!Array.isArray(result.findings) || !result.findings.every(({ state, synthetic }) => (
+    synthetic === true && ['mock', 'unavailable'].includes(state)
+  ))) {
+    throw new TypeError('Every rendered finding must be explicitly synthetic and mock or unavailable.');
+  }
+  const findings = result.findings;
   return `<article class="network-diagnostics__result" aria-labelledby="network-diagnostics-result-title"><p class="network-diagnostics__simulation-tag">${translated(t, 'SIMULATION ONLY · NOT LIVE NETWORK DATA')}</p><h3 id="network-diagnostics-result-title">${translated(t, 'Simulated diagnostic result')}</h3><p class="network-diagnostics__complaint"><strong>${translated(t, 'Complaint')}</strong>: ${escapeHtml(result.complaint)}</p><p><strong>${translated(t, 'Symptom scenario')}</strong>: ${translated(t, result.symptomScenario)}</p><p class="network-diagnostics__diagnosis">${translated(t, result.diagnosis)}</p><ul class="network-diagnostics__findings" aria-label="${translated(t, 'Synthetic and unavailable diagnostic findings')}">${renderFindings(findings, t)}</ul><section class="network-diagnostics__recommendation" aria-labelledby="network-diagnostics-recommendation-title"><h4 id="network-diagnostics-recommendation-title">${translated(t, 'Recommendation')}</h4><p>${translated(t, result.recommendation)}</p></section><p class="network-diagnostics__not-fixed">${translated(t, 'No router or customer change was applied, and no service restoration was verified.')}</p><details class="network-diagnostics__technical"><summary>${translated(t, 'Technical details')}</summary><dl><div><dt>${translated(t, 'Output state')}</dt><dd>${translated(t, result.state)}</dd></div><div><dt>${translated(t, 'Evidence source')}</dt><dd>${translated(t, 'Fictional local symptom scenario')}</dd></div><div><dt>${translated(t, 'Classification source')}</dt><dd>${translated(t, 'Deterministic local phrase rules')}</dd></div><div><dt>${translated(t, 'Synthetic demo profile')}</dt><dd>${escapeHtml(result.displayName)}</dd></div><div><dt>${translated(t, 'Identity source')}</dt><dd>${translated(t, 'Fictional local profile fixture')}</dd></div><div><dt>${translated(t, 'Fixture identifier')}</dt><dd>${escapeHtml(result.fixtureLabel)}</dd></div><div><dt>${translated(t, 'Live router response')}</dt><dd>${translated(t, 'Unavailable · no live device is connected')}</dd></div></dl><p>${translated(t, 'No shell, command execution, external AI, router API, or database lookup is available in this feature.')}</p></details>${renderRiskPreview(t)}</article>`;
 }
 
