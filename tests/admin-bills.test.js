@@ -189,7 +189,7 @@ test('private phone search stays in Admin code and Customer Portal rendering nev
   ]);
   const customerView = main.slice(main.indexOf('function renderCustomer()'), main.indexOf('async function refreshCurrentContext('));
   assert.match(main, /function currentAdminBillRows\(\)[\s\S]*privateDetails: pageState\.rows\.privateCustomerDetails/);
-  assert.match(portalData, /context\.kind === 'admin'[\s\S]*rowsFor\(supabase, 'customer_private_details', 'customer_id, phone'/);
+  assert.match(portalData, /context\.kind === 'admin'[\s\S]*rowsFor\(supabase, 'customer_private_details', 'customer_id, phone, connection_date'/);
   assert.doesNotMatch(customerView, /phone|privateCustomerDetails|WhatsApp/i);
   assert.doesNotMatch(main, /console\.(?:log|info|debug)\([^\n]*(?:phone|reminder)/i);
 });

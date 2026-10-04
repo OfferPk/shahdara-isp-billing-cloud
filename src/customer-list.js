@@ -1,3 +1,5 @@
+import { localDateKey, summarizeCustomerMargin } from './cashflow.js';
+
 const NO_AREA_VALUE = '__address_not_recorded__';
 
 const normalizeText = (value) => String(value ?? '').trim().toLocaleLowerCase('en-PK');
@@ -64,6 +66,7 @@ export function buildCustomerListRows({
   currentMonth,
 }) {
   const phoneByCustomer = new Map(privateDetails.map((row) => [row.customer_id, row.phone ?? '']));
+  const connectionDateByCustomer = new Map(privateDetails.map((row) => [row.customer_id, row.connection_date ?? '']));
   return customers.map((customer) => {
     const customerBills = billsForCustomerThroughMonth(customer.id, bills, currentMonth);
     const bill = latestBillForCustomer(customerBills);
@@ -71,6 +74,7 @@ export function buildCustomerListRows({
     return {
       customer,
       phone: phoneByCustomer.get(customer.id) ?? '',
+      connectionDate: connectionDateByCustomer.get(customer.id) ?? '',
       area: String(customer.service_address ?? '').trim(),
       bill,
       dueBill: oldestOpenBill ?? bill,
@@ -152,6 +156,22 @@ function phoneLinks(phone) {
   return { tel: telDigits ? `tel:${telDigits}` : '', whatsapp: whatsappDigits };
 }
 
+function tenureLabel(months, t) {
+  if (months === null || months === undefined) return t('N/A — start date unknown');
+  if (months === 0) return t('Less than one month');
+  const years = Math.floor(months / 12);
+  const remainder = months % 12;
+  const pieces = [];
+  if (years) pieces.push(`${years} ${t(years === 1 ? 'year' : 'years')}`);
+  if (remainder) pieces.push(`${remainder} ${t(remainder === 1 ? 'month' : 'months')}`);
+  return pieces.join(', ');
+}
+
+function localTimestamp(value, locale = 'en-PK') {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '' : date.toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' });
+}
+
 export function renderCustomerCards(rows, formatMoney, t = (value) => value) {
   if (!rows.length) return `<p class="customer-list-empty" role="status">${escapeHtml(t('No customers match these filters.'))}</p>`;
   return rows.map(({ customer, phone, bill, dueBill, paymentBill, billing }) => {
@@ -201,8 +221,20 @@ function billStatus(bill, allocations) {
   return customerBillState(bill, allocations).status;
 }
 
-export function renderCustomerProfile(row, { bills = [], receipts = [], allocations = [], formatMoney, t = (value) => value, portalTestModeAvailable = false }) {
+export function renderCustomerProfile(row, {
+  bills = [], receipts = [], allocations = [], customerServiceCosts = [], organizationId = '',
+  formatMoney, t = (value) => value, portalTestModeAvailable = false, now = new Date(), locale = 'en-PK',
+}) {
   const { customer, phone, area, billing } = row;
+  const margin = summarizeCustomerMargin({
+    customerId: customer.id,
+    organizationId,
+    receipts,
+    costHistory: customerServiceCosts,
+    connectionDate: row.connectionDate,
+    createdAt: customer.created_at,
+    now,
+  });
   const name = escapeHtml(customer.name);
   const phoneMarkup = phoneLinks(phone).tel
     ? `<a href="${escapeHtml(phoneLinks(phone).tel)}">${escapeHtml(phone)}</a>`
@@ -233,6 +265,37 @@ export function renderCustomerProfile(row, { bills = [], receipts = [], allocati
   const statusLabel = billingStatusLabel(billing.status, t);
   const dueLabel = customerDueLabel(row.dueBill ?? row.bill, t);
   const packageLabel = row.bill?.plan_snapshot || customer.plan_name || t('Package not set');
+  const startDateLabel = margin.serviceStartSource === 'service'
+    ? t('Service start date')
+    : (margin.serviceStartSource === 'created' ? t('Customer record created') : t('Start date not recorded'));
+  const startDateValue = margin.serviceStartDate || t('N/A — start date unknown');
+  const contributionValue = margin.estimatedContributionPaisa === null
+    ? t('Unknown — add a start date and an effective monthly cost first.')
+    : formatMoney(margin.estimatedContributionPaisa);
+  const coverageValue = margin.estimatedContributionPaisa === null
+    ? t('N/A until at least one completed service month has an assigned cost.')
+    : `${margin.costMonths} / ${margin.serviceMonths} ${t('completed service months covered')}${margin.uncoveredMonths ? `; ${margin.uncoveredMonths} ${t('months have no recorded cost and are excluded')}` : ''}. ${t('Current incomplete month is excluded; no partial-month proration.')}`;
+  const currentMonthlyCost = margin.currentMonthlyCostPaisa === null
+    ? t('Not assigned for this month')
+    : formatMoney(margin.currentMonthlyCostPaisa);
+  const customerCostHistory = customerServiceCosts
+    .filter((entry) => entry.customer_id === customer.id && (!organizationId || entry.organization_id === organizationId))
+    .sort((left, right) => String(right.effective_on).localeCompare(String(left.effective_on))
+      || String(right.created_at ?? '').localeCompare(String(left.created_at ?? '')));
+  const latestEntryByEffectiveMonth = new Map();
+  for (const entry of customerCostHistory) {
+    if (!latestEntryByEffectiveMonth.has(entry.effective_on)) latestEntryByEffectiveMonth.set(entry.effective_on, entry.id);
+  }
+  const customerCostHistoryMarkup = customerCostHistory.map((entry) => {
+    const latest = latestEntryByEffectiveMonth.get(entry.effective_on) === entry.id;
+    const recordedAt = localTimestamp(entry.created_at, locale);
+    return `<li><article class="record-card customer-cost-record">
+      <header class="record-card__top"><div><h4>${escapeHtml(entry.effective_on)}</h4><p class="record-card__subtitle">${escapeHtml(t('Effective month'))}</p></div><span class="status-pill ${latest ? '' : 'status-pill--unknown'}">${escapeHtml(t(latest ? 'Active for this month' : 'Superseded entry'))}</span></header>
+      <dl class="record-card__facts"><div><dt>${escapeHtml(t('Monthly package / bandwidth cost'))}</dt><dd>${escapeHtml(formatMoney(entry.monthly_cost_paisa))}</dd></div>${recordedAt ? `<div><dt>${escapeHtml(t('Recorded at (local time)'))}</dt><dd><time datetime="${escapeHtml(entry.created_at)}">${escapeHtml(recordedAt)}</time></dd></div>` : ''}</dl>
+      ${entry.note ? `<p class="muted">${escapeHtml(entry.note)}</p>` : ''}
+    </article></li>`;
+  }).join('');
+  const currentLocalMonth = localDateKey(now).slice(0, 7);
   return `<div class="customer-profile-content">
     <div class="section-heading"><div><p class="eyebrow">${escapeHtml(t('Customer profile'))}</p><h2 id="customer-profile-title">${name}</h2><p class="muted">${escapeHtml(t('Account'))} #${escapeHtml(customer.customer_number)}</p></div><button class="icon-button" type="button" data-action="close-customer-profile" aria-label="${escapeHtml(t('Close customer profile'))}">×</button></div>
     <div class="customer-profile-grid">
@@ -246,6 +309,31 @@ export function renderCustomerProfile(row, { bills = [], receipts = [], allocati
     </div>
     <section class="customer-profile-history"><h3>${escapeHtml(t('Billing history'))}</h3><ul class="record-card-grid customer-profile-card-grid" aria-label="${escapeHtml(t('Billing history'))}">${billHistory || `<li class="record-card-empty" role="status">${escapeHtml(t('No bills recorded yet.'))}</li>`}</ul><p class="muted">${escapeHtml(t('Cash is counted only from actual receipts; allocations and carry-forward credits reduce balances but are not additional payments.'))}</p></section>
     <section class="customer-profile-history"><h3>${escapeHtml(t('Receipt history'))}</h3><ul class="record-card-grid customer-profile-card-grid" aria-label="${escapeHtml(t('Receipt history'))}">${customerReceipts || `<li class="record-card-empty" role="status">${escapeHtml(t('No receipts recorded yet.'))}</li>`}</ul></section>
+    <section class="customer-profile-history customer-margin-history">
+      <h3>${escapeHtml(t('Customer cash collected and contribution estimate'))}</h3>
+      <dl class="record-card__facts customer-margin-facts">
+        <div><dt>${escapeHtml(t('Total cash collected from posted receipts'))}</dt><dd>${escapeHtml(formatMoney(margin.collectedPaisa))}</dd></div>
+        <div><dt>${escapeHtml(startDateLabel)}</dt><dd>${escapeHtml(startDateValue)}</dd></div>
+        <div><dt>${escapeHtml(t('Customer tenure'))}</dt><dd>${escapeHtml(tenureLabel(margin.tenureMonths, t))}</dd></div>
+        <div><dt>${escapeHtml(t('Estimated customer contribution'))}</dt><dd>${escapeHtml(contributionValue)}</dd></div>
+        <div><dt>${escapeHtml(t('Cost coverage'))}</dt><dd>${escapeHtml(coverageValue)}</dd></div>
+        <div><dt>${escapeHtml(t('Current assigned monthly package / bandwidth cost'))}</dt><dd>${escapeHtml(currentMonthlyCost)}</dd></div>
+      </dl>
+      <p class="muted">${escapeHtml(t('Estimate only, not audited net profit. Uses actual posted receipts minus assigned monthly costs for completed service months with recorded effective cost history. Cost allocations are not added to global cash expenses; those count actual bills and outflows only.'))}</p>
+    </section>
+    <section class="customer-profile-history customer-service-cost-history">
+      <h3>${escapeHtml(t('Monthly package / bandwidth cost assignment'))}</h3>
+      <p class="muted">${escapeHtml(t('A new entry is append-only. If entries share an effective month, the latest recorded entry applies and earlier entries remain in the history.'))}</p>
+      <form id="customer-service-cost-form" class="customer-service-cost-form" data-customer-id="${escapeHtml(customer.id)}">
+        <label for="customer-service-cost-amount">${escapeHtml(t('Monthly package / bandwidth cost (PKR)'))}<input id="customer-service-cost-amount" name="monthly_cost" inputmode="decimal" min="0" placeholder="1500.00" required></label>
+        <label for="customer-service-cost-month">${escapeHtml(t('Effective month'))}<input id="customer-service-cost-month" name="effective_month" type="month" value="${escapeHtml(currentLocalMonth)}" required></label>
+        <label for="customer-service-cost-note">${escapeHtml(t('Optional note'))}<input id="customer-service-cost-note" name="note" maxlength="500"></label>
+        <button class="button primary" type="submit">${escapeHtml(t('Save effective cost entry'))}</button>
+      </form>
+      <p id="customer-service-cost-message" class="form-message" role="status" aria-live="polite" aria-atomic="true"></p>
+      <h4>${escapeHtml(t('Effective monthly cost history'))}</h4>
+      <ul class="record-card-grid customer-profile-card-grid" aria-label="${escapeHtml(t('Effective monthly cost history'))}">${customerCostHistoryMarkup || `<li class="record-card-empty" role="status">${escapeHtml(t('No service cost history recorded yet.'))}</li>`}</ul>
+    </section>
     ${portalTestModeAvailable ? `<section class="customer-profile-history customer-test-login-access">
       <h3>${escapeHtml(t('Internal staging test login'))}</h3>
       <p class="muted">${escapeHtml(t('Enable only for an internal test customer. It uses this customer’s existing PPPoE username and the default portal password 123456; the customer must change it before any portal data is released. This does not change Overtake, RouterOS, or RADIUS credentials.'))}</p>

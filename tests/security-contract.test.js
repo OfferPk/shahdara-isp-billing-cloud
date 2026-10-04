@@ -154,9 +154,10 @@ test('customer portal queries and rendering never select or expose customer phon
   assert.ok(customerSelection, 'customer portal selection is explicit');
   assert.doesNotMatch(customerSelection[1], /phone/i);
   assert.match(portalData, /const testMarkerColumn = context\.kind === 'admin' \? ', portal_test_account' : ''/i, 'only Admin context requests the staging-only test marker');
-  assert.match(portalData, /`\$\{coreColumns\}, pppoe_username\$\{testMarkerColumn\}`/i, 'customer and Admin profiles request their approved mapping columns');
+  assert.match(portalData, /const profileColumns = context\.kind === 'admin'/i, 'only Admin profile context requests the private account creation date');
+  assert.match(portalData, /`\$\{profileColumns\}, pppoe_username\$\{testMarkerColumn\}`/i, 'customer and Admin profiles request their approved mapping columns');
   assert.match(portalData, /rows: rows\.map\(\(customer\) => \(\{ \.\.\.customer, pppoe_username: null, portal_test_account: false \}\)\)/);
-  assert.match(portalData, /context\.kind === 'admin'[\s\S]*rowsFor\(supabase, 'customer_private_details', 'customer_id, phone'/i);
+  assert.match(portalData, /context\.kind === 'admin'[\s\S]*rowsFor\(supabase, 'customer_private_details', 'customer_id, phone, connection_date'/i);
   assert.match(portalData, /: Promise\.resolve\(\[\]\)/);
   assert.doesNotMatch(customerPortal, /phone|email|staff_notes|created_by|recorded_by/i);
 });
@@ -171,7 +172,7 @@ test('customer history enhancement uses only recorded customer-visible fields an
   assert.match(portalData, /const billColumns = context\.kind === 'admin'[\s\S]*?issued_on, due_date, plan_snapshot/);
   assert.match(portalData, /: 'id, customer_id, period, amount_due_cents, plan_snapshot'/);
   assert.match(portalData, /rowsFor\(supabase, 'bills', billColumns/);
-  assert.match(portalData, /'receipts', 'id, customer_id, origin_bill_id, received_on, amount_cents, method'/);
+  assert.match(portalData, /const receiptColumns = context\.kind === 'admin'[\s\S]*?organization_id, id, customer_id, origin_bill_id, received_on, amount_cents, method'[\s\S]*?: 'id, customer_id, origin_bill_id, received_on, amount_cents, method'/);
   assert.match(portalData, /'receipt_allocations', 'receipt_id, bill_id, customer_id, amount_cents, allocation_kind'/);
   assert.match(portalData, /'incidents', 'id, customer_id, customer_visible_summary, status, reported_at, offline_at, restored_at'/);
   assert.match(customerPortal, /customerReceipts\.reduce/);
