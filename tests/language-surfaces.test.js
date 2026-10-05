@@ -108,6 +108,15 @@ test('scoped hardcoded UI copy is enumerated, Roman Urdu is complete, and no non
   assert.match(sources[1], /querySelectorAll\('\[data-i18n-aria-label\]'\)/);
 });
 
+test('setup instructions retain semantic inline-code filenames across English and Roman Urdu', async () => {
+  const index = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+  assert.match(index, /<p><span data-i18n="This isolated portal has no project credentials configured\. Copy ">[^<]*<\/span><code>\.env\.example<\/code><span data-i18n=" to "> to <\/span><code>\.env\.local<\/code><span data-i18n=" and enter only the approved project URL and publishable\/anon key\. No database connection is attempted until both are present\.">/);
+  assert.equal(romanUrdu('This isolated portal has no project credentials configured. Copy '), 'Is alag portal mein project credentials set nahin hain. ');
+  assert.equal(romanUrdu(' to '), ' ko ');
+  assert.equal(romanUrdu(' and enter only the approved project URL and publishable/anon key. No database connection is attempted until both are present.'), ' mein copy karein aur sirf manzoor-shuda project URL aur publishable/anon key darj karein. Donon maujood honay tak database connection ki koshish nahin hogi.');
+  assert.equal(['This isolated portal has no project credentials configured. Copy ', '.env.example', ' to ', '.env.local', ' and enter only the approved project URL and publishable/anon key. No database connection is attempted until both are present.'].map((part) => translateUi(part, 'en')).join(''), 'This isolated portal has no project credentials configured. Copy .env.example to .env.local and enter only the approved project URL and publishable/anon key. No database connection is attempted until both are present.');
+});
+
 test('translated Admin bills and printable receipts keep names, packages, IDs, dates, amounts, and receipt methods as data', () => {
   const [row] = buildAdminBillRows({
     today: '2026-10-02',
