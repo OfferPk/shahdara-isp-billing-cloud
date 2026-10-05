@@ -69,6 +69,7 @@ button:focus-visible, a:focus-visible { outline: 3px solid #102e27; outline-offs
 .button.primary { color: #fff; background: linear-gradient(135deg, #1a8a62, #126547); box-shadow: 0 7px 15px rgba(18,101,71,.16); }
 .button.secondary { color: #1a6049; border-color: #bed9cb; background: #f0f7f2; }
 .button.small { min-height: 40px; padding: 7px 12px; font-size: 12px; }
+.auth-panel .button { min-height: 44px; }
 .portal-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; margin: 0 0 21px; }
 .portal-heading h1 { font-size: clamp(25px, 3vw, 34px); }
 .portal-heading .muted { margin: 7px 0 0; }
