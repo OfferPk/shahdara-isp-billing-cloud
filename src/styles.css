@@ -70,6 +70,10 @@ button:focus-visible, a:focus-visible { outline: 3px solid #102e27; outline-offs
 .button.secondary { color: #1a6049; border-color: #bed9cb; background: #f0f7f2; }
 .button.small { min-height: 40px; padding: 7px 12px; font-size: 12px; }
 .auth-panel .button { min-height: 44px; }
+.auth-panel .password-input-control { position: relative; min-width: 0; }
+.auth-panel .password-input-control input { padding-inline-end: 112px; }
+.auth-panel .password-visibility-toggle { position: absolute; inset-inline-end: 4px; top: 50%; display: inline-flex; min-width: 44px; min-height: 44px; align-items: center; justify-content: center; padding: 6px 8px; transform: translateY(-50%); border: 1px solid transparent; border-radius: 8px; color: var(--green-dark); background: transparent; font-size: 12px; font-weight: 750; white-space: nowrap; }
+.auth-panel .password-visibility-toggle:hover { background: var(--mint); }
 .portal-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; margin: 0 0 21px; }
 .portal-heading h1 { font-size: clamp(25px, 3vw, 34px); }
 .portal-heading .muted { margin: 7px 0 0; }

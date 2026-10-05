@@ -141,6 +141,22 @@ test('sign-in and password-recovery actions keep 44px touch targets', () => {
   }
 });
 
+test('current-password sign-in fields have paired, localized visibility controls with accessible touch targets', () => {
+  const fields = [...index.matchAll(/<div class="password-input-control">([\s\S]*?)<\/div>/g)].map((match) => match[1]);
+  assert.equal(fields.length, 2, 'only the two current-password sign-in fields receive visibility controls');
+  for (const [field, id] of fields.map((field, index) => [field, ['customer-login-password', 'email-password'][index]])) {
+    assert.ok(field.includes(`id="${id}"`), `${id} remains the paired password field`);
+    assert.match(field, /type="password"[^>]*autocomplete="current-password"/);
+    assert.ok(field.includes(`<button class="password-visibility-toggle" type="button" data-password-visibility="${id}" data-i18n="Show" data-i18n-aria-label="Show password" aria-label="Show password" aria-pressed="false">Show</button>`));
+  }
+  const toggleRule = styles.match(/\.auth-panel \.password-visibility-toggle\s*\{([^}]*)\}/)?.[1] ?? '';
+  const minHeight = Number(toggleRule.match(/min-height:\s*(\d+(?:\.\d+)?)px/)?.[1]);
+  const minWidth = Number(toggleRule.match(/min-width:\s*(\d+(?:\.\d+)?)px/)?.[1]);
+  assert.ok(minHeight >= 44 && minWidth >= 44, 'visibility controls meet the 44px touch target minimum');
+  assert.match(styles, /button:focus-visible, a:focus-visible \{ outline: 3px solid/);
+  assert.match(main, /button\.addEventListener\('click', \(\) => togglePasswordVisibility\(input, button, t\)\)/);
+});
+
 test('cashflow reconciliation is announced as a note and distinguishes list filters from the selected-period summary', () => {
   assert.match(main, /class="cashflow-reconciliation" role="note"/);
   assert.match(main, /Selected-period cashflow reconciliation: cash receipts \{income\}.*net cashflow \{net\}/);

@@ -1,5 +1,6 @@
 import { createPortalClient, isStagingProjectUrl } from './supabase-client.js';
 import { hasPasswordRecoveryMarker, requestPasswordRecovery, setRecoveredPassword, signInWithEmailPassword } from './auth-flows.js';
+import { togglePasswordVisibility } from './password-visibility.js';
 import { validatePakistanPhone } from './customer-input.js';
 import { createCustomer, invokeRpc, loadContexts, loadOrganizationBranding, loadPortalRows, manageServiceIncident, saveCustomerPppoeUsername, saveCustomerPortalTestAccount } from './portal-data.js';
 import { getBillingCycleQuickDate, isValidBillingMonth, localDateString, localMonthString } from './bill-dates.js';
@@ -104,6 +105,11 @@ function applyStaticTranslations(root = document) {
 
 applyDocumentLanguage(document, currentLanguage);
 applyStaticTranslations();
+for (const button of document.querySelectorAll('[data-password-visibility]')) {
+  const input = document.getElementById(button.dataset.passwordVisibility);
+  if (!input) continue;
+  button.addEventListener('click', () => togglePasswordVisibility(input, button, t));
+}
 if (!romanUrduResourcesAvailable) {
   const announcement = document.querySelector('#app-announcement');
   if (announcement) announcement.textContent = 'Roman Urdu could not be loaded. English remains in use.';
