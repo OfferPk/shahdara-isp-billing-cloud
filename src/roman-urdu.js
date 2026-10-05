@@ -722,6 +722,8 @@ const ROMAN_URDU = Object.freeze({
   'Weekly': 'Haftawar',
   'Monthly': 'Mahwar',
   'Billing and collection trend': 'Billing aur wasooli ka rujhan',
+  'Billing and collection trend chart': 'Billing aur wasooli ka chart',
+  'On small screens, scroll the chart horizontally to view all data.': 'Chhoti screen par tamam data dekhne ke liye chart ko daen baen scroll karein.',
   'Chart legend': 'Chart ki nishaniyan',
   'View exact chart values': 'Chart ki asal raqmein dekhein',
   'A monthly trend needs recorded bill or receipt data in at least two months.': 'Mahwar rujhan dikhane ke liye kam az kam do mahino ka bill ya receipt record zaroori hai.',

@@ -24,3 +24,15 @@ test('collection-rate facts wrap inside the card at narrow phone widths', () => 
   assert.match(narrowRules, /\.dashboard-rate-facts\s*\{[^}]*flex-basis:\s*100%\s*;[^}]*min-width:\s*0\s*;/);
   assert.match(narrowRules, /\.dashboard-rate-facts\s*>\s*div\s*\{[^}]*flex-wrap:\s*wrap\s*;/);
 });
+
+test('mobile trend chart preserves readable labels in a keyboard-scrollable region', () => {
+  const overviewIndex = styles.indexOf('.dashboard-analytics {');
+  const mobileIndex = styles.indexOf('@media (max-width: 600px)', overviewIndex);
+  assert.notEqual(mobileIndex, -1, 'dashboard mobile breakpoint should be present');
+  const mobileRules = extractBlock(styles, mobileIndex);
+
+  assert.match(mobileRules, /\.dashboard-chart-wrap\s*\{[^}]*overflow-x:\s*auto;[^}]*\}/);
+  assert.match(mobileRules, /\.dashboard-chart\s*\{[^}]*width:\s*560px;[^}]*max-width:\s*none;/);
+  assert.match(mobileRules, /\.dashboard-chart-scroll-hint\s*\{\s*display:\s*block;\s*\}/);
+  assert.match(styles, /\.dashboard-chart-wrap:focus-visible\s*\{[^}]*outline:\s*3px solid/);
+});

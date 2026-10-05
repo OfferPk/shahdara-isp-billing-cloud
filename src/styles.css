@@ -898,8 +898,10 @@ td { color: #25433b; }
 .dashboard-view-button:hover { background: var(--mint); }
 .dashboard-view-button.is-active { color: #fff; background: var(--green); }
 .dashboard-view-button:focus-visible, .dashboard-breakdown:focus-visible, .dashboard-status-button:focus-visible, .dashboard-leader-list button:focus-visible, .dashboard-chart-values summary:focus-visible, .dashboard-month-shortcuts .button:focus-visible, .customer-fab-options button:focus-visible { outline: 3px solid var(--analytics-billed); outline-offset: 3px; }
+.dashboard-chart-wrap:focus-visible { outline: 3px solid var(--analytics-billed); outline-offset: 3px; }
 .dashboard-chart-wrap { width: 100%; min-width: 0; margin-top: 9px; overflow: hidden; }
 .dashboard-chart { display: block; width: 100%; height: auto; overflow: visible; }
+.dashboard-chart-scroll-hint { display: none; color: var(--muted); font-size: 10px; }
 .dashboard-chart__grid { stroke: var(--analytics-grid); stroke-width: 1; stroke-dasharray: 3 4; }
 .dashboard-chart__axis { fill: var(--muted); font: 10px system-ui, sans-serif; }
 .dashboard-chart__x-label { font-size: 10px; }
@@ -1027,6 +1029,9 @@ td { color: #25433b; }
   .dashboard-analytics-card__heading { flex-direction: column; gap: 9px; }
   .dashboard-view-switch { width: 100%; }
   .dashboard-view-button { flex: 1; min-width: 0; }
+  .dashboard-chart-wrap { overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; }
+  .dashboard-chart { width: 560px; max-width: none; }
+  .dashboard-chart-scroll-hint { display: block; }
   .dashboard-rate-content { align-items: flex-start; gap: 12px; }
   .dashboard-rate-ring { width: 90px; height: 90px; }
   .dashboard-rate-ring::before { width: 68px; height: 68px; }
