@@ -67,7 +67,10 @@
               <input id="customer-login-username" name="username" type="text" autocomplete="username" inputmode="text" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="next" required maxlength="64" />
               <p class="muted" id="staging-customer-login-help" hidden data-i18n="Internal staging test accounts sign in with their linked PPPoE username and the initial portal password shared by a Shahdara administrator. Change it at first sign-in before customer data is available.">Internal staging test accounts sign in with their linked PPPoE username and the initial portal password shared by a Shahdara administrator. Change it at first sign-in before customer data is available.</p>
               <label for="customer-login-password" data-i18n="Password">Password</label>
-              <input id="customer-login-password" name="password" type="password" autocomplete="current-password" enterkeyhint="go" required maxlength="512" />
+              <div class="password-input-control">
+                <input id="customer-login-password" name="password" type="password" autocomplete="current-password" enterkeyhint="go" required maxlength="512" />
+                <button class="password-visibility-toggle" type="button" data-password-visibility="customer-login-password" data-i18n="Show" data-i18n-aria-label="Show password" aria-label="Show password" aria-pressed="false">Show</button>
+              </div>
               <button class="button primary" type="submit" data-i18n="Sign in with username">Sign in with username</button>
             </form>
             <p class="form-message" id="customer-login-message" role="status"></p>
@@ -78,7 +81,10 @@
               <label for="email-password-email" data-i18n="Email address">Email address</label>
               <input id="email-password-email" name="email" type="email" autocomplete="username" required maxlength="254" />
               <label for="email-password" data-i18n="Password">Password</label>
-              <input id="email-password" name="password" type="password" autocomplete="current-password" required maxlength="512" />
+              <div class="password-input-control">
+                <input id="email-password" name="password" type="password" autocomplete="current-password" required maxlength="512" />
+                <button class="password-visibility-toggle" type="button" data-password-visibility="email-password" data-i18n="Show" data-i18n-aria-label="Show password" aria-label="Show password" aria-pressed="false">Show</button>
+              </div>
               <button class="button primary" type="submit" data-i18n="Sign in with email and password">Sign in with email and password</button>
               <button class="button secondary" id="request-password-recovery" type="button" data-i18n="Forgot password? Send a recovery email">Forgot password? Send a recovery email</button>
             </form>
