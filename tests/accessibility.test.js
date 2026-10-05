@@ -132,6 +132,15 @@ test('tablet header wraps before its controls overflow and keeps labeled touch t
   assert.match(styles, /\.theme-toggle:focus-visible/);
 });
 
+test('sign-in and password-recovery actions keep 44px touch targets', () => {
+  const authButtonRule = styles.match(/\.auth-panel \.button\s*\{([^}]*)\}/)?.[1] ?? '';
+  const minimumHeight = Number(authButtonRule.match(/min-height:\s*(\d+(?:\.\d+)?)px/)?.[1]);
+  assert.ok(minimumHeight >= 44, `auth buttons need at least 44px height; found ${minimumHeight}px`);
+  for (const formId of ['customer-login-form', 'email-password-login-form', 'login-form', 'password-recovery-form']) {
+    assert.ok(index.includes(`id="${formId}"`), `auth touch target rule covers ${formId}`);
+  }
+});
+
 test('cashflow reconciliation is announced as a note and distinguishes list filters from the selected-period summary', () => {
   assert.match(main, /class="cashflow-reconciliation" role="note"/);
   assert.match(main, /Selected-period cashflow reconciliation: cash receipts \{income\}.*net cashflow \{net\}/);
