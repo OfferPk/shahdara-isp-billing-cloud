@@ -115,6 +115,23 @@ test('keyboard focus, reduced motion and small-phone layout remain explicit', ()
   assert.match(styles, /\.customer-filter-pill \{ min-height: 44px;/);
 });
 
+test('tablet header wraps before its controls overflow and keeps labeled touch targets accessible', () => {
+  const tabletHeader = styles.match(/@media \(max-width: 960px\) and \(min-width: 601px\) \{([\s\S]*?)\n\}/)?.[1] ?? '';
+  assert.ok(tabletHeader, 'the tablet header breakpoint is present');
+  assert.match(tabletHeader, /\.site-header \{[^}]*flex-wrap: wrap;/);
+  assert.match(tabletHeader, /\.header-tools \{[^}]*width: 100%;[^}]*flex-wrap: wrap;/);
+  assert.match(tabletHeader, /\.environment-tag \{[^}]*margin-left: auto;/);
+  assert.match(styles, /@media \(max-width: 600px\) \{\s+\.header-tools \{ width: 100%; align-items: stretch; flex-direction: column;/);
+  assert.match(index, /id="install-app-button" class="button secondary" type="button" data-i18n="Install app" aria-describedby="install-app-status"/);
+  assert.match(index, /id="language-toggle" class="language-toggle" role="group" aria-label="Language"/);
+  assert.match(index, /id="theme-toggle" class="theme-toggle" type="button" aria-label="Switch to dark mode"/);
+  assert.match(styles, /\.install-control \.button \{ min-height: 44px;/);
+  assert.match(styles, /\.language-toggle__option \{ min-height: 44px;/);
+  assert.match(styles, /\.theme-toggle \{ display: inline-flex; min-width: 44px; min-height: 44px;/);
+  assert.match(styles, /\.language-toggle__option:focus-visible/);
+  assert.match(styles, /\.theme-toggle:focus-visible/);
+});
+
 test('cashflow reconciliation is announced as a note and distinguishes list filters from the selected-period summary', () => {
   assert.match(main, /class="cashflow-reconciliation" role="note"/);
   assert.match(main, /Selected-period cashflow reconciliation: cash receipts \{income\}.*net cashflow \{net\}/);
