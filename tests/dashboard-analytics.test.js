@@ -186,6 +186,8 @@ test('analytics renderer exposes exact accessible values, clickable categories, 
   });
 
   assert.match(markup, /role="img" aria-label="Billing and collection trend"/);
+  assert.match(markup, /class="dashboard-chart-wrap" role="region" tabindex="0" aria-label="Billing and collection trend chart"/);
+  assert.match(markup, /class="dashboard-chart-scroll-hint">On small screens, scroll the chart horizontally to view all data\.<\/p>/);
   assert.match(markup, /Customer records added this month/);
   assert.match(markup, /Customer record additions by month/);
   assert.match(markup, /service activation dates are not recorded/);
@@ -227,6 +229,8 @@ test('empty dashboard analytics use explicit accessible states rather than fabri
 
 test('new analytics controls and summaries have Roman Urdu labels', () => {
   assert.equal(translateUi('Billing vs collection trend', 'ur-Latn'), 'Billing aur wasooli ka rujhan');
+  assert.equal(translateUi('Billing and collection trend chart', 'ur-Latn'), 'Billing aur wasooli ka chart');
+  assert.equal(translateUi('On small screens, scroll the chart horizontally to view all data.', 'ur-Latn'), 'Chhoti screen par tamam data dekhne ke liye chart ko daen baen scroll karein.');
   assert.equal(translateUi('Customer overview', 'ur-Latn'), 'Customers ka jaiza');
   assert.equal(translateUi('Quick actions', 'ur-Latn'), 'Fori kaam');
   assert.match(translateUi('{change}% vs previous month', 'ur-Latn'), /pichlay mahine ke muqablay mein/);
