@@ -211,6 +211,11 @@ td { color: #25433b; }
   .profile-card__status { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; text-align: left; }
   .profile-card__status .status-pill { margin-bottom: 0; }
 }
+@media (max-width: 960px) and (min-width: 601px) {
+  .site-header { flex-wrap: wrap; gap: 12px 20px; padding: 12px 0; }
+  .header-tools { width: 100%; justify-content: space-between; flex-wrap: wrap; }
+  .environment-tag { margin-left: auto; }
+}
 @media (max-width: 600px) {
   .app-shell { padding: 0 14px 24px; }
   .site-header { min-height: 68px; flex-wrap: wrap; gap: 8px; padding: 10px 0; }
