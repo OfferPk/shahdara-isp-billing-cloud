@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import { Readable } from 'node:stream';
 import { pathToFileURL } from 'node:url';
 import { createClient } from '@supabase/supabase-js';
 import { createPppoeApiHandler } from './pppoe-api.js';
@@ -10,10 +11,16 @@ export function createPppoeApiServer({ env = process.env, createClient: clientFa
     try {
       const scheme = request.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
       const host = request.headers.host || 'localhost';
-      const webRequest = new Request(new URL(request.url || '/', `${scheme}://${host}`), {
-        method: request.method || 'GET',
+      const method = request.method || 'GET';
+      const requestInit = {
+        method,
         headers: request.headers,
-      });
+      };
+      if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) {
+        requestInit.body = Readable.toWeb(request);
+        requestInit.duplex = 'half';
+      }
+      const webRequest = new Request(new URL(request.url || '/', `${scheme}://${host}`), requestInit);
       const webResponse = await handle(webRequest);
       response.writeHead(webResponse.status, Object.fromEntries(webResponse.headers));
       const body = await webResponse.arrayBuffer();
@@ -35,7 +42,7 @@ async function start() {
   const port = Number.parseInt(env.PORT ?? '4173', 10) || 4173;
   const host = env.HOST || '0.0.0.0';
   server.listen(port, host, () => {
-    console.log(`Shahdara read-only PPPoE API listening on http://${host}:${port}`);
+    console.log(`Shahdara PPPoE API listening on http://${host}:${port}`);
   });
   for (const signal of ['SIGINT', 'SIGTERM']) {
     process.on(signal, () => server.close(() => process.exit(0)));

@@ -7,7 +7,7 @@ export { MockRouterAdapter };
 const DEFAULT_ROUTER_HOST = '10.10.20.1';
 const DEFAULT_ROUTER_PORT = 8728;
 const API_TIMEOUT_MS = 5000;
-const READ_COMMANDS = new Set(['/ppp/active/print', '/system/resource/print']);
+const READ_COMMANDS = new Set(['/ppp/active/print', '/ppp/secret/print', '/system/resource/print']);
 
 function formatUptime(seconds) {
   let remaining = Math.max(0, Math.floor(Number(seconds) || 0));
@@ -315,6 +315,39 @@ export class MikroTikRouterAdapter {
     } catch {
       return [];
     }
+  }
+
+  async discoverSubscribers() {
+    const config = this.config();
+    if (!config.host || !config.username || !config.password) {
+      throw new Error('MikroTik router discovery is not configured.');
+    }
+
+    try {
+      const response = await this.request(config, '/ppp/secret/print', [
+        '=.proplist=name,profile,remote-address,comment',
+      ]);
+      const subscribers = response.rows.map((row) => ({
+        username: String(row.name ?? '').trim(),
+        profile: String(row.profile ?? '').trim(),
+        ipAddress: String(row['remote-address'] ?? ''),
+        comment: String(row.comment ?? ''),
+      })).filter((row) => row.username);
+      if (subscribers.length) return subscribers;
+    } catch {
+      // Older RouterOS permissions/configurations may not expose PPP secrets.
+      // Fall back to active sessions, which never include password fields.
+    }
+
+    const response = await this.request(config, '/ppp/active/print', [
+      '=.proplist=name,profile,address,comment',
+    ]);
+    return response.rows.map((row) => ({
+      username: String(row.name ?? '').trim(),
+      profile: String(row.profile ?? '').trim(),
+      ipAddress: String(row.address ?? ''),
+      comment: String(row.comment ?? ''),
+    })).filter((row) => row.username);
   }
 
   async getRouterHealth() {

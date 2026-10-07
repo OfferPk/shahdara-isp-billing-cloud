@@ -1,9 +1,11 @@
 import { createClient } from '@supabase/supabase-js';
+import { Readable } from 'node:stream';
 import { createPppoeApiHandler } from './pppoe-api.js';
 
 function matchesPppoeApi(requestUrl) {
   try {
-    return new URL(requestUrl ?? '/', 'http://vite.local').pathname.startsWith('/api/admin/pppoe/');
+    const pathname = new URL(requestUrl ?? '/', 'http://vite.local').pathname;
+    return pathname.startsWith('/api/admin/pppoe/') || pathname.startsWith('/api/admin/subscribers/');
   } catch {
     return false;
   }
@@ -15,7 +17,13 @@ export function pppoeApiPlugin(env = process.env) {
     if (!matchesPppoeApi(request.url)) return next();
     const host = request.headers.host || 'localhost';
     const url = new URL(request.url || '/', `http://${host}`);
-    const webRequest = new Request(url, { method: request.method || 'GET', headers: request.headers });
+    const method = request.method || 'GET';
+    const requestInit = { method, headers: request.headers };
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) {
+      requestInit.body = Readable.toWeb(request);
+      requestInit.duplex = 'half';
+    }
+    const webRequest = new Request(url, requestInit);
     handle(webRequest).then(async (webResponse) => {
       response.statusCode = webResponse.status;
       for (const [name, value] of webResponse.headers) response.setHeader(name, value);

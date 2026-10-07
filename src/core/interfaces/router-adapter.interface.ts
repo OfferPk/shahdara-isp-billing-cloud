@@ -23,7 +23,15 @@ export interface RouterHealthDto {
   lastCheckedAt: string;
 }
 
+export interface RouterSubscriberDto {
+  username: string;
+  profile: string;
+  ipAddress: string;
+  comment: string;
+}
+
 export interface IRouterAdapter {
   getActiveSessions(): Promise<PppoeSessionDto[]>;
   getRouterHealth(): Promise<RouterHealthDto>;
+  discoverSubscribers(): Promise<RouterSubscriberDto[]>;
 }

@@ -21,12 +21,17 @@ export class PppoeApiUnavailableError extends Error {
   }
 }
 
-async function readApiJson(fetchImpl, url, token) {
+async function readApiJson(fetchImpl, url, token, { method = 'GET', body } = {}) {
   let response;
   try {
     response = await fetchImpl(url, {
-      method: 'GET',
-      headers: { authorization: `Bearer ${token}`, accept: 'application/json' },
+      method,
+      headers: {
+        authorization: `Bearer ${token}`,
+        accept: 'application/json',
+        ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       cache: 'no-store',
     });
   } catch {
@@ -44,6 +49,36 @@ async function readApiJson(fetchImpl, url, token) {
     throw new Error(typeof payload?.error === 'string' ? payload.error : 'Live router data could not be loaded.');
   }
   return payload;
+}
+
+export async function discoverRouterSubscribers({
+  organizationId,
+  token,
+  fetchImpl = globalThis.fetch,
+  apiBaseUrl = resolvePppoeApiBase(),
+} = {}) {
+  if (!token) throw new Error('Sign in again to import router subscribers.');
+  if (typeof fetchImpl !== 'function') throw new Error('This browser does not support API requests.');
+  const base = String(apiBaseUrl ?? '').trim().replace(/\/+$/, '');
+  const suffix = `?organizationId=${encodeURIComponent(organizationId ?? '')}`;
+  return readApiJson(fetchImpl, `${base}/api/admin/subscribers/discover${suffix}`, token);
+}
+
+export async function importRouterSubscribers({
+  organizationId,
+  token,
+  usernames,
+  fetchImpl = globalThis.fetch,
+  apiBaseUrl = resolvePppoeApiBase(),
+} = {}) {
+  if (!token) throw new Error('Sign in again to import router subscribers.');
+  if (typeof fetchImpl !== 'function') throw new Error('This browser does not support API requests.');
+  const base = String(apiBaseUrl ?? '').trim().replace(/\/+$/, '');
+  const suffix = `?organizationId=${encodeURIComponent(organizationId ?? '')}`;
+  return readApiJson(fetchImpl, `${base}/api/admin/subscribers/import${suffix}`, token, {
+    method: 'POST',
+    body: { usernames: Array.isArray(usernames) ? usernames : [] },
+  });
 }
 
 function sumOnlineTraffic(sessions) {

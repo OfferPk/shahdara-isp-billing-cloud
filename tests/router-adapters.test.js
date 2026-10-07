@@ -98,3 +98,50 @@ test('RouterOS API request helper allowlists only the two requested read command
   assert.equal(routerAdapterInternals.parseRouterUptime('1w2d3h4m5s'), 788645);
   await assert.rejects(routerAdapterInternals.apiRequest({ host: '127.0.0.1' }, '/ppp/secret/remove'), /read commands/);
 });
+
+test('mock adapter discovers 15–20 synthetic subscriber records with profile and parsed comment fields', async () => {
+  const adapter = new MockRouterAdapter({ now: fixedNow, subscriberCount: 17 });
+  const subscribers = await adapter.discoverSubscribers();
+  assert.equal(subscribers.length, 17);
+  assert.deepEqual(Object.keys(subscribers[0]), ['username', 'profile', 'ipAddress', 'comment']);
+  assert.equal(subscribers[0].username, 'shahdara_user_01');
+  assert.match(subscribers[0].profile, /^(10M|15M)$/);
+  assert.match(subscribers[0].ipAddress, /^10\.10\.20\.\d+$/);
+  assert.match(subscribers[0].comment, /^.+ - 03\d{9} - .+$/);
+});
+
+test('MikroTik subscriber discovery reads only public secret fields and prefers PPP secrets', async () => {
+  const calls = [];
+  const adapter = new MikroTikRouterAdapter({
+    env: { ROUTER_HOST: '192.0.2.10', ROUTER_USER: 'readonly', ROUTER_PASSWORD: 'test' },
+    request: async (config, command, properties) => {
+      calls.push({ command, properties });
+      return { rows: [{ name: 'user-90', profile: '15M', 'remote-address': '10.10.20.190', comment: 'Customer - 03001234567 - Area' }] };
+    },
+  });
+  assert.deepEqual(await adapter.discoverSubscribers(), [{ username: 'user-90', profile: '15M', ipAddress: '10.10.20.190', comment: 'Customer - 03001234567 - Area' }]);
+  assert.deepEqual(calls.map((call) => call.command), ['/ppp/secret/print']);
+  assert.match(calls[0].properties[0], /name,profile,remote-address,comment/);
+  assert.doesNotMatch(calls[0].properties.join(' '), /password/i);
+});
+
+test('MikroTik subscriber discovery falls back to active sessions when PPP secrets fail or are empty', async () => {
+  for (const secretResponse of [new Error('permission denied'), { rows: [] }]) {
+    const calls = [];
+    const adapter = new MikroTikRouterAdapter({
+      env: { ROUTER_HOST: '192.0.2.10', ROUTER_USER: 'readonly', ROUTER_PASSWORD: 'test' },
+      request: async (config, command) => {
+        calls.push(command);
+        if (command === '/ppp/secret/print') {
+          if (secretResponse instanceof Error) throw secretResponse;
+          return secretResponse;
+        }
+        return { rows: [{ name: 'active-user', profile: '10M', address: '10.10.20.101', comment: 'Active - 03001234567 - Area' }] };
+      },
+    });
+    const [subscriber] = await adapter.discoverSubscribers();
+    assert.equal(subscriber.username, 'active-user');
+    assert.equal(subscriber.ipAddress, '10.10.20.101');
+    assert.deepEqual(calls, ['/ppp/secret/print', '/ppp/active/print']);
+  }
+});

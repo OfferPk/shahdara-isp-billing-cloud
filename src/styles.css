@@ -1304,3 +1304,31 @@ td { color: #25433b; }
   .pppoe-auto-refresh > span { flex: 1; }
   .pppoe-detail-grid { grid-template-columns: 1fr; }
 }
+
+.customer-list-heading__actions { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
+.subscriber-import-dialog { width: min(1080px, calc(100vw - 28px)); max-height: min(90dvh, 900px); overflow: auto; }
+.subscriber-import__header, .subscriber-import__toolbar, .subscriber-import__actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.subscriber-import__header { margin-bottom: 10px; }
+.subscriber-import__header h3 { font-size: 22px; }
+.subscriber-import__stat { margin: 8px 0; color: var(--green-dark); font-weight: 800; }
+.subscriber-import__toolbar { justify-content: flex-start; margin: 14px 0 10px; }
+.subscriber-import__table-wrap { max-height: 54dvh; overflow: auto; }
+.subscriber-import__table { min-width: 800px; }
+.subscriber-import__table td:first-child, .subscriber-import__table th:first-child { width: 62px; text-align: center; }
+.subscriber-import__table input[type="checkbox"] { width: 20px; min-height: 20px; accent-color: var(--green); }
+.subscriber-import__table .subscriber-import-comment { min-width: 230px; max-width: 360px; white-space: normal; overflow-wrap: anywhere; }
+.subscriber-import-status { display: inline-flex; min-height: 25px; align-items: center; padding: 4px 9px; border-radius: 999px; font-size: 11px; font-weight: 800; white-space: nowrap; }
+.subscriber-import-status--new { color: #176443; background: #e7f6ec; }
+.subscriber-import-status--existing { color: #56635e; background: #edf0ee; }
+.subscriber-import__error { margin: 12px 0 0; color: var(--red); font-size: 13px; }
+.subscriber-import__error[hidden] { display: none; }
+.subscriber-import__actions { justify-content: flex-end; margin-top: 15px; }
+@media (max-width: 760px) {
+  .customer-list-heading__actions { width: 100%; align-items: flex-start; flex-direction: column; }
+  .subscriber-import-dialog { padding: 16px; }
+  .subscriber-import__header h3 { font-size: 19px; }
+  .subscriber-import__actions { align-items: stretch; flex-direction: column-reverse; }
+  .subscriber-import__actions .button { width: 100%; }
+}
+:root[data-theme="dark"] .subscriber-import-status--new { color: #b4eccb; background: #1d4430; }
+:root[data-theme="dark"] .subscriber-import-status--existing { color: #d0d8d3; background: #303934; }

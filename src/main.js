@@ -53,6 +53,8 @@ import { initializeAppInstall } from './app-install.js';
 import { renderDashboardAnalyticsSkeleton } from './dashboard-analytics-loading.js';
 import { renderPortalLoadError, safePortalErrorDetails } from './portal-load-error.js';
 import { mountPppoeSessionsDashboard } from './admin-pppoe-sessions.js';
+import { renderSubscriberImportContent, renderSubscriberImportDialog, setSelectedSubscriberUsernames } from './admin-subscriber-import.js';
+import { discoverRouterSubscribers, importRouterSubscribers } from './pppoe-api-client.js';
 import './styles.css';
 
 const app = document.querySelector('#app');
@@ -197,6 +199,7 @@ if (!supabase) {
     customerReceiptFrom: '',
     customerReceiptThrough: '',
     dashboardDrilldown: null,
+    subscriberImport: { subscribers: [], selectedUsernames: [], loading: false, busy: false, error: '' },
   };
   let pendingReceiptAttempt = null;
   const pendingFinancialAttempts = new Map();
@@ -1838,7 +1841,7 @@ if (!supabase) {
       </section>
       <section id="customer-list" class="panel data-panel customer-list-panel" aria-labelledby="customer-list-title">
         <div class="customer-list-heading"><div><p class="eyebrow">${escapeHtml(t('Customer directory'))}</p><h2 id="customer-list-title" tabindex="-1">${escapeHtml(t('Customers'))}</h2></div>
-          <div class="customer-summary" aria-label="${escapeHtml(t('Customer count, active count, and unpaid count'))}"><span><strong>${customerSummary.total}</strong><small>${escapeHtml(t('Total'))}</small></span><span><strong>${customerSummary.active}</strong><small>${escapeHtml(t('Active'))}</small></span><span><strong>${customerSummary.unpaid}</strong><small>${escapeHtml(t('Unpaid'))}</small></span></div>
+          <div class="customer-list-heading__actions"><div class="customer-summary" aria-label="${escapeHtml(t('Customer count, active count, and unpaid count'))}"><span><strong>${customerSummary.total}</strong><small>${escapeHtml(t('Total'))}</small></span><span><strong>${customerSummary.active}</strong><small>${escapeHtml(t('Active'))}</small></span><span><strong>${customerSummary.unpaid}</strong><small>${escapeHtml(t('Unpaid'))}</small></span></div><button class="button primary small" type="button" data-action="open-subscriber-import">${escapeHtml(t('Import from Router'))}</button></div>
         </div>
         <div class="customer-list-search"><label class="sr-only" for="customer-search">${escapeHtml(t('Search customers by name, phone, or Account number'))}</label><input id="customer-search" type="search" autocomplete="off" value="${escapeHtml(pageState.customerListSearch)}" placeholder="${escapeHtml(t('Search name, phone, or Account #'))}"><p class="muted">${escapeHtml(t('Customer portal username is separate from the customer number. Area choices use the saved service address.'))}</p></div>
         <div class="customer-list-filters" role="group" aria-label="${escapeHtml(t('Filter customers by payment status or area'))}">
@@ -1857,6 +1860,7 @@ if (!supabase) {
         <div id="customer-card-grid" class="customer-card-grid">${customerSummary.total ? renderCustomerCards(initialCustomerPage.items, formatMoney, t) : `<p class="customer-list-empty" role="status">${escapeHtml(t('No customer records yet.'))}</p>`}</div>
         ${renderCustomerListPagination(initialCustomerPage)}
         <dialog id="customer-profile-dialog" class="edit-dialog customer-profile-dialog" aria-labelledby="customer-profile-title"><div id="customer-profile-content"></div></dialog>
+        ${renderSubscriberImportDialog(pageState.subscriberImport, t)}
       </section>
       <div class="customer-fab-menu" id="customer-fab-menu"><div class="customer-fab-options" id="customer-fab-options" role="group" aria-label="${escapeHtml(t('Quick actions'))}" hidden><button type="button" data-dashboard-quick-action="customer">${escapeHtml(t('Add customer'))}</button><button type="button" data-dashboard-quick-action="bill">${escapeHtml(t('Create bill'))}</button><button type="button" data-dashboard-quick-action="receipt">${escapeHtml(t('Record receipt'))}</button><button type="button" data-dashboard-quick-action="search">${escapeHtml(t('Search customers'))}</button><button type="button" data-dashboard-quick-action="unpaid">${escapeHtml(t('View unpaid'))}</button><button type="button" data-dashboard-quick-action="overdue">${escapeHtml(t('View overdue'))}</button><button type="button" data-dashboard-quick-action="reports">${escapeHtml(t('Reports'))}</button></div><button class="customer-fab" type="button" data-action="toggle-dashboard-quick-actions" aria-controls="customer-fab-options" aria-expanded="false" aria-label="${escapeHtml(t('Quick actions'))}" title="${escapeHtml(t('Quick actions'))}"><span aria-hidden="true">+</span></button></div>
       <section id="admin-bills" class="panel data-panel admin-bills-panel" aria-labelledby="admin-bills-title"><div class="section-heading"><div><p class="eyebrow">${escapeHtml(t('Monthly snapshots'))}</p><h2 id="admin-bills-title" tabindex="-1">${escapeHtml(t('Bills'))}</h2></div><span class="muted">${bills.length} ${escapeHtml(t('records'))}</span></div>
@@ -2613,6 +2617,73 @@ if (!supabase) {
     });
   }
 
+  function updateSubscriberImportDialog() {
+    const content = portalPanel.querySelector('#subscriber-import-content');
+    if (content) content.innerHTML = renderSubscriberImportContent({ ...pageState.subscriberImport, t });
+  }
+
+  async function currentAdminAccessToken() {
+    const { data, error } = await supabase.auth.getSession();
+    if (error) throw error;
+    const token = data?.session?.access_token;
+    if (!token) throw new Error('Sign in again to import router subscribers.');
+    return token;
+  }
+
+  async function openSubscriberImportPreview() {
+    pageState.subscriberImport = { subscribers: [], selectedUsernames: [], loading: true, busy: false, error: '' };
+    const dialog = portalPanel.querySelector('#subscriber-import-dialog');
+    updateSubscriberImportDialog();
+    if (dialog && !dialog.open) dialog.showModal();
+    try {
+      const token = await currentAdminAccessToken();
+      const result = await discoverRouterSubscribers({ organizationId: pageState.context.organizationId, token });
+      pageState.subscriberImport.subscribers = Array.isArray(result.subscribers) ? result.subscribers : [];
+      pageState.subscriberImport.selectedUsernames = pageState.subscriberImport.subscribers
+        .filter((row) => row.status === 'New').map((row) => row.username);
+    } catch (error) {
+      pageState.subscriberImport.error = error?.message || 'Router subscribers could not be discovered.';
+    } finally {
+      pageState.subscriberImport.loading = false;
+      updateSubscriberImportDialog();
+      portalPanel.querySelector('#subscriber-import-dialog [data-action="close-subscriber-import"]')?.focus();
+    }
+  }
+
+  async function submitSubscriberImport() {
+    const state = pageState.subscriberImport;
+    const usernames = [...state.selectedUsernames];
+    if (!usernames.length || state.busy) return;
+    state.busy = true;
+    state.error = '';
+    updateSubscriberImportDialog();
+    try {
+      const token = await currentAdminAccessToken();
+      const result = await importRouterSubscribers({
+        organizationId: pageState.context.organizationId,
+        token,
+        usernames,
+      });
+      if (Number(result.imported) > 0) {
+        const dialog = portalPanel.querySelector('#subscriber-import-dialog');
+        if (dialog?.open) dialog.close();
+        pageState.subscriberImport = { subscribers: [], selectedUsernames: [], loading: false, busy: false, error: '' };
+        await refreshCurrentContext('Subscribers imported successfully!');
+        showAppToast('Subscribers imported successfully!');
+        return;
+      }
+      state.subscribers = state.subscribers.map((row) => usernames.includes(row.username)
+        ? { ...row, status: 'Already Imported' } : row);
+      state.selectedUsernames = [];
+      state.error = 'No new subscribers were imported; existing records were skipped.';
+    } catch (error) {
+      state.error = error?.message || 'Selected subscribers could not be imported.';
+    } finally {
+      state.busy = false;
+      updateSubscriberImportDialog();
+    }
+  }
+
   function bindCustomerListActions(context) {
     if (context.kind !== 'admin') return;
     const listRoot = portalPanel.querySelector('#customer-list');
@@ -2623,6 +2694,15 @@ if (!supabase) {
       updateCustomerListResults();
     });
     listRoot?.addEventListener('change', (event) => {
+      const subscriberCheckbox = event.target.closest?.('[data-import-subscriber]');
+      if (subscriberCheckbox) {
+        const selected = new Set(pageState.subscriberImport.selectedUsernames);
+        if (subscriberCheckbox.checked) selected.add(subscriberCheckbox.dataset.importSubscriber);
+        else selected.delete(subscriberCheckbox.dataset.importSubscriber);
+        setSelectedSubscriberUsernames(pageState.subscriberImport, [...selected]);
+        updateSubscriberImportDialog();
+        return;
+      }
       if (event.target.id === 'customer-area-filter') {
         pageState.customerListArea = event.target.value;
         pageState.customerListStatus = 'all';
@@ -2636,6 +2716,25 @@ if (!supabase) {
     listRoot?.addEventListener('click', (event) => {
       const target = event.target instanceof Element ? event.target : null;
       if (!target) return;
+      const importAction = target.closest('[data-action]');
+      if (importAction?.dataset.action === 'open-subscriber-import') {
+        void openSubscriberImportPreview();
+        return;
+      }
+      if (importAction?.dataset.action === 'close-subscriber-import') {
+        portalPanel.querySelector('#subscriber-import-dialog')?.close();
+        return;
+      }
+      if (importAction?.dataset.action === 'select-all-new-subscribers') {
+        pageState.subscriberImport.selectedUsernames = pageState.subscriberImport.subscribers
+          .filter((row) => row.status === 'New').map((row) => row.username);
+        updateSubscriberImportDialog();
+        return;
+      }
+      if (importAction?.dataset.action === 'import-selected-subscribers') {
+        void submitSubscriberImport();
+        return;
+      }
       const filterButton = target.closest('[data-billing-filter]');
       if (filterButton) {
         pageState.customerListStatus = filterButton.dataset.billingFilter;

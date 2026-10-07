@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  discoverRouterSubscribers,
   fetchPppoeTelemetry,
+  importRouterSubscribers,
   isGithubPagesStaticHost,
   resolvePppoeApiBase,
 } from '../src/pppoe-api-client.js';
@@ -100,4 +102,25 @@ test('the shared mock adapter module stays browser-safe and preserves the server
   const [session] = await new MockRouterAdapter({ now: fixedNow }).getActiveSessions();
   assert.equal(session.status, 'Online');
   assert.equal(session.lastPolledAt, '2026-10-07T16:00:00.000Z');
+});
+
+test('subscriber discovery and import use the configured admin API with GET and POST respectively', async () => {
+  const seen = [];
+  const fetchImpl = async (url, options) => {
+    seen.push({ url: String(url), options });
+    return Response.json(String(url).includes('/discover')
+      ? { discoveredCount: 1, subscribers: [{ username: 'user-1', status: 'New' }] }
+      : { imported: 1, skipped: 0, importedUsernames: ['user-1'] });
+  };
+  const discovered = await discoverRouterSubscribers({ organizationId, token, apiBaseUrl: 'https://api.example/', fetchImpl });
+  assert.equal(discovered.subscribers[0].username, 'user-1');
+  const imported = await importRouterSubscribers({ organizationId, token, usernames: ['user-1'], apiBaseUrl: 'https://api.example/', fetchImpl });
+  assert.equal(imported.imported, 1);
+  assert.equal(seen[0].url, `https://api.example/api/admin/subscribers/discover?organizationId=${organizationId}`);
+  assert.equal(seen[0].options.method, 'GET');
+  assert.equal(seen[0].options.headers.authorization, `Bearer ${token}`);
+  assert.equal(seen[1].url, `https://api.example/api/admin/subscribers/import?organizationId=${organizationId}`);
+  assert.equal(seen[1].options.method, 'POST');
+  assert.deepEqual(JSON.parse(seen[1].options.body), { usernames: ['user-1'] });
+  assert.equal(seen[1].options.headers['content-type'], 'application/json');
 });

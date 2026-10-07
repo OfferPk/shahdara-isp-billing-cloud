@@ -1,5 +1,17 @@
 const DEFAULT_ROUTER_HOST = '10.10.20.1';
 const MAC_OUIS = ['48:8F:5A', 'A4:2B:B0', 'D8:3A:DD', '60:32:B1', '2C:C8:1B'];
+const SAMPLE_CUSTOMERS = [
+  ['Ahsan Ali', '03001230001', 'Shahdara'], ['Sana Iqbal', '03001230002', 'Kot Abdul Malik'],
+  ['Bilal Hussain', '03001230003', 'Begum Kot'], ['Hira Ahmed', '03001230004', 'Ferozewala'],
+  ['Usman Raza', '03001230005', 'Shahdara'], ['Maryam Khalid', '03001230006', 'Lahore Road'],
+  ['Hamza Tariq', '03001230007', 'Kot Abdul Malik'], ['Noor Fatima', '03001230008', 'Begum Kot'],
+  ['Ali Hassan', '03001230009', 'Shahdara'], ['Ayesha Malik', '03001230010', 'Ferozewala'],
+  ['Danish Akram', '03001230011', 'Lahore Road'], ['Iqra Shah', '03001230012', 'Shahdara'],
+  ['Saad Javed', '03001230013', 'Begum Kot'], ['Maham Asif', '03001230014', 'Kot Abdul Malik'],
+  ['Zain Abbas', '03001230015', 'Ferozewala'], ['Eman Tariq', '03001230016', 'Lahore Road'],
+  ['Farhan Nawaz', '03001230017', 'Shahdara'], ['Laiba Imran', '03001230018', 'Begum Kot'],
+  ['Rehan Anwar', '03001230019', 'Kot Abdul Malik'], ['Sadia Noor', '03001230020', 'Ferozewala'],
+];
 
 function formatUptime(seconds) {
   let remaining = Math.max(0, Math.floor(Number(seconds) || 0));
@@ -26,6 +38,7 @@ export class MockRouterAdapter {
       const macTail = [serial, (serial * 37) % 256, (serial * 73) % 256]
         .map((part) => part.toString(16).padStart(2, '0')).join(':');
       const uptimeSeconds = 2300 + ((serial * 7919) % 250000);
+      const [customerName, phone, area] = SAMPLE_CUSTOMERS[index % SAMPLE_CUSTOMERS.length];
       return {
         sessionId: `*${(0xA100 + serial).toString(16)}`,
         username,
@@ -37,6 +50,8 @@ export class MockRouterAdapter {
         bytesIn: BigInt(95_000_000 + serial * 13_750_000),
         bytesOut: BigInt(18_000_000 + serial * 4_250_000),
         rateLimit: serial % 3 === 0 ? '20M/5M' : '10M/3M',
+        profile: serial % 3 === 0 ? '15M' : '10M',
+        comment: `${customerName} - ${phone} - ${area}`,
         status: 'Online',
       };
     });
@@ -50,6 +65,15 @@ export class MockRouterAdapter {
       bytesIn: row.bytesIn + BigInt(this.pollCount * (index + 1) * 17321),
       bytesOut: row.bytesOut + BigInt(this.pollCount * (index + 1) * 7919),
       lastPolledAt: timestamp,
+    }));
+  }
+
+  async discoverSubscribers() {
+    return this.baseRows.map((row) => ({
+      username: row.username,
+      profile: row.profile,
+      ipAddress: row.ipAddress,
+      comment: row.comment,
     }));
   }
 

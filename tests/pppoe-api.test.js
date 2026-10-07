@@ -117,7 +117,7 @@ test('API routes reject invalid organizations, non-GET methods, and unapproved c
   assert.equal(routerCalls, 0);
 });
 
-test('CORS preflight permits only configured origins and exposes GET/OPTIONS', async () => {
+test('CORS preflight permits only configured origins and exposes the supported methods', async () => {
   const handler = createPppoeApiHandler({
     env: { ...env, CORS_ORIGIN: 'https://portal.example' },
     createClient: createClientFactory(),
@@ -126,7 +126,7 @@ test('CORS preflight permits only configured origins and exposes GET/OPTIONS', a
   const response = await handler(request('/api/admin/pppoe/sessions', { method: 'OPTIONS', token: '', origin: 'https://portal.example' }));
   assert.equal(response.status, 204);
   assert.equal(response.headers.get('access-control-allow-origin'), 'https://portal.example');
-  assert.equal(response.headers.get('access-control-allow-methods'), 'GET, OPTIONS');
+  assert.equal(response.headers.get('access-control-allow-methods'), 'GET, POST, OPTIONS');
 });
 
 test('same-origin GET remains available without a separate CORS allowlist', async () => {
