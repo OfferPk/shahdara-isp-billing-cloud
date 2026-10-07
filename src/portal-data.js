@@ -27,6 +27,11 @@ export function isMissingPortalTestAccountColumn(error) {
   return ['42703', 'PGRST204'].includes(code) && /portal_test_account/i.test(message);
 }
 
+function isMissingInvoiceNumberColumn(error) {
+  return ['42703', 'PGRST204'].includes(String(error?.code ?? ''))
+    && /invoice_number/i.test(String(error?.message ?? ''));
+}
+
 async function loadCustomerRows(supabase, context, applyFilters) {
   const coreColumns = 'id, customer_number, name, plan_name, service_address, service_status, monthly_fee_cents, archived';
   const profileColumns = context.kind === 'admin' ? `${coreColumns}, created_at` : coreColumns;
@@ -123,6 +128,45 @@ export async function loadOrganizationBranding(supabase, organizationId) {
   return data ?? null;
 }
 
+async function loadBillRows(supabase, context, applyFilters) {
+  const billColumns = context.kind === 'admin'
+    ? 'id, invoice_number, customer_id, period, amount_due_cents, issued_on, due_date, plan_snapshot, created_at'
+    : 'id, invoice_number, customer_id, period, amount_due_cents, plan_snapshot';
+  const fallbackBillColumns = context.kind === 'admin'
+    ? 'id, customer_id, period, amount_due_cents, issued_on, due_date, plan_snapshot, created_at'
+    : 'id, customer_id, period, amount_due_cents, plan_snapshot';
+  try {
+    const rows = await rowsFor(supabase, 'bills', billColumns,
+      applyFilters, { column: 'period', ascending: false });
+    return { rows, invoiceNumberAvailable: true };
+  } catch (error) {
+    if (!isMissingInvoiceNumberColumn(error)) throw error;
+    const rows = await rowsFor(supabase, 'bills', fallbackBillColumns,
+      applyFilters, { column: 'period', ascending: false });
+    return { rows: rows.map((bill) => ({ ...bill, invoice_number: null })), invoiceNumberAvailable: false };
+  }
+}
+
+async function loadServicePackages(supabase, applyFilters) {
+  try {
+    const rows = await rowsFor(supabase, 'service_packages', 'id, name, monthly_fee_cents, effective_on, updated_at',
+      applyFilters, { column: 'name' });
+    return { data: rows, error: null };
+  } catch (error) {
+    if (!['42703', 'PGRST204'].includes(String(error?.code ?? ''))
+        || !/(effective_on|updated_at)/i.test(String(error?.message ?? ''))) {
+      return { data: [], error };
+    }
+    try {
+      const rows = await rowsFor(supabase, 'service_packages', 'id, name, monthly_fee_cents',
+        applyFilters, { column: 'name' });
+      return { data: rows, error: null };
+    } catch (fallbackError) {
+      return { data: [], error: fallbackError };
+    }
+  }
+}
+
 export async function loadPortalRows(supabase, context) {
   const byOrganization = (query) => query.eq('organization_id', context.organizationId);
   const customerOnly = (query) => byOrganization(query).eq('customer_id', context.customerId);
@@ -139,9 +183,6 @@ export async function loadPortalRows(supabase, context) {
   const customerServiceCostsQuery = context.kind === 'admin'
     ? rowsFor(supabase, 'customer_service_cost_history', 'organization_id, customer_id, id, effective_on, monthly_cost_paisa, note, created_at', byOrganization, { column: 'effective_on', ascending: false })
     : Promise.resolve([]);
-  const billColumns = context.kind === 'admin'
-    ? 'id, customer_id, period, amount_due_cents, issued_on, due_date, plan_snapshot, created_at'
-    : 'id, customer_id, period, amount_due_cents, plan_snapshot';
   const customerQuery = loadCustomerRows(
     supabase,
     context,
@@ -153,13 +194,15 @@ export async function loadPortalRows(supabase, context) {
       .then((data) => ({ data, error: null }))
       .catch((error) => ({ data: [], error }))
     : Promise.resolve({ data: [], error: null });
+  const packageCatalogQuery = context.kind === 'admin'
+    ? loadServicePackages(supabase, byOrganization)
+    : Promise.resolve({ data: [], error: null });
   const receiptColumns = context.kind === 'admin'
     ? 'organization_id, id, customer_id, origin_bill_id, received_on, amount_cents, method, created_at'
     : 'id, customer_id, origin_bill_id, received_on, amount_cents, method';
-  const [customerResult, bills, receipts, allocations, incidents, privateCustomerDetails, privateIncidentDetails, cashflowExpenses, customerServiceCosts, branding, customerBandwidthUsage] = await Promise.all([
+  const [customerResult, billResult, receipts, allocations, incidents, privateCustomerDetails, privateIncidentDetails, cashflowExpenses, customerServiceCosts, branding, customerBandwidthUsage, packageCatalog] = await Promise.all([
     customerQuery,
-    rowsFor(supabase, 'bills', billColumns,
-      context.kind === 'admin' ? byOrganization : customerOnly, { column: 'period', ascending: false }),
+    loadBillRows(supabase, context, context.kind === 'admin' ? byOrganization : customerOnly),
     rowsFor(supabase, 'receipts', receiptColumns,
       context.kind === 'admin' ? byOrganization : customerOnly, { column: 'received_on', ascending: false }),
     rowsFor(supabase, 'receipt_allocations', 'receipt_id, bill_id, customer_id, amount_cents, allocation_kind',
@@ -172,11 +215,19 @@ export async function loadPortalRows(supabase, context) {
     customerServiceCostsQuery,
     loadOrganizationBranding(supabase, context.organizationId),
     customerBandwidthUsageQuery,
+    packageCatalogQuery,
   ]);
+  const adminBillingRows = context.kind === 'admin' ? {
+    invoiceNumberAvailable: billResult.invoiceNumberAvailable,
+    packages: packageCatalog.data,
+    packagesError: packageCatalog.error,
+  } : {};
   return {
     customers: customerResult.rows,
     pppoeMappingAvailable: customerResult.pppoeMappingAvailable,
-    bills, receipts, allocations, incidents, privateCustomerDetails, privateIncidentDetails,
+    bills: billResult.rows,
+    ...adminBillingRows,
+    receipts, allocations, incidents, privateCustomerDetails, privateIncidentDetails,
     cashflowExpenses, customerServiceCosts, branding,
     customerBandwidthUsage: customerBandwidthUsage.data,
     customerBandwidthUsageError: customerBandwidthUsage.error,

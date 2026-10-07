@@ -238,7 +238,7 @@ test('incident writes use a same-organization Admin RPC and never grant browser 
   assert.match(incidentMigration, /grant execute on function public\.manage_service_incident[\s\S]*?to authenticated/i);
   assert.doesNotMatch(incidentMigration, /grant\s+(?:insert|update|delete)[^;]*public\.(?:incidents|incident_private_details)/i);
   assert.match(portalData, /context\.kind === 'admin'[\s\S]*rowsFor\(supabase, 'incident_private_details', 'incident_id, staff_notes'/i);
-  assert.match(portalData, /: Promise\.resolve\(\[\]\)[\s\S]*const billColumns/);
+  assert.match(portalData, /const packageCatalogQuery = context\.kind === 'admin'[\s\S]*loadServicePackages/);
   assert.match(portalData, /'incidents', 'id, customer_id, customer_visible_summary, status, reported_at, offline_at, restored_at'/);
   assert.match(adminIncidents, /Private to same-organization Admins; stored separately and never copied into the customer-visible summary/);
   assert.match(pgTap, /customer cannot read private incident notes/);

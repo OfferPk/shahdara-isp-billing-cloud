@@ -1332,3 +1332,51 @@ td { color: #25433b; }
 }
 :root[data-theme="dark"] .subscriber-import-status--new { color: #b4eccb; background: #1d4430; }
 :root[data-theme="dark"] .subscriber-import-status--existing { color: #d0d8d3; background: #303934; }
+
+/* Admin package tariffs, monthly invoice generation, and simple collection dialogs. */
+.package-card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.package-card { min-width: 0; padding: 15px; border: 1px solid var(--line); border-radius: 15px; background: color-mix(in srgb, var(--paper) 90%, var(--mint)); }
+.package-card__heading, .invoice-generator-form { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 11px; }
+.package-card__heading h3, .invoice-generator-form h3 { margin: 0; overflow-wrap: anywhere; }
+.package-card .eyebrow, .invoice-generator-form .eyebrow { margin: 0 0 4px; }
+.package-card > .muted { margin: 8px 0 12px; font-size: 12px; }
+.package-price-form { display: flex; align-items: end; gap: 9px; }
+.package-price-form label { display: grid; flex: 1; gap: 5px; font-size: 12px; font-weight: 700; }
+.package-price-form input { min-width: 0; min-height: 44px; }
+.package-price-form button { flex: none; min-height: 44px; }
+.package-card__effective { display: block; margin-top: 9px; color: var(--muted); }
+.package-list-empty { padding: 18px; border: 1px dashed var(--line); border-radius: 12px; color: var(--muted); text-align: center; }
+.billing-engine-notice { margin: 10px 0; padding: 11px 13px; border: 1px solid #dfc68f; border-radius: 11px; color: #765117; background: #fff8e8; font-size: 12px; line-height: 1.5; }
+.invoice-generator-form { align-items: end; margin: 0 0 18px; padding: 15px; border: 1px solid var(--line); border-radius: 14px; background: color-mix(in srgb, var(--paper) 88%, var(--mint)); }
+.invoice-generator-form > div { flex: 1 1 100%; }
+.invoice-generator-form > div > .muted { max-width: 820px; margin: 7px 0 0; font-size: 12px; }
+.invoice-generator-form label { display: grid; flex: 1 1 150px; gap: 5px; font-size: 12px; font-weight: 700; }
+.invoice-generator-form button { min-height: 44px; }
+.invoice-generator-form .form-message { flex: 1 1 100%; margin: 0; }
+.invoice-preview-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; margin: 10px 0 14px; }
+.invoice-preview-facts > div { display: grid; gap: 4px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; }
+.invoice-preview-facts dt { color: var(--muted); font-size: 10px; font-weight: 800; text-transform: uppercase; }
+.invoice-preview-facts dd { margin: 0; font-weight: 700; overflow-wrap: anywhere; }
+.invoice-copy-field { display: grid; gap: 6px; font-weight: 700; }
+.invoice-copy-field textarea { min-height: 150px; font-family: inherit; font-size: 12px; line-height: 1.5; }
+.invoice-view-dialog, .invoice-payment-dialog { width: min(100% - 28px, 620px); max-height: min(90vh, 860px); overflow: auto; }
+.invoice-view-dialog .dialog-header, .invoice-payment-dialog .dialog-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.invoice-view-dialog .dialog-header h2, .invoice-payment-dialog .dialog-header h2 { margin: 0; }
+.invoice-view-dialog .form-actions, .invoice-payment-dialog .form-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.bill-action--paid { color: #fff; border-color: #16734f; background: #16734f; }
+.bill-action--paid:hover:not(:disabled) { background: #0f5a43; }
+.billing-engine-notice + .form-message:empty { display: none; }
+@media (max-width: 600px) {
+  .package-price-form { align-items: stretch; flex-direction: column; }
+  .package-price-form button, .invoice-generator-form button { width: 100%; }
+  .invoice-generator-form { align-items: stretch; flex-direction: column; }
+  .invoice-generator-form label { width: 100%; flex: auto; }
+  .invoice-preview-facts { grid-template-columns: 1fr; }
+  .invoice-view-dialog, .invoice-payment-dialog { padding: 17px; }
+  .invoice-view-dialog .form-actions, .invoice-payment-dialog .form-actions { flex-direction: column; }
+}
+:root[data-theme="dark"] .billing-engine-notice { border-color: #705b35; color: #f4d394; background: #3c321f; }
+:root[data-theme="dark"] .package-card { border-color: var(--line); background: #19251f; }
+:root[data-theme="dark"] .invoice-generator-form { border-color: var(--line); background: #19251f; }
+:root[data-theme="dark"] .invoice-preview-facts > div { border-color: var(--line); }
+:root[data-theme="dark"] .bill-action--paid { border-color: #39a36f; color: #f3fff8; background: #16734f; }

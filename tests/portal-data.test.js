@@ -232,7 +232,7 @@ test('customer billing and incident reads are limited to approved fields and the
     kind: 'customer', organizationId: 'synthetic-org', customerId: 'synthetic-customer',
   });
   const expectedColumns = {
-    bills: 'id, customer_id, period, amount_due_cents, plan_snapshot',
+    bills: 'id, invoice_number, customer_id, period, amount_due_cents, plan_snapshot',
     receipts: 'id, customer_id, origin_bill_id, received_on, amount_cents, method',
     receipt_allocations: 'receipt_id, bill_id, customer_id, amount_cents, allocation_kind',
     incidents: 'id, customer_id, customer_visible_summary, status, reported_at, offline_at, restored_at',
@@ -271,7 +271,7 @@ test('Admin phone and service-start query selects only the private profile field
   assert.ok(incidentNotesQuery.filters.some(([kind, field, value]) => kind === 'eq' && field === 'organization_id' && value === 'synthetic-org'));
   assert.deepEqual(rows.privateIncidentDetails, [{ incident_id: 'synthetic-incident', staff_notes: 'Synthetic Admin-only note' }]);
   const billQuery = client.calls.find((entry) => entry.table === 'bills');
-  assert.deepEqual(billQuery.selects, ['id, customer_id, period, amount_due_cents, issued_on, due_date, plan_snapshot, created_at']);
+  assert.deepEqual(billQuery.selects, ['id, invoice_number, customer_id, period, amount_due_cents, issued_on, due_date, plan_snapshot, created_at']);
   assert.ok(billQuery.filters.some(([kind, field, value]) => kind === 'eq' && field === 'organization_id' && value === 'synthetic-org'));
 });
 
@@ -314,7 +314,7 @@ test('collection and cashflow monitoring use only approved organization-scoped f
 
   const expectedColumns = {
     customers: 'id, customer_number, name, plan_name, service_address, service_status, monthly_fee_cents, archived, created_at, pppoe_username, portal_test_account',
-    bills: 'id, customer_id, period, amount_due_cents, issued_on, due_date, plan_snapshot, created_at',
+    bills: 'id, invoice_number, customer_id, period, amount_due_cents, issued_on, due_date, plan_snapshot, created_at',
     receipts: 'organization_id, id, customer_id, origin_bill_id, received_on, amount_cents, method, created_at',
     receipt_allocations: 'receipt_id, bill_id, customer_id, amount_cents, allocation_kind',
     cashflow_expenses: 'organization_id, id, category, amount_paisa, note, created_at',
@@ -349,13 +349,13 @@ test('collection drill-down reuses current RLS-scoped rows and adds no query or 
   const expectedTables = [
     'customers', 'bills', 'receipts', 'receipt_allocations', 'incidents',
     'customer_private_details', 'incident_private_details', 'cashflow_expenses',
-    'customer_service_cost_history', 'organization_branding',
+    'customer_service_cost_history', 'organization_branding', 'service_packages',
   ].sort();
   assert.deepEqual(client.calls.map((query) => query.table).sort(), expectedTables);
   for (const query of client.calls) {
     assert.ok(query.filters.some(([kind, field, value]) => kind === 'eq' && field === 'organization_id' && value === 'synthetic-org'));
   }
-  assert.deepEqual(client.calls.find((query) => query.table === 'bills').selects, ['id, customer_id, period, amount_due_cents, issued_on, due_date, plan_snapshot, created_at']);
+  assert.deepEqual(client.calls.find((query) => query.table === 'bills').selects, ['id, invoice_number, customer_id, period, amount_due_cents, issued_on, due_date, plan_snapshot, created_at']);
   assert.deepEqual(client.calls.find((query) => query.table === 'organization_branding').selects, ['organization_id, display_name, logo_path, support_phone, address']);
 
   const [main, routes] = await Promise.all([

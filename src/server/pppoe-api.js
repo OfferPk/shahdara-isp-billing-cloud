@@ -5,6 +5,8 @@ const SESSION_PATH = '/api/admin/pppoe/sessions';
 const HEALTH_PATH = '/api/admin/pppoe/router-health';
 const DISCOVER_PATH = '/api/admin/subscribers/discover';
 const IMPORT_PATH = '/api/admin/subscribers/import';
+const PACKAGE_PRICE_PATH = '/api/admin/billing/packages';
+const GENERATE_INVOICES_PATH = '/api/admin/billing/generate';
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MAX_IMPORT_COUNT = 500;
 const importQueues = new Map();
@@ -27,6 +29,16 @@ function jsonResponse(status, body, origin, allowOrigin = false) {
 
 function allowedOrigins(env) {
   return String(env.CORS_ORIGIN ?? '').split(',').map((value) => value.trim()).filter(Boolean);
+}
+
+function isValidIsoDate(value) {
+  const match = /^(\d{4})-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.exec(String(value ?? ''));
+  if (!match) return false;
+  const [, year, month, day] = match;
+  const date = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
+  return date.getUTCFullYear() === Number(year)
+    && date.getUTCMonth() === Number(month) - 1
+    && date.getUTCDate() === Number(day);
 }
 
 function asBigInt(value) {
@@ -223,9 +235,9 @@ export function createPppoeApiHandler({
     if (request.method === 'OPTIONS') return jsonResponse(204, {}, origin, true);
 
     const pathname = requestUrl.pathname;
-    const knownPaths = [SESSION_PATH, HEALTH_PATH, DISCOVER_PATH, IMPORT_PATH];
+    const knownPaths = [SESSION_PATH, HEALTH_PATH, DISCOVER_PATH, IMPORT_PATH, PACKAGE_PRICE_PATH, GENERATE_INVOICES_PATH];
     if (!knownPaths.includes(pathname)) return jsonResponse(404, { error: 'Not found.' }, origin, true);
-    const allowedMethod = pathname === IMPORT_PATH ? 'POST' : 'GET';
+    const allowedMethod = [IMPORT_PATH, PACKAGE_PRICE_PATH, GENERATE_INVOICES_PATH].includes(pathname) ? 'POST' : 'GET';
     if (request.method !== allowedMethod) return jsonResponse(405, { error: 'Method not allowed.' }, origin, true);
 
     const organizationId = String(requestUrl.searchParams.get('organizationId') ?? '').trim();
@@ -262,6 +274,52 @@ export function createPppoeApiHandler({
         return jsonResponse(200, { discoveredCount: subscribers.length, subscribers }, origin, true);
       }
 
+      if (pathname === PACKAGE_PRICE_PATH) {
+        let body;
+        try { body = await request.json(); } catch {
+          return jsonResponse(400, { error: 'A valid package pricing request is required.' }, origin, true);
+        }
+        const packageId = String(body?.packageId ?? '').trim();
+        const monthlyFeeCents = body?.monthlyFeeCents;
+        if (!packageId || packageId.length > 200
+            || !Number.isSafeInteger(monthlyFeeCents) || monthlyFeeCents <= 0) {
+          return jsonResponse(400, { error: 'Provide a package ID and a positive monthly fee in PKR minor units.' }, origin, true);
+        }
+        const { data, error } = await authorization.client.rpc('set_package_monthly_fee', {
+          p_organization_id: organizationId,
+          p_package_id: packageId,
+          p_monthly_fee_cents: monthlyFeeCents,
+        });
+        if (error) throw error;
+        if (!data || data.packageId !== packageId) throw new Error('The package pricing update could not be confirmed.');
+        return jsonResponse(200, { package: data }, origin, true);
+      }
+
+      if (pathname === GENERATE_INVOICES_PATH) {
+        let body;
+        try { body = await request.json(); } catch {
+          return jsonResponse(400, { error: 'A valid monthly invoice request is required.' }, origin, true);
+        }
+        const billingMonth = String(body?.billingMonth ?? '').trim();
+        const issueDate = String(body?.issueDate ?? '').trim();
+        const dueDate = String(body?.dueDate ?? '').trim();
+        if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(billingMonth)
+            || !isValidIsoDate(issueDate) || !isValidIsoDate(dueDate)) {
+          return jsonResponse(400, { error: 'Choose a valid billing month, issue date, and exact due date.' }, origin, true);
+        }
+        const { data, error } = await authorization.client.rpc('generate_monthly_invoices', {
+          p_organization_id: organizationId,
+          p_period: `${billingMonth}-01`,
+          p_issued_on: issueDate,
+          p_due_date: dueDate,
+        });
+        if (error) throw error;
+        if (!data || data.period !== billingMonth || !Number.isSafeInteger(Number(data.generated))) {
+          throw new Error('Monthly invoice generation could not be confirmed.');
+        }
+        return jsonResponse(200, data, origin, true);
+      }
+
       let body;
       try { body = await request.json(); } catch {
         return jsonResponse(400, { error: 'A valid JSON import request is required.' }, origin, true);
@@ -292,11 +350,20 @@ export function createPppoeApiHandler({
       ]);
       const message = status === 400 || knownSafeMessages.has(rawMessage)
         ? rawMessage.slice(0, 300)
-        : 'Subscriber discovery or import is temporarily unavailable. Verify API configuration and try again.';
+        : pathname === PACKAGE_PRICE_PATH || pathname === GENERATE_INVOICES_PATH
+          ? 'Billing requests are temporarily unavailable. Verify billing configuration and try again.'
+          : 'Subscriber discovery or import is temporarily unavailable. Verify API configuration and try again.';
       return jsonResponse(status, { error: message }, origin, true);
     }
   };
 }
 
-export const pppoeApiRoutes = Object.freeze({ sessions: SESSION_PATH, health: HEALTH_PATH, discover: DISCOVER_PATH, import: IMPORT_PATH });
+export const pppoeApiRoutes = Object.freeze({
+  sessions: SESSION_PATH,
+  health: HEALTH_PATH,
+  discover: DISCOVER_PATH,
+  import: IMPORT_PATH,
+  packagePricing: PACKAGE_PRICE_PATH,
+  generateInvoices: GENERATE_INVOICES_PATH,
+});
 export const pppoeApiInternals = Object.freeze({ asBigInt, jsonSession, authorizeAdmin, loadOrganizationCustomers, normalizeDiscoveredSubscribers, markImportStatus, importSubscribers, isMissingPppoeUsernameColumn });

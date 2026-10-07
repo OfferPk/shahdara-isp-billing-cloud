@@ -16,7 +16,7 @@ function syntheticRows() {
   return buildAdminBillRows({
     today: '2026-04-10',
     customers: [
-      { id: 'customer-overdue', name: 'Amina & Sons', customer_number: 4, plan_name: '50 Mbps' },
+      { id: 'customer-overdue', name: 'Amina & Sons', customer_number: 4, plan_name: '50 Mbps', pppoe_username: 'amina-50m' },
       { id: 'customer-paid', name: 'Bilal Fiber', customer_number: 5, plan_name: '30 Mbps' },
       { id: 'customer-no-date', name: 'No Date Account', customer_number: 6, plan_name: '' },
       { id: 'customer-unpriced', name: 'Unpriced Account', customer_number: 7, plan_name: 'Starter' },
@@ -27,7 +27,7 @@ function syntheticRows() {
       { customer_id: 'customer-no-date', phone: '03005551234' },
     ],
     bills: [
-      { id: 'bill-overdue', customer_id: 'customer-overdue', period: '2026-01-01', amount_due_cents: 10000, issued_on: '2026-01-02', due_date: '2026-01-15', plan_snapshot: 'Fiber 50' },
+      { id: 'bill-overdue', invoice_number: 'SIF-202601-4', customer_id: 'customer-overdue', period: '2026-01-01', amount_due_cents: 10000, issued_on: '2026-01-02', due_date: '2026-01-15', plan_snapshot: 'Fiber 50' },
       { id: 'bill-paid', customer_id: 'customer-paid', period: '2026-02-01', amount_due_cents: 6000, due_date: '2026-02-10', plan_snapshot: 'Fiber 30' },
       { id: 'bill-no-date', customer_id: 'customer-no-date', period: '2026-03-01', amount_due_cents: 5000, due_date: null, plan_snapshot: '' },
       { id: 'bill-unpriced', customer_id: 'customer-unpriced', period: '2026-04-01', amount_due_cents: null, due_date: null, plan_snapshot: 'Starter' },
@@ -206,11 +206,15 @@ test('bill cards expose Collect only as a prefill, and PDF actions only for actu
   const markup = renderAdminBillCards(rows, formatMoney);
   assert.match(markup, /Amina &amp; Sons/);
   assert.match(markup, /Billing Month · 2026-01/);
+  assert.match(markup, /Invoice No\. · SIF-202601-4/);
+  assert.match(markup, /amina-50m/);
   assert.match(markup, /Issue Date/);
   assert.match(markup, /2026-01-02/);
   assert.match(markup, /Due Date/);
   assert.match(markup, /Overdue by 85 days/);
   assert.match(markup, /data-action="collect-bill" data-id="bill-overdue"/);
+  assert.match(markup, /data-action="receive-payment" data-id="bill-overdue"/);
+  assert.match(markup, /data-action="view-invoice" data-id="bill-overdue"/);
   assert.match(markup, /data-action="edit-bill" data-id="bill-overdue"/);
   assert.match(markup, /Print \/ Save PDF/);
   assert.match(markup, /data-action="print-receipt" data-id="receipt-overdue"/);

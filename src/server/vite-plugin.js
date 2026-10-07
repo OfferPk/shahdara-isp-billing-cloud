@@ -5,7 +5,9 @@ import { createPppoeApiHandler } from './pppoe-api.js';
 function matchesPppoeApi(requestUrl) {
   try {
     const pathname = new URL(requestUrl ?? '/', 'http://vite.local').pathname;
-    return pathname.startsWith('/api/admin/pppoe/') || pathname.startsWith('/api/admin/subscribers/');
+    return pathname.startsWith('/api/admin/pppoe/')
+      || pathname.startsWith('/api/admin/subscribers/')
+      || pathname.startsWith('/api/admin/billing/');
   } catch {
     return false;
   }

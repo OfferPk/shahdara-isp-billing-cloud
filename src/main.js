@@ -55,6 +55,9 @@ import { renderPortalLoadError, safePortalErrorDetails } from './portal-load-err
 import { mountPppoeSessionsDashboard } from './admin-pppoe-sessions.js';
 import { renderSubscriberImportContent, renderSubscriberImportDialog, setSelectedSubscriberUsernames } from './admin-subscriber-import.js';
 import { discoverRouterSubscribers, importRouterSubscribers } from './pppoe-api-client.js';
+import { buildInvoiceShareText, buildMonthlyInvoiceRequest } from './billing-engine.js';
+import { renderAdminPackageCards, buildPackagePricingRows } from './admin-packages.js';
+import { generateMonthlyInvoices, updatePackageMonthlyFee } from './billing-api-client.js';
 import './styles.css';
 
 const app = document.querySelector('#app');
@@ -174,6 +177,13 @@ if (!supabase) {
     billCycleMonth: localMonth(),
     billIssueDate: localDate(),
     billDueDate: '',
+    invoiceGenerationMonth: localMonth(),
+    invoiceGenerationIssueDate: localDate(),
+    invoiceGenerationDueDate: '',
+    invoiceGenerationBusy: false,
+    invoiceGenerationMessage: '',
+    packagePricingBusyId: '',
+    packagePricingMessage: '',
     loadingUserId: null,
     customerListSearch: '',
     customerListStatus: 'all',
@@ -372,6 +382,39 @@ if (!supabase) {
     if (!pendingReceiptAttempt) return;
     try { sessionStorage.removeItem(pendingReceiptAttempt.key); } catch { /* No browser storage is required for portal access. */ }
     pendingReceiptAttempt = null;
+  }
+
+  function paymentAttemptKey(context, billId) {
+    return `shahdara-cloud-payment-attempt:${pageState.user?.id ?? 'signed-out'}:${context.organizationId}:${billId}`;
+  }
+
+  function getPaymentAttempt(context, billId) {
+    const key = paymentAttemptKey(context, billId);
+    const saved = pendingFinancialAttempts.get(key);
+    if (saved) return saved;
+    try {
+      const id = sessionStorage.getItem(key);
+      if (!id) return null;
+      const attempt = { key, id };
+      pendingFinancialAttempts.set(key, attempt);
+      return attempt;
+    } catch {
+      return null;
+    }
+  }
+
+  function savePaymentAttempt(context, billId, id) {
+    const key = paymentAttemptKey(context, billId);
+    const attempt = { key, id };
+    pendingFinancialAttempts.set(key, attempt);
+    try { sessionStorage.setItem(key, id); } catch { /* Retain the request ID in memory for this tab. */ }
+    return attempt;
+  }
+
+  function clearPaymentAttempt(attempt) {
+    if (!attempt) return;
+    pendingFinancialAttempts.delete(attempt.key);
+    try { sessionStorage.removeItem(attempt.key); } catch { /* Storage is optional. */ }
   }
 
   function financialAttemptKey(kind, context, customerId = '') {
@@ -835,7 +878,7 @@ if (!supabase) {
 
   function renderPortalNavigation(kind) {
     const links = kind === 'admin'
-      ? [['#admin-overview', 'Overview'], ['#admin-pppoe-sessions', 'Active Sessions'], ['#customer-list', 'Customers'], ['#admin-bills', 'Bills'], ['#admin-receipts', 'Receipts'], ['#admin-incidents', 'Service incidents'], ['#admin-network-diagnostics', 'AI Network Engineer · Simulation'], ...(pageState.context?.role === 'owner' ? [['#company-branding', 'Company profile']] : [])]
+      ? [['#admin-overview', 'Overview'], ['#admin-pppoe-sessions', 'Active Sessions'], ['#customer-list', 'Customers'], ['#admin-packages', 'Packages / Plans'], ['#admin-bills', 'Bills'], ['#admin-receipts', 'Receipts'], ['#admin-incidents', 'Service incidents'], ['#admin-network-diagnostics', 'AI Network Engineer · Simulation'], ...(pageState.context?.role === 'owner' ? [['#company-branding', 'Company profile']] : [])]
       : [['#customer-account', 'My account'], ['#customer-usage', 'Usage dashboard'], ['#customer-expiry', 'Service expiry'], ['#customer-billing', 'Billing history'], ['#customer-incidents', 'Service updates']];
     return `<nav class="portal-nav" aria-label="${escapeHtml(t('Portal navigation'))}">${links.map(([href, label]) => `<a href="${href}">${escapeHtml(t(label))}</a>`).join('')}</nav>`;
   }
@@ -1424,6 +1467,40 @@ if (!supabase) {
     return true;
   }
 
+  function openPaymentDialogForBill(billRow) {
+    if (!billRow || billRow.status !== 'unpaid' || billRow.balanceCents == null || billRow.balanceCents <= 0) return false;
+    const bill = billRow.bill;
+    const customer = pageState.rows?.customers.find((row) => row.id === bill.customer_id);
+    const dialog = portalPanel.querySelector('#invoice-payment-dialog');
+    const form = portalPanel.querySelector('#invoice-payment-form');
+    if (!dialog || !form || !customer) return false;
+    form.elements.bill_id.value = bill.id;
+    form.elements.customer_id.value = bill.customer_id;
+    form.elements.received_on.value = localDate();
+    form.elements.amount.value = (billRow.balanceCents / 100).toFixed(2);
+    form.elements.method.value = '';
+    const description = dialog.querySelector('#invoice-payment-description');
+    if (description) description.textContent = `${customer.name} · ${billRow.invoiceNumber} · ${formatMoney(billRow.balanceCents)}`;
+    setMessage(dialog.querySelector('#invoice-payment-message'), 'Review the amount, actual receipt date, and payment method. Payment is recorded only when you submit this form.');
+    dialog.showModal();
+    form.elements.received_on.focus();
+    return true;
+  }
+
+  function openInvoicePreview(billId) {
+    const row = currentAdminBillRows().find((entry) => entry.bill.id === billId);
+    const bill = row?.bill;
+    const customer = pageState.rows?.customers.find((entry) => entry.id === bill?.customer_id);
+    const dialog = portalPanel.querySelector('#invoice-view-dialog');
+    const content = portalPanel.querySelector('#invoice-view-content');
+    if (!bill || !customer || !dialog || !content) return false;
+    const invoiceNumber = row.invoiceNumber;
+    const shareText = buildInvoiceShareText({ bill, customer, formatMoney, t });
+    content.innerHTML = `<div class="dialog-header"><div><p class="eyebrow">${escapeHtml(t('Printable invoice'))}</p><h2 id="invoice-view-title">${escapeHtml(invoiceNumber)}</h2></div><button class="icon-button" type="button" data-action="close-invoice-view" aria-label="${escapeHtml(t('Close'))}">×</button></div><dl class="invoice-preview-facts"><div><dt>${escapeHtml(t('Customer'))}</dt><dd>${escapeHtml(customer.name)}</dd></div><div><dt>${escapeHtml(t('PPPoE Username'))}</dt><dd>${escapeHtml(customer.pppoe_username || t('Not recorded'))}</dd></div><div><dt>${escapeHtml(t('Package'))}</dt><dd>${escapeHtml(row.packageName || t('Package not recorded'))}</dd></div><div><dt>${escapeHtml(t('Billing Month'))}</dt><dd>${escapeHtml(row.period)}</dd></div><div><dt>${escapeHtml(t('Due Date'))}</dt><dd>${escapeHtml(row.dueDate || t('Due date not recorded'))}</dd></div><div><dt>${escapeHtml(t('Total Amount'))}</dt><dd>${escapeHtml(formatMoney(row.amountDueCents))}</dd></div></dl><label class="invoice-copy-field">${escapeHtml(t('WhatsApp / SMS text'))}<textarea id="invoice-copy-text" rows="8" readonly>${escapeHtml(shareText)}</textarea></label><p id="invoice-view-message" class="form-message" role="status" aria-live="polite"></p><div class="form-actions"><button class="button primary" type="button" data-action="print-invoice" data-id="${escapeHtml(bill.id)}">${escapeHtml(t('Print Invoice'))}</button><button class="button secondary" type="button" data-action="copy-invoice-text">${escapeHtml(t('Copy WhatsApp / SMS text'))}</button><button class="button secondary" type="button" data-action="close-invoice-view">${escapeHtml(t('Close'))}</button></div>`;
+    dialog.showModal();
+    return true;
+  }
+
   function openReceiptFormForCustomer(row) {
     const bill = row?.paymentBill ?? row?.bill;
     if (!bill || row?.billing?.status !== 'unpaid' || row.billing.balanceCents == null || row.billing.balanceCents <= 0) return;
@@ -1463,6 +1540,34 @@ if (!supabase) {
     if (pageState.context?.kind !== 'customer') return;
     const bill = pageState.rows?.bills.find((row) => row.id === billId && row.customer_id === pageState.context.customerId);
     const customer = pageState.rows?.customers.find((row) => row.id === pageState.context.customerId);
+    if (!bill || !customer) return;
+    const summary = summarizeCustomerBill(bill, pageState.rows.receipts, pageState.rows.allocations);
+    const printWindow = window.open('', '_blank', 'popup,width=760,height=900');
+    if (!printWindow) {
+      window.alert(t('Allow the print window to open, then choose Print or Save as PDF.'));
+      return;
+    }
+    printWindow.document.open();
+    printWindow.document.write(renderPrintableBillHtml({
+      bill,
+      customer,
+      summary,
+      branding: { ...currentBranding(), logoUrl: currentBrandLogoUrl() },
+      projectUrl: supabase.supabaseUrl,
+      formatMoney,
+      t,
+      language: currentLanguage,
+    }));
+    printWindow.document.close();
+    printWindow.opener = null;
+    printWindow.focus();
+    window.setTimeout(() => printWindow.print(), 150);
+  }
+
+  function printAdminInvoice(billId) {
+    if (pageState.context?.kind !== 'admin') return;
+    const bill = pageState.rows?.bills.find((row) => row.id === billId);
+    const customer = pageState.rows?.customers.find((row) => row.id === bill?.customer_id);
     if (!bill || !customer) return;
     const summary = summarizeCustomerBill(bill, pageState.rows.receipts, pageState.rows.allocations);
     const printWindow = window.open('', '_blank', 'popup,width=760,height=900');
@@ -1698,6 +1803,11 @@ if (!supabase) {
     const customerAreaOptions = getCustomerAreaOptions(customerListRows)
       .map((option) => `<option value="${escapeHtml(option.value)}">${escapeHtml(option.label)}</option>`).join('');
     const customerName = (id) => rows.customers.find((customer) => customer.id === id)?.name ?? t('Customer');
+    const packagePricingRows = buildPackagePricingRows(customers, rows.packages ?? []);
+    const billingEngineReady = rows.invoiceNumberAvailable === true && !rows.packagesError;
+    const billingEngineNotice = billingEngineReady ? ''
+      : `<p class="billing-engine-notice" role="note">${escapeHtml(t('Package pricing and monthly invoicing are unavailable until the billing-engine migration is applied. No database migration is run from this page.'))}</p>`;
+    const packagePricingMarkup = renderAdminPackageCards(packagePricingRows, formatMoney, t, { disabled: !billingEngineReady });
     const monthOptions = customers.map((customer) => `<option value="${escapeHtml(customer.id)}">#${customer.customer_number} · ${escapeHtml(customer.name)}</option>`).join('');
     const billOptions = bills.map((bill) => `<option value="${escapeHtml(bill.id)}">${escapeHtml(customerName(bill.customer_id))} · ${escapeHtml(bill.period.slice(0, 7))} · ${formatMoney(bill.amount_due_cents)}</option>`).join('');
     const inviteCustomers = customers.filter((customer) => !customer.archived);
@@ -1743,6 +1853,7 @@ if (!supabase) {
     portalPanel.innerHTML = `${shellHeader(t('Administrator portal'))}
       ${renderPortalNavigation('admin')}
       <section id="admin-pppoe-sessions" class="panel data-panel pppoe-dashboard-panel" aria-labelledby="pppoe-sessions-title"></section>
+      <section id="admin-packages" class="panel data-panel admin-packages-panel" aria-labelledby="admin-packages-title"><div class="section-heading"><div><p class="eyebrow">${escapeHtml(t('Router packages'))}</p><h2 id="admin-packages-title" tabindex="-1">${escapeHtml(t('Packages / Plans'))}</h2></div><span class="muted">${packagePricingRows.length} ${escapeHtml(t('packages'))}</span></div><p class="muted">${escapeHtml(t('Set a monthly PKR tariff for each discovered router plan. Saved rates apply to new monthly invoice snapshots and are effective from the current billing month.'))}</p>${billingEngineNotice}<div id="package-pricing-message" class="form-message" role="status" aria-live="polite">${escapeHtml(t(pageState.packagePricingMessage))}</div>${packagePricingMarkup}</section>
       ${brandingSettingsHtml()}
       ${renderDashboardMetrics({ month: pageState.selectedMonth, today: dashboardToday, totals, previousTotals, trendSeries: dashboardTrendSeries, t })}
       <section class="panel month-panel" data-feature-key="admin-month-controls" data-feature-default-expanded="true"><div class="month-panel__row"><label for="dashboard-month">${escapeHtml(t('Dashboard month'))}<input type="month" id="dashboard-month" value="${escapeHtml(pageState.selectedMonth)}"></label><div class="dashboard-month-shortcuts" role="group" aria-label="${escapeHtml(t('Dashboard month shortcuts'))}"><button class="button secondary small" type="button" data-dashboard-month-target="previous">${escapeHtml(t('Previous month'))}</button><button class="button secondary small" type="button" data-dashboard-month-target="current">${escapeHtml(t('This month'))}</button><button class="button secondary small" type="button" data-dashboard-month-target="last">${escapeHtml(t('Last month'))}</button><button class="button secondary small" type="button" data-dashboard-month-target="next" ${pageState.selectedMonth >= localMonth() ? 'disabled' : ''}>${escapeHtml(t('Next month'))}</button></div></div><p class="muted">${escapeHtml(t('Cash totals follow receipt dates. Credit allocation is shown separately and is never counted as another payment.'))}</p></section>
@@ -1864,6 +1975,7 @@ if (!supabase) {
       </section>
       <div class="customer-fab-menu" id="customer-fab-menu"><div class="customer-fab-options" id="customer-fab-options" role="group" aria-label="${escapeHtml(t('Quick actions'))}" hidden><button type="button" data-dashboard-quick-action="customer">${escapeHtml(t('Add customer'))}</button><button type="button" data-dashboard-quick-action="bill">${escapeHtml(t('Create bill'))}</button><button type="button" data-dashboard-quick-action="receipt">${escapeHtml(t('Record receipt'))}</button><button type="button" data-dashboard-quick-action="search">${escapeHtml(t('Search customers'))}</button><button type="button" data-dashboard-quick-action="unpaid">${escapeHtml(t('View unpaid'))}</button><button type="button" data-dashboard-quick-action="overdue">${escapeHtml(t('View overdue'))}</button><button type="button" data-dashboard-quick-action="reports">${escapeHtml(t('Reports'))}</button></div><button class="customer-fab" type="button" data-action="toggle-dashboard-quick-actions" aria-controls="customer-fab-options" aria-expanded="false" aria-label="${escapeHtml(t('Quick actions'))}" title="${escapeHtml(t('Quick actions'))}"><span aria-hidden="true">+</span></button></div>
       <section id="admin-bills" class="panel data-panel admin-bills-panel" aria-labelledby="admin-bills-title"><div class="section-heading"><div><p class="eyebrow">${escapeHtml(t('Monthly snapshots'))}</p><h2 id="admin-bills-title" tabindex="-1">${escapeHtml(t('Bills'))}</h2></div><span class="muted">${bills.length} ${escapeHtml(t('records'))}</span></div>
+        <form id="monthly-invoice-form" class="invoice-generator-form"><div><p class="eyebrow">${escapeHtml(t('Monthly invoicing'))}</p><h3>${escapeHtml(t('Generate Monthly Invoices'))}</h3><p class="muted">${escapeHtml(t('Creates one fixed invoice snapshot for each active customer with a configured package rate. Existing customer/month invoices stay unchanged; customers without a rate are reported as unpriced.'))}</p></div><label for="invoice-generation-month">${escapeHtml(t('Billing month'))}<input id="invoice-generation-month" name="billing_month" type="month" value="${escapeHtml(pageState.invoiceGenerationMonth)}" required></label><label for="invoice-generation-issued-on">${escapeHtml(t('Issue date'))}<input id="invoice-generation-issued-on" name="issue_date" type="date" value="${escapeHtml(pageState.invoiceGenerationIssueDate)}" required></label><label for="invoice-generation-due-date">${escapeHtml(t('Exact Due Date'))}<input id="invoice-generation-due-date" name="due_date" type="date" value="${escapeHtml(pageState.invoiceGenerationDueDate)}" required></label><button class="button primary" type="submit" ${billingEngineReady && !pageState.invoiceGenerationBusy ? '' : 'disabled'}>${escapeHtml(pageState.invoiceGenerationBusy ? t('Generating…') : t('Generate Monthly Invoices'))}</button><p id="invoice-generation-message" class="form-message" role="status" aria-live="polite">${escapeHtml(t(pageState.invoiceGenerationMessage))}</p></form>
         <div class="bill-list-search"><label for="admin-bill-search">${escapeHtml(t('Search bills by customer name or Admin phone'))}</label><input id="admin-bill-search" type="search" autocomplete="off" value="${escapeHtml(pageState.billSearch)}" placeholder="${escapeHtml(t('Search customer name or phone'))}"><p class="muted">${escapeHtml(t('Phone lookup uses only the Admin-authorized private phone record.'))}</p></div>
         <div class="bill-list-filters" role="group" aria-label="${escapeHtml(t('Filter bills by payment status'))}">
           <button class="bill-filter-pill ${pageState.billStatus === 'all' ? 'is-active' : ''}" type="button" data-bill-status="all" aria-pressed="${pageState.billStatus === 'all'}">${escapeHtml(t('All'))} (${billCounts.all})</button>
@@ -1874,6 +1986,8 @@ if (!supabase) {
         <p id="admin-bill-count" class="bill-list-count" role="status" aria-live="${billDrilldown ? 'off' : 'polite'}">${formatUiMessage('Showing {shown} of {matching} matching bills; {total} total records.', currentLanguage, { shown: Math.min(filteredAdminBillRows.length, 100), matching: filteredAdminBillRows.length, total: scopedAdminBillRows.length })}</p>
         <div id="admin-bill-card-grid" class="bill-card-grid">${renderAdminBillCards(filteredAdminBillRows, formatMoney, t)}</div>
         <p class="muted">${escapeHtml(t('Summary cards above use the selected dashboard month: billed and pending follow bill periods, while collected follows actual receipt dates. Carry-forward credit reduces pending balances but is never counted as cash. WhatsApp opens a draft only; receipts can be printed only from existing receipt records.'))}</p>
+        <dialog id="invoice-view-dialog" class="edit-dialog invoice-view-dialog" aria-labelledby="invoice-view-title"><div id="invoice-view-content"></div></dialog>
+        <dialog id="invoice-payment-dialog" class="edit-dialog invoice-payment-dialog" aria-labelledby="invoice-payment-title"><div class="dialog-header"><div><p class="eyebrow">${escapeHtml(t('Cash ledger'))}</p><h2 id="invoice-payment-title">${escapeHtml(t('Receive Payment'))}</h2></div><button class="icon-button" type="button" data-action="close-invoice-payment" aria-label="${escapeHtml(t('Close'))}">×</button></div><p id="invoice-payment-description" class="muted"></p><form id="invoice-payment-form" class="stack"><input type="hidden" name="bill_id"><input type="hidden" name="customer_id"><label for="invoice-payment-amount">${escapeHtml(t('Amount received (PKR)'))}<input id="invoice-payment-amount" name="amount" inputmode="decimal" required readonly></label><label for="invoice-payment-date">${escapeHtml(t('Received on'))}<input id="invoice-payment-date" name="received_on" type="date" required></label><label for="invoice-payment-method">${escapeHtml(t('Method'))}<select id="invoice-payment-method" name="method" required><option value="" selected disabled>${escapeHtml(t('Select a method'))}</option><option value="Cash">${escapeHtml(t('Cash'))}</option><option value="Easypaisa">Easypaisa</option><option value="Bank transfer">${escapeHtml(t('Bank transfer'))}</option></select></label><p id="invoice-payment-message" class="form-message" role="status" aria-live="polite"></p><div class="form-actions"><button class="button primary" type="submit">${escapeHtml(t('Confirm Payment'))}</button><button class="button secondary" type="button" data-action="close-invoice-payment">${escapeHtml(t('Cancel'))}</button></div></form></dialog>
       </section>
       <section id="admin-receipts" class="panel data-panel" aria-labelledby="admin-receipts-title"><div class="section-heading"><div><p class="eyebrow">${escapeHtml(t('Dated cash entries'))}</p><h2 id="admin-receipts-title" tabindex="-1">${escapeHtml(t('Receipts'))}</h2></div><span class="muted">${receipts.length} ${escapeHtml(t('actual receipts'))}</span></div>
         <div class="admin-receipt-search"><label for="admin-receipt-search">${escapeHtml(t('Search receipts by customer name, date, method, or amount'))}</label><input id="admin-receipt-search" type="search" autocomplete="off" value="${escapeHtml(pageState.receiptSearch)}" placeholder="${escapeHtml(t('Search customer, date, method, or amount'))}"></div>
@@ -2530,6 +2644,143 @@ if (!supabase) {
         window.alert(error.message || t('Receipt correction could not be saved.'));
       }
     });
+
+    if (context.kind !== 'admin') return;
+    const packageRoot = portalPanel.querySelector('#admin-packages');
+    packageRoot?.addEventListener('submit', async (event) => {
+      const form = event.target instanceof Element ? event.target.closest('[data-package-price-form]') : null;
+      if (!form) return;
+      event.preventDefault();
+      const submitButton = form.querySelector('button[type="submit"]');
+      const packageId = String(form.dataset.packageId ?? '');
+      try {
+        const monthlyFeeCents = amountToMinorUnits(new FormData(form).get('monthly_fee'));
+        if (monthlyFeeCents <= 0) throw new Error('Enter a monthly rate greater than zero.');
+        pageState.packagePricingBusyId = packageId;
+        if (submitButton) submitButton.disabled = true;
+        setMessage(portalPanel.querySelector('#package-pricing-message'), 'Saving package tariff…');
+        const token = await currentAdminAccessToken();
+        const result = await updatePackageMonthlyFee({
+          organizationId: context.organizationId,
+          packageId,
+          monthlyFeeCents,
+          token,
+        });
+        pageState.packagePricingMessage = formatUiMessage('Rate saved from {date}. Updated {count} linked customer records.', currentLanguage, {
+          date: result.package?.effectiveOn ?? localMonth(),
+          count: result.package?.updatedCustomers ?? 0,
+        });
+        await refreshCurrentContext(pageState.packagePricingMessage);
+      } catch (error) {
+        pageState.packagePricingMessage = error.message || t('Package tariff could not be saved.');
+        setMessage(portalPanel.querySelector('#package-pricing-message'), pageState.packagePricingMessage, true);
+      } finally {
+        pageState.packagePricingBusyId = '';
+        if (submitButton?.isConnected) submitButton.disabled = false;
+      }
+    });
+
+    portalPanel.querySelector('#monthly-invoice-form')?.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const submitButton = form.querySelector('button[type="submit"]');
+      const formData = new FormData(form);
+      try {
+        const request = buildMonthlyInvoiceRequest({
+          billingMonth: formData.get('billing_month'),
+          issueDate: formData.get('issue_date'),
+          dueDate: formData.get('due_date'),
+        });
+        pageState.invoiceGenerationMonth = request.billingMonth;
+        pageState.invoiceGenerationIssueDate = request.issueDate;
+        pageState.invoiceGenerationDueDate = request.dueDate;
+        pageState.invoiceGenerationBusy = true;
+        if (submitButton) submitButton.disabled = true;
+        setMessage(portalPanel.querySelector('#invoice-generation-message'), 'Generating monthly invoices…');
+        const token = await currentAdminAccessToken();
+        const result = await generateMonthlyInvoices({
+          organizationId: context.organizationId,
+          ...request,
+          token,
+        });
+        pageState.invoiceGenerationMessage = formatUiMessage('Generated {generated}; already existed {existing}; skipped without a price {unpriced}.', currentLanguage, {
+          generated: result.generated ?? 0,
+          existing: result.existing ?? 0,
+          unpriced: result.unpriced ?? 0,
+        });
+        pageState.invoiceGenerationBusy = false;
+        await refreshCurrentContext(pageState.invoiceGenerationMessage);
+      } catch (error) {
+        pageState.invoiceGenerationBusy = false;
+        pageState.invoiceGenerationMessage = error.message || t('Monthly invoices could not be generated.');
+        setMessage(portalPanel.querySelector('#invoice-generation-message'), pageState.invoiceGenerationMessage, true);
+        if (submitButton?.isConnected) submitButton.disabled = false;
+      }
+    });
+
+    portalPanel.querySelectorAll('[data-action="close-invoice-payment"]').forEach((button) => button.addEventListener('click', () => {
+      portalPanel.querySelector('#invoice-payment-dialog')?.close();
+    }));
+    portalPanel.querySelector('#invoice-payment-form')?.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const formData = new FormData(form);
+      const billId = String(formData.get('bill_id') ?? '');
+      let attempt = getPaymentAttempt(context, billId);
+      try {
+        const payload = {
+          p_organization_id: context.organizationId,
+          p_customer_id: String(formData.get('customer_id')),
+          p_bill_id: billId,
+          p_received_on: String(formData.get('received_on')),
+          p_amount_cents: amountToMinorUnits(formData.get('amount')),
+          p_method: String(formData.get('method') ?? '').trim(),
+        };
+        if (!attempt) attempt = savePaymentAttempt(context, billId, crypto.randomUUID());
+        const submitButton = form.querySelector('button[type="submit"]');
+        submitButton.disabled = true;
+        setMessage(portalPanel.querySelector('#invoice-payment-message'), 'Recording payment…');
+        await invokeRpc(supabase, 'record_cash_receipt', { ...payload, p_receipt_id: attempt.id });
+        portalPanel.querySelector('#invoice-payment-dialog')?.close();
+        await refreshCurrentContext('Payment recorded. Invoice status is calculated from saved receipts.');
+        clearPaymentAttempt(attempt);
+      } catch (error) {
+        setMessage(portalPanel.querySelector('#invoice-payment-message'), error.message
+          ? `{error} Retry with the same date, amount, and method; the request ID is retained to prevent duplicate receipts.`
+          : 'Payment could not be recorded. Retry with the same details; the request ID is retained to prevent duplicate receipts.', true,
+        error.message ? { error: error.message } : {});
+        const submitButton = form.querySelector('button[type="submit"]');
+        if (submitButton?.isConnected) submitButton.disabled = false;
+      }
+    });
+
+    const invoiceDialog = portalPanel.querySelector('#invoice-view-dialog');
+    invoiceDialog?.addEventListener('click', async (event) => {
+      const action = event.target instanceof Element ? event.target.closest('[data-action]') : null;
+      if (!action) return;
+      if (action.dataset.action === 'close-invoice-view') {
+        invoiceDialog.close();
+      } else if (action.dataset.action === 'print-invoice') {
+        printAdminInvoice(action.dataset.id);
+      } else if (action.dataset.action === 'copy-invoice-text') {
+        const field = invoiceDialog.querySelector('#invoice-copy-text');
+        const message = invoiceDialog.querySelector('#invoice-view-message');
+        if (!field) return;
+        try {
+          if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(field.value);
+          else {
+            field.focus();
+            field.select();
+            if (!document.execCommand('copy')) throw new Error('Copy is unavailable in this browser. Select and copy the text below.');
+          }
+          setMessage(message, 'Invoice text copied. Paste it into WhatsApp or SMS to send it.');
+        } catch (error) {
+          field.focus();
+          field.select();
+          setMessage(message, error.message || 'Select and copy the invoice text below.');
+        }
+      }
+    });
   }
 
   function bindAdminReceiptActions(context) {
@@ -2611,6 +2862,11 @@ if (!supabase) {
       if (action.dataset.action === 'collect-bill') {
         const billRow = currentAdminBillRows().find((row) => row.bill.id === action.dataset.id);
         openReceiptFormForBill(billRow);
+      } else if (action.dataset.action === 'receive-payment') {
+        const billRow = currentAdminBillRows().find((row) => row.bill.id === action.dataset.id);
+        openPaymentDialogForBill(billRow);
+      } else if (action.dataset.action === 'view-invoice') {
+        openInvoicePreview(action.dataset.id);
       } else if (action.dataset.action === 'print-receipt') {
         printExistingReceipt(action.dataset.id);
       }
@@ -2626,7 +2882,7 @@ if (!supabase) {
     const { data, error } = await supabase.auth.getSession();
     if (error) throw error;
     const token = data?.session?.access_token;
-    if (!token) throw new Error('Sign in again to import router subscribers.');
+    if (!token) throw new Error('Sign in again to manage package pricing and invoices.');
     return token;
   }
 
