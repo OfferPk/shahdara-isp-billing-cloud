@@ -7,7 +7,9 @@ export { MockRouterAdapter };
 const DEFAULT_ROUTER_HOST = '10.10.20.1';
 const DEFAULT_ROUTER_PORT = 8728;
 const API_TIMEOUT_MS = 5000;
-const READ_COMMANDS = new Set(['/ppp/active/print', '/ppp/secret/print', '/system/resource/print']);
+const READ_COMMANDS = new Set(['/ppp/active/print', '/ppp/secret/print', '/system/resource/print', '/interface/monitor-traffic']);
+const PPPOE_USERNAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.:@+-]{0,63}$/;
+const PPPOE_INTERFACE_PATTERN = /^<pppoe-[A-Za-z0-9][A-Za-z0-9_.:@+-]{0,63}>$/;
 
 function formatUptime(seconds) {
   let remaining = Math.max(0, Math.floor(Number(seconds) || 0));
@@ -36,6 +38,25 @@ function safeBigInt(value) {
   } catch {
     return 0n;
   }
+}
+
+function parseTrafficRate(value) {
+  const match = /^(\d+(?:\.\d+)?)(bps|kbps|Mbps|Gbps)?$/.exec(String(value ?? '').trim());
+  if (!match) throw new Error('RouterOS returned an invalid traffic rate.');
+  const multiplier = { bps: 1, kbps: 1e3, Mbps: 1e6, Gbps: 1e9 }[match[2] || 'bps'];
+  const rate = Number(match[1]) * multiplier;
+  if (!Number.isFinite(rate) || rate < 0 || rate > 1e12) throw new Error('RouterOS returned an invalid traffic rate.');
+  return Math.round(rate);
+}
+
+function isAllowedRouterRequest(command, properties = []) {
+  if (!READ_COMMANDS.has(command)) return false;
+  if (command !== '/interface/monitor-traffic') return true;
+  return Array.isArray(properties)
+    && properties.length === 2
+    && properties[0].startsWith('=interface=')
+    && PPPOE_INTERFACE_PATTERN.test(properties[0].slice('=interface='.length))
+    && properties[1] === '=once=';
 }
 
 function parseByteCounters(row) {
@@ -236,7 +257,7 @@ class RouterOsConnection {
   }
 
   async command(command, properties = []) {
-    if (!READ_COMMANDS.has(command)) throw new Error('Only the configured RouterOS read commands are allowed.');
+    if (!isAllowedRouterRequest(command, properties)) throw new Error('Only validated RouterOS read requests are allowed.');
     const words = [command, ...properties];
     const startedAt = performance.now();
     this.write(words);
@@ -250,7 +271,7 @@ class RouterOsConnection {
 }
 
 async function routerRequest(config, command, properties = []) {
-  if (!READ_COMMANDS.has(command)) throw new Error('Only the configured RouterOS read commands are allowed.');
+  if (!isAllowedRouterRequest(command, properties)) throw new Error('Only validated RouterOS read requests are allowed.');
   const connection = new RouterOsConnection(config);
   const connectedAt = performance.now();
   try {
@@ -315,6 +336,30 @@ export class MikroTikRouterAdapter {
     } catch {
       return [];
     }
+  }
+
+  async getLiveTrafficForUsername(username) {
+    const normalizedUsername = String(username ?? '');
+    if (!PPPOE_USERNAME_PATTERN.test(normalizedUsername) || normalizedUsername.trim() !== normalizedUsername) {
+      throw new Error('A valid linked PPPoE username is required.');
+    }
+    const config = this.config();
+    if (!config.host || !config.username || !config.password) {
+      throw new Error('MikroTik live traffic is not configured.');
+    }
+    const interfaceName = `<pppoe-${normalizedUsername}>`;
+    const response = await this.request(config, '/interface/monitor-traffic', [
+      `=interface=${interfaceName}`,
+      '=once=',
+    ]);
+    const row = response.rows.find((item) => String(item.name ?? '') === interfaceName) ?? response.rows[0];
+    if (!row) throw new Error('MikroTik returned no live traffic sample.');
+    return {
+      downloadBitsPerSecond: parseTrafficRate(row['tx-bits-per-second']),
+      uploadBitsPerSecond: parseTrafficRate(row['rx-bits-per-second']),
+      sampledAt: this.now().toISOString(),
+      source: 'routeros',
+    };
   }
 
   async discoverSubscribers() {
@@ -404,5 +449,7 @@ export const routerAdapterInternals = Object.freeze({
   formatUptime,
   parseRouterUptime,
   parseByteCounters,
+  parseTrafficRate,
+  isAllowedRouterRequest,
   apiRequest: routerRequest,
 });

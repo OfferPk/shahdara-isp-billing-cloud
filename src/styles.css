@@ -1380,3 +1380,74 @@ td { color: #25433b; }
 :root[data-theme="dark"] .invoice-generator-form { border-color: var(--line); background: #19251f; }
 :root[data-theme="dark"] .invoice-preview-facts > div { border-color: var(--line); }
 :root[data-theme="dark"] .bill-action--paid { border-color: #39a36f; color: #f3fff8; background: #16734f; }
+
+/* Customer live telemetry and current-month summary */
+.usage-month-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; margin: 15px 0; }
+.usage-month-summary .usage-metric { align-content: start; min-height: 104px; }
+.usage-month-summary small { color: #5d7068; font-size: 11px; line-height: 1.5; }
+.live-traffic { display: grid; gap: 13px; margin-top: 14px; padding: 16px; border: 1px solid #dce8e1; border-radius: 16px; background: linear-gradient(145deg, #fff, #f6faf7); }
+.live-traffic__heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.live-traffic__heading .eyebrow { margin-bottom: 4px; }
+.live-traffic__heading h3 { margin: 0; color: #17342f; font-size: 17px; }
+.live-traffic__status { max-width: 48%; color: #5b6f66; font-size: 11px; line-height: 1.45; text-align: right; }
+.live-traffic__rates { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
+.live-traffic__rates article { display: grid; gap: 6px; min-width: 0; padding: 12px 14px; border: 1px solid #dce8e1; border-radius: 12px; background: #fbfdfb; }
+.live-traffic__rates article span { color: #536960; font-size: 11px; font-weight: 750; }
+.live-traffic__rates article strong { color: #17342f; font-size: clamp(17px, 2.4vw, 22px); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+#customer-live-traffic-graph { display: block; width: 100%; height: 220px; border: 1px solid #e0e9e4; border-radius: 12px; background: #fff; }
+:root[data-theme="dark"] :is(.live-traffic, .live-traffic__rates article, #customer-live-traffic-graph) { border-color: var(--line); color: var(--ink); background: linear-gradient(145deg, #1a2821, #17231d); }
+:root[data-theme="dark"] .live-traffic__heading h3, :root[data-theme="dark"] .live-traffic__rates article strong { color: var(--ink); }
+:root[data-theme="dark"] :is(.live-traffic__status, .live-traffic__rates article span, .usage-month-summary small) { color: #c6d7ce; }
+@media (max-width: 600px) {
+  .usage-month-summary, .live-traffic__rates { grid-template-columns: 1fr; }
+  .live-traffic { padding: 13px; }
+  .live-traffic__heading { flex-direction: column; }
+  .live-traffic__status { max-width: 100%; text-align: left; }
+  #customer-live-traffic-graph { height: 190px; }
+}
+
+/* Dual-mode FUP package management and customer quota summary. */
+.package-create { display: grid; gap: 10px; margin: 14px 0 18px; padding: 16px; border: 1px solid var(--line); border-radius: 15px; background: color-mix(in srgb, var(--paper) 88%, var(--mint)); }
+.package-create__heading h3 { margin: 0; }
+.package-create__heading .eyebrow { margin: 0 0 4px; }
+.package-create > .muted { margin: 0; font-size: 12px; }
+.package-presets { display: flex; flex-wrap: wrap; gap: 7px; }
+.package-presets .button { min-height: 38px; font-size: 11px; }
+.package-editor-form { display: grid; gap: 10px; margin-top: 10px; }
+.package-editor-form__grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: end; gap: 9px; }
+.package-editor-form label { display: grid; min-width: 0; gap: 5px; font-size: 12px; font-weight: 700; }
+.package-editor-form input, .package-editor-form select { min-width: 0; min-height: 42px; }
+.package-editor-form > button { justify-self: start; min-height: 42px; }
+.package-form__quota-fields { display: contents; }
+.package-form__quota-fields[hidden] { display: none; }
+.package-card__policy { margin: 8px 0 0; color: var(--muted); font-size: 11px; }
+.package-policy-note { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.usage-fup { display: grid; gap: 11px; margin: 14px 0; padding: 16px; border: 1px solid #dce8e1; border-radius: 15px; background: linear-gradient(145deg, #fff, #f6faf7); }
+.usage-fup__heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.usage-fup__heading .eyebrow { margin: 0 0 4px; }
+.usage-fup__heading h3 { margin: 0; color: #17342f; font-size: 17px; }
+.usage-fup__heading > span, .usage-fup__heading > strong { color: #27483e; font-size: 14px; font-variant-numeric: tabular-nums; }
+.usage-fup__summary { margin: 0; color: #314d43; font-weight: 750; font-variant-numeric: tabular-nums; }
+.usage-fup .usage-state { margin: 0; }
+.usage-fup__warning { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border: 1px solid #efc9bf; border-radius: 11px; background: #fff3ef; }
+.usage-fup__warning p { margin: 0; color: #7a332a; font-size: 13px; line-height: 1.5; }
+:root[data-theme="dark"] .usage-fup__warning { border-color: #75443d; background: #352321; }
+:root[data-theme="dark"] .usage-fup__warning p { color: #ffd0c9; }
+.usage-month-summary { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+:root[data-theme="dark"] :is(.package-create, .usage-fup) { border-color: var(--line); color: var(--ink); background: linear-gradient(145deg, #1a2821, #17231d); }
+:root[data-theme="dark"] .usage-fup__heading h3 { color: var(--ink); }
+:root[data-theme="dark"] :is(.usage-fup__heading > span, .usage-fup__heading > strong, .usage-fup__summary) { color: #d1e2d8; }
+@media (max-width: 760px) {
+  .package-editor-form__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .package-form__quota-fields { display: grid; grid-column: 1 / -1; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+}
+@media (max-width: 600px) {
+  .package-create { padding: 13px; }
+  .package-editor-form__grid, .package-form__quota-fields { grid-template-columns: 1fr; }
+  .package-editor-form > button { width: 100%; }
+  .package-presets { display: grid; grid-template-columns: 1fr; }
+  .package-presets .button { width: 100%; }
+  .usage-fup { padding: 13px; }
+  .usage-fup__heading { flex-direction: column; }
+  .usage-fup__summary { line-height: 1.55; }
+}

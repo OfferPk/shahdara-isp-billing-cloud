@@ -81,6 +81,17 @@ export async function importRouterSubscribers({
   });
 }
 
+export async function fetchCustomerLiveTraffic({
+  token,
+  fetchImpl = globalThis.fetch,
+  apiBaseUrl = resolvePppoeApiBase(),
+} = {}) {
+  if (!token) throw new Error('Sign in again to view your live traffic.');
+  if (typeof fetchImpl !== 'function') throw new Error('This browser does not support API requests.');
+  const base = String(apiBaseUrl ?? '').trim().replace(/\/+$/, '');
+  return readApiJson(fetchImpl, `${base}/api/customer/live-traffic`, token);
+}
+
 function sumOnlineTraffic(sessions) {
   return sessions.reduce((totals, session) => {
     if (session.status !== 'Online') return totals;

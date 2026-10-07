@@ -74,17 +74,18 @@ test('customer-account linking is not writable by authenticated clients', () => 
   assert.match(migration, /create policy customer_accounts_scoped_read[\s\S]*user_id = \(select auth\.uid\(\)\)/i);
 });
 
-test('portal sign-in remains auth-first with self-service sign-up disabled', async () => {
+test('portal sign-in uses username/password aliases and has no customer password mutation path', async () => {
   const main = await readFile(resolve(root, 'src/main.js'), 'utf8');
   const authFlows = await readFile(resolve(root, 'src/auth-flows.js'), 'utf8');
-  assert.match(main, /signInWithOtp/);
-  assert.match(main, /shouldCreateUser:\s*false/);
+  assert.match(main, /functions\.invoke\('customer-login'/);
+  assert.match(main, /signInWithUsernamePassword\(supabase\.auth, username, password\)/);
+  assert.doesNotMatch(main, /signInWithOtp|signInWithEmailPassword/);
   assert.match(main, /onAuthStateChange/);
   assert.match(main, /getSession\(\)/);
-  assert.match(main, /event === 'PASSWORD_RECOVERY'/);
+  assert.doesNotMatch(main, /PASSWORD_RECOVERY|passwordRecoveryForm|change-customer-password/);
   assert.match(authFlows, /auth\.signInWithPassword\(/);
-  assert.match(authFlows, /auth\.resetPasswordForEmail\(/);
-  assert.match(authFlows, /auth\.updateUser\(/);
+  assert.match(authFlows, /\$\{normalizedUsername\}@shahdara\.local/);
+  assert.doesNotMatch(authFlows, /updateUser|resetPasswordForEmail|signUp/);
   assert.doesNotMatch(`${main}\n${authFlows}`, /auth\.signUp\s*\(/);
 });
 

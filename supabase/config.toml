@@ -24,6 +24,6 @@ verify_jwt = true
 verify_jwt = true
 
 # The daemon uses a dedicated random bearer secret, not a Supabase Auth JWT.
-# sync-agent-ingest validates it itself and requires server-side counter confirmation.
+# sync-agent-ingest validates it itself and requires server-side source confirmation.
 [functions.sync-agent-ingest]
 verify_jwt = false

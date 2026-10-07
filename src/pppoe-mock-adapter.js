@@ -68,6 +68,19 @@ export class MockRouterAdapter {
     }));
   }
 
+  async getLiveTrafficForUsername(username) {
+    const row = this.baseRows.find((candidate) => candidate.username === username);
+    if (!row) throw new Error('No demo customer interface matches this username.');
+    this.pollCount += 1;
+    const serial = Number(/(\d+)$/.exec(username)?.[1] ?? 1);
+    return {
+      downloadBitsPerSecond: 1_200_000 + serial * 75_000 + (this.pollCount % 5) * 110_000,
+      uploadBitsPerSecond: 240_000 + serial * 18_000 + (this.pollCount % 4) * 26_000,
+      sampledAt: this.now().toISOString(),
+      source: 'demo',
+    };
+  }
+
   async discoverSubscribers() {
     return this.baseRows.map((row) => ({
       username: row.username,

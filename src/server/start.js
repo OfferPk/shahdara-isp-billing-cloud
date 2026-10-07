@@ -60,7 +60,7 @@ const server = createServer(async (request, response) => {
   const pathname = (() => {
     try { return new URL(request.url || '/', 'http://localhost').pathname; } catch { return ''; }
   })();
-  if (pathname.startsWith('/api/admin/pppoe/') || pathname.startsWith('/api/admin/billing/')) {
+  if (pathname.startsWith('/api/admin/pppoe/') || pathname.startsWith('/api/admin/billing/') || pathname === '/api/customer/live-traffic') {
     try {
       const origin = request.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
       const host = request.headers.host || 'localhost';

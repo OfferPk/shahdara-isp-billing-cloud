@@ -37,25 +37,26 @@ test('customer RLS is server-gated and portal contexts return only IDs from a sa
   assert.doesNotMatch(portalData, /\.from\('customer_portal_accounts'\)/);
   assert.ok(main.indexOf("supabase.rpc('my_customer_portal_password_state')") < main.indexOf('loadContexts(supabase, session.user)'), 'password state must be checked before loading contexts');
   assert.match(main, /showCustomerPasswordGate\(passwordState\)/);
-  assert.match(main, /functions\.invoke\('change-customer-password'/);
+  assert.doesNotMatch(main, /functions\.invoke\('change-customer-password'/);
 });
 
-test('username login coexists with invite-only email fallback and never enables public signup', async () => {
+test('username-only login maps internally and customer portal exposes no password mutation UI', async () => {
   const main = await read('src/main.js');
   const authFlows = await read('src/auth-flows.js');
   const html = await read('index.html');
   assert.match(html, /id="customer-login-form"/);
-  assert.match(html, /id="email-password-login-form"/);
-  assert.match(html, /id="login-form"/);
-  assert.match(html, /id="password-recovery-form"/);
+  const login = html.match(/<form id="customer-login-form"[\s\S]*?<\/form>/)?.[0] ?? '';
+  assert.match(login, /name="username"/);
+  assert.match(login, /name="password"/);
+  assert.doesNotMatch(login, /type="email"|name="email"|Email/i);
+  assert.doesNotMatch(html, /password-recovery-form|mandatory-password-change-form/);
   assert.match(html, /self-service sign-up is disabled/i);
   assert.match(main, /functions\.invoke\('customer-login'/);
-  assert.match(main, /signInWithOtp/);
-  assert.match(main, /event === 'PASSWORD_RECOVERY'/);
-  assert.match(main, /shouldCreateUser:\s*false/);
+  assert.match(main, /signInWithUsernamePassword\(supabase\.auth, username, password\)/);
+  assert.doesNotMatch(main, /signInWithOtp|PASSWORD_RECOVERY|change-customer-password/);
   assert.match(authFlows, /auth\.signInWithPassword\(/);
-  assert.match(authFlows, /auth\.resetPasswordForEmail\(/);
-  assert.match(authFlows, /auth\.updateUser\(/);
+  assert.match(authFlows, /\$\{normalizedUsername\}@shahdara\.local/);
+  assert.doesNotMatch(authFlows, /resetPasswordForEmail|updateUser|signUp/);
   assert.doesNotMatch(`${main}\n${authFlows}`, /auth\.signUp\s*\(/);
   assert.match(main, /Username or password is incorrect or unavailable\./);
 });

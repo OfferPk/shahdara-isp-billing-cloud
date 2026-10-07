@@ -10,7 +10,9 @@
     "start:api": "node src/server/api-only.js",
     "preview": "vite preview --host 0.0.0.0",
     "test": "node --test",
-    "test:db": "bash scripts/test-db.sh"
+    "test:db": "bash scripts/test-db.sh",
+    "db:migrate": "node scripts/migrate.js",
+    "db:migrate:apply": "node scripts/migrate.js --apply"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.0"

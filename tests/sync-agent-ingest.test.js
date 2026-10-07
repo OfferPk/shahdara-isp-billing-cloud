@@ -13,6 +13,7 @@ function makeHarness(options = {}) {
   const settings = new Map([
     ['SYNC_AGENT_INGEST_TOKEN', options.token ?? token],
     ['SYNC_AGENT_COUNTER_SOURCE_CONFIRMED', options.confirmed ?? 'true'],
+    ['SYNC_AGENT_DELTA_SOURCE_CONFIRMED', options.deltaConfirmed ?? 'true'],
     ['SUPABASE_URL', options.url ?? 'https://synthetic-project.supabase.co'],
     ['SUPABASE_SERVICE_ROLE_KEY', options.serviceRoleKey ?? serviceRoleKey],
   ]);
@@ -189,5 +190,58 @@ test('non-POST methods are rejected without contacting Supabase', async () => {
   const { handler, calls } = makeHarness();
   const response = await handler(makeRequest({ method: 'GET', body: undefined }));
   assert.equal(response.status, 405);
+  assert.equal(calls.length, 0);
+});
+
+test('RouterOS session deltas are validated and sent in one atomic monthly-aggregation RPC call', async () => {
+  const { handler, calls } = makeHarness();
+  const items = [
+    { username: 'subscriber-a', session_id: '*A1', bytes_in: '6000', bytes_out: '3000' },
+    { username: 'subscriber-a', session_id: '*A2', bytes_in: '500', bytes_out: '250' },
+  ];
+  const response = await handler(makeRequest({ body: { counter_scope: 'routeros-session-delta', items } }));
+  assert.equal(response.status, 200);
+  assert.deepEqual(await bodyOf(response), { accepted: 2 });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, 'https://synthetic-project.supabase.co/rest/v1/rpc/sync_customer_bandwidth_session_deltas');
+  assert.deepEqual(JSON.parse(calls[0].init.body), { p_items: items });
+  assert.equal(calls[0].init.method, 'POST');
+  assert.equal(calls[0].init.redirect, 'manual');
+  assert.equal(calls[0].init.headers.apikey, serviceRoleKey);
+});
+
+test('delta source remains disabled until its separate server-side gate is confirmed', async () => {
+  const { handler, calls } = makeHarness({ deltaConfirmed: '' });
+  const response = await handler(makeRequest({ body: {
+    counter_scope: 'routeros-session-delta',
+    items: [{ username: 'subscriber-a', session_id: '*A1', bytes_in: '1', bytes_out: '2' }],
+  } }));
+  assert.equal(response.status, 503);
+  assert.equal(calls.length, 0);
+});
+
+test('delta batches reject malformed counters, session identifiers, extra fields, and duplicate session pairs before writes', async (t) => {
+  const item = { username: 'subscriber-a', session_id: '*A1', bytes_in: '10', bytes_out: '20' };
+  const cases = [
+    ['invalid counter', [{ ...item, bytes_in: '-1' }]],
+    ['blank session', [{ ...item, session_id: ' ' }]],
+    ['extra field', [{ ...item, is_online: true }]],
+    ['duplicate username and session', [item, { ...item, bytes_in: '30' }]],
+  ];
+  for (const [label, items] of cases) {
+    await t.test(label, async () => {
+      const { handler, calls } = makeHarness();
+      const response = await handler(makeRequest({ body: { counter_scope: 'routeros-session-delta', items } }));
+      assert.equal(response.status, 400);
+      assert.equal(calls.length, 0);
+    });
+  }
+});
+
+test('empty completed delta poll is an accepted no-op and does not call Supabase', async () => {
+  const { handler, calls } = makeHarness();
+  const response = await handler(makeRequest({ body: { counter_scope: 'routeros-session-delta', items: [] } }));
+  assert.equal(response.status, 200);
+  assert.deepEqual(await bodyOf(response), { accepted: 0 });
   assert.equal(calls.length, 0);
 });

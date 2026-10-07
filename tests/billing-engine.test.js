@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildInvoiceShareText, buildMonthlyInvoiceRequest, buildPackagePricingRows, normalizePackageName } from '../src/billing-engine.js';
-import { renderAdminPackageCards } from '../src/admin-packages.js';
+import { DEFAULT_PACKAGE_PRESETS, renderAdminPackageCards, renderAdminPackageCreationForm } from '../src/admin-packages.js';
 import { formatMoney } from '../src/ledger.js';
 
 const customers = [
@@ -22,6 +22,8 @@ test('package rows merge imported router tariffs with active customer counts and
     ['Legacy', 50000, 0, 1],
   ]);
   assert.equal(rows[0].effectiveOn, '2026-10-01');
+  assert.equal(rows[0].quotaType, 'unlimited');
+  assert.equal(rows[0].actionOnExhaust, 'notify');
 });
 
 test('package rows retain router-imported profiles when the saved tariff table is empty', () => {
@@ -39,6 +41,23 @@ test('package name and package card rendering escape router-sourced labels', () 
   const html = renderAdminPackageCards(rows, formatMoney);
   assert.match(html, /&lt;b&gt;10M&lt;\/b&gt;/);
   assert.doesNotMatch(html, /<b>10M/);
+});
+
+test('five requested package presets remain local unsaved FUP defaults with exact rates', () => {
+  assert.deepEqual(DEFAULT_PACKAGE_PRESETS.map(({ name, monthlyFeeCents, quotaLimitGb }) => [name, monthlyFeeCents, quotaLimitGb]), [
+    ['3 Mbps / 100 GB', 100000, 100],
+    ['5 Mbps / 150 GB', 150000, 150],
+    ['5 Mbps / 200 GB', 200000, 200],
+    ['5 Mbps / 500 GB', 250000, 500],
+    ['15 Mbps / 2000 GB', 300000, 2000],
+  ]);
+  const html = renderAdminPackageCreationForm();
+  assert.equal((html.match(/data-package-preset=/g) ?? []).length, 5);
+  assert.match(html, /data-package-create/);
+  assert.match(html, /data-quota-type-select/);
+  assert.match(html, /name="quota_limit_gb"/);
+  assert.match(html, /name="action_on_exhaust"/);
+  assert.match(html, /no router-side action is applied/i);
 });
 
 test('monthly invoice request requires real month and exact valid dates', () => {

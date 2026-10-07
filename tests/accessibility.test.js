@@ -132,23 +132,22 @@ test('tablet header wraps before its controls overflow and keeps labeled touch t
   assert.match(styles, /\.theme-toggle:focus-visible/);
 });
 
-test('sign-in and password-recovery actions keep 44px touch targets', () => {
+test('username sign-in action keeps a 44px touch target', () => {
   const authButtonRule = styles.match(/\.auth-panel \.button\s*\{([^}]*)\}/)?.[1] ?? '';
   const minimumHeight = Number(authButtonRule.match(/min-height:\s*(\d+(?:\.\d+)?)px/)?.[1]);
   assert.ok(minimumHeight >= 44, `auth buttons need at least 44px height; found ${minimumHeight}px`);
-  for (const formId of ['customer-login-form', 'email-password-login-form', 'login-form', 'password-recovery-form']) {
-    assert.ok(index.includes(`id="${formId}"`), `auth touch target rule covers ${formId}`);
-  }
+  assert.ok(index.includes('id="customer-login-form"'), 'auth touch target rule covers the username/password login form');
+  assert.doesNotMatch(index, /email-password-login-form|password-recovery-form/);
 });
 
-test('current-password sign-in fields have paired, localized visibility controls with accessible touch targets', () => {
+test('the single username sign-in password has a localized visibility control with an accessible touch target', () => {
   const fields = [...index.matchAll(/<div class="password-input-control">([\s\S]*?)<\/div>/g)].map((match) => match[1]);
-  assert.equal(fields.length, 2, 'only the two current-password sign-in fields receive visibility controls');
-  for (const [field, id] of fields.map((field, index) => [field, ['customer-login-password', 'email-password'][index]])) {
-    assert.ok(field.includes(`id="${id}"`), `${id} remains the paired password field`);
-    assert.match(field, /type="password"[^>]*autocomplete="current-password"/);
-    assert.ok(field.includes(`<button class="password-visibility-toggle" type="button" data-password-visibility="${id}" data-i18n="Show" data-i18n-aria-label="Show password" aria-label="Show password" aria-pressed="false">Show</button>`));
-  }
+  assert.equal(fields.length, 1, 'only the single customer username sign-in password receives a visibility control');
+  const [field] = fields;
+  const id = 'customer-login-password';
+  assert.ok(field.includes(`id="${id}"`), `${id} remains the paired password field`);
+  assert.match(field, /type="password"[^>]*autocomplete="current-password"/);
+  assert.ok(field.includes(`<button class="password-visibility-toggle" type="button" data-password-visibility="${id}" data-i18n="Show" data-i18n-aria-label="Show password" aria-label="Show password" aria-pressed="false">Show</button>`));
   const toggleRule = styles.match(/\.auth-panel \.password-visibility-toggle\s*\{([^}]*)\}/)?.[1] ?? '';
   const minHeight = Number(toggleRule.match(/min-height:\s*(\d+(?:\.\d+)?)px/)?.[1]);
   const minWidth = Number(toggleRule.match(/min-width:\s*(\d+(?:\.\d+)?)px/)?.[1]);
@@ -261,19 +260,14 @@ test('Admin incident reporting and updates use labeled fields, explicit statuses
   assert.match(styles, /@media \(max-width: 600px\) \{\s+\.incident-create-form \{ grid-template-columns: 1fr;/);
 });
 
-test('password recovery announces confirmed saves and tries sound only after Auth returns a user', () => {
+test('customer portal announces live traffic and exposes no password mutation controls', async () => {
+  const customerUsage = await readFile(new URL('../src/customer-usage.js', import.meta.url), 'utf8');
   assert.match(index, /id="app-toast" class="app-toast" role="status" aria-live="polite" aria-atomic="true" hidden/);
   assert.match(styles, /\.app-toast\[hidden\] \{ display: none; \}/);
   assert.match(styles, /safe-area-inset-bottom/);
-  const handler = main.match(/passwordRecoveryForm\?\.addEventListener\('submit', async \(event\) => \{([\s\S]*?)\n  \}\);/)?.[1];
-  assert.ok(handler, 'password recovery handler exists');
-  const confirmation = handler.indexOf('if (updateResult?.error || !updateResult?.data?.user?.id)');
-  const toast = handler.indexOf("showAppToast('Your password was updated successfully.')");
-  const sound = handler.indexOf('successSound.play()');
-  assert.ok(confirmation >= 0 && toast > confirmation, 'the confirmed Auth user check precedes the success toast');
-  assert.ok(sound > toast, 'sound follows the visible success confirmation');
-  assert.match(handler.slice(confirmation, toast), /successSound\.cancel\(\)/);
-  assert.match(handler, /Password could not be updated\. Check the recovery link and try again\./);
+  assert.match(customerUsage, /customer-live-traffic-status" class="live-traffic__status" role="status" aria-live="polite"/);
+  assert.doesNotMatch(`${index}\n${main}`, /password-recovery-form|mandatory-password-change-form|PASSWORD_RECOVERY/);
+  assert.doesNotMatch(main, /functions\.invoke\('change-customer-password'/);
 });
 
 test('Admin PPPoE controls are schema-gated and explicitly mapping-only', async () => {
@@ -288,11 +282,12 @@ test('Admin PPPoE controls are schema-gated and explicitly mapping-only', async 
 });
 
 
-test('feature panels have default-collapsed eye controls without unmounting state or stopping work', async () => {
+test('username login feature panel has default-collapsed controls without unmounting state or stopping work', async () => {
   const featureToggles = await readFile(new URL('../src/feature-toggles.js', import.meta.url), 'utf8');
-  for (const key of ['auth-customer-username', 'auth-email-password', 'auth-email-link', 'auth-password-recovery']) {
+  for (const key of ['auth-customer-username']) {
     assert.match(index, new RegExp(`data-feature-key="${key}"`));
   }
+  assert.doesNotMatch(index, /auth-email-password|auth-email-link|auth-password-recovery/);
   assert.match(main, /initializeFeatureToggles\(document,\s*\{[\s\S]*?observe: true/);
   assert.doesNotMatch(main, /from ['"]\.\/dashboard-analytics\.js['"]/);
   assert.match(main, /import\(['"]\.\/dashboard-analytics\.js['"]\)/);

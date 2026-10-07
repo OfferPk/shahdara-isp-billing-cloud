@@ -41,6 +41,10 @@ export function buildPackagePricingRows(customers = [], packages = []) {
       name,
       monthlyFeeCents: centsValue(record.monthly_fee_cents),
       effectiveOn: String(record.effective_on ?? ''),
+      quotaType: record.quota_type === 'fup_capped' ? 'fup_capped' : 'unlimited',
+      quotaLimitGb: Number.isSafeInteger(Number(record.quota_limit_gb)) && Number(record.quota_limit_gb) > 0
+        ? Number(record.quota_limit_gb) : null,
+      actionOnExhaust: ['notify', 'throttle', 'suspend'].includes(record.action_on_exhaust) ? record.action_on_exhaust : 'notify',
       activeCustomerCount: 0,
       customerCount: 0,
     });
@@ -58,6 +62,9 @@ export function buildPackagePricingRows(customers = [], packages = []) {
         name,
         monthlyFeeCents: null,
         effectiveOn: '',
+        quotaType: 'unlimited',
+        quotaLimitGb: null,
+        actionOnExhaust: 'notify',
         activeCustomerCount: 0,
         customerCount: 0,
       };

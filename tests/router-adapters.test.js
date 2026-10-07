@@ -96,7 +96,7 @@ test('missing or unreachable MikroTik settings return disconnected health and an
 
 test('RouterOS API request helper allowlists only the two requested read commands', async () => {
   assert.equal(routerAdapterInternals.parseRouterUptime('1w2d3h4m5s'), 788645);
-  await assert.rejects(routerAdapterInternals.apiRequest({ host: '127.0.0.1' }, '/ppp/secret/remove'), /read commands/);
+  await assert.rejects(routerAdapterInternals.apiRequest({ host: '127.0.0.1' }, '/ppp/secret/remove'), /validated RouterOS read requests/);
 });
 
 test('mock adapter discovers 15–20 synthetic subscriber records with profile and parsed comment fields', async () => {

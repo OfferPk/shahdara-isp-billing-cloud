@@ -149,21 +149,44 @@ async function loadBillRows(supabase, context, applyFilters) {
 
 async function loadServicePackages(supabase, applyFilters) {
   try {
-    const rows = await rowsFor(supabase, 'service_packages', 'id, name, monthly_fee_cents, effective_on, updated_at',
+    const rows = await rowsFor(supabase, 'service_packages', 'id, name, monthly_fee_cents, effective_on, updated_at, quota_type, quota_limit_gb, action_on_exhaust',
       applyFilters, { column: 'name' });
-    return { data: rows, error: null };
+    return { data: rows, error: null, quotaMetadataAvailable: true };
   } catch (error) {
     if (!['42703', 'PGRST204'].includes(String(error?.code ?? ''))
-        || !/(effective_on|updated_at)/i.test(String(error?.message ?? ''))) {
-      return { data: [], error };
+        || !/(effective_on|updated_at|quota_type|quota_limit_gb|action_on_exhaust)/i.test(String(error?.message ?? ''))) {
+      return { data: [], error, quotaMetadataAvailable: false };
     }
     try {
-      const rows = await rowsFor(supabase, 'service_packages', 'id, name, monthly_fee_cents',
+      const rows = await rowsFor(supabase, 'service_packages', 'id, name, monthly_fee_cents, effective_on, updated_at',
         applyFilters, { column: 'name' });
-      return { data: rows, error: null };
+      return { data: rows.map((row) => ({ ...row, quota_type: 'unlimited', quota_limit_gb: null, action_on_exhaust: 'notify' })), error: null, quotaMetadataAvailable: false };
     } catch (fallbackError) {
-      return { data: [], error: fallbackError };
+      if (!['42703', 'PGRST204'].includes(String(fallbackError?.code ?? ''))
+          || !/(effective_on|updated_at)/i.test(String(fallbackError?.message ?? ''))) {
+        return { data: [], error: fallbackError, quotaMetadataAvailable: false };
+      }
+      try {
+        const rows = await rowsFor(supabase, 'service_packages', 'id, name, monthly_fee_cents',
+          applyFilters, { column: 'name' });
+        return { data: rows.map((row) => ({ ...row, quota_type: 'unlimited', quota_limit_gb: null, action_on_exhaust: 'notify' })), error: null, quotaMetadataAvailable: false };
+      } catch (minimumError) {
+        return { data: [], error: minimumError, quotaMetadataAvailable: false };
+      }
     }
+  }
+}
+
+async function loadCustomerQuotaPackage(supabase, context) {
+  try {
+    const { data, error } = await supabase.rpc('my_customer_package_quota', {
+      p_organization_id: context.organizationId,
+      p_customer_id: context.customerId,
+    });
+    if (error) return { data: null, error };
+    return { data: Array.isArray(data) ? (data[0] ?? null) : (data ?? null), error: null };
+  } catch (error) {
+    return { data: null, error };
   }
 }
 
@@ -194,13 +217,31 @@ export async function loadPortalRows(supabase, context) {
       .then((data) => ({ data, error: null }))
       .catch((error) => ({ data: [], error }))
     : Promise.resolve({ data: [], error: null });
+  const now = new Date();
+  const usageMonthParts = new Intl.DateTimeFormat('en', {
+    timeZone: 'Asia/Karachi', year: 'numeric', month: '2-digit',
+  }).formatToParts(now);
+  const usageMonthYear = usageMonthParts.find((part) => part.type === 'year')?.value;
+  const usageMonthNumber = usageMonthParts.find((part) => part.type === 'month')?.value;
+  const currentUsageMonth = `${usageMonthYear}-${usageMonthNumber}-01`;
+  const customerMonthlyBandwidthUsageQuery = context.kind === 'customer'
+    ? supabase.from('customer_bandwidth_monthly_usage')
+      .select('usage_month, bytes_in, bytes_out, last_synced_at')
+      .eq('usage_month', currentUsageMonth)
+      .maybeSingle()
+      .then(({ data, error }) => ({ data: data ? [data] : [], error }))
+      .catch((error) => ({ data: [], error }))
+    : Promise.resolve({ data: [], error: null });
+  const customerQuotaPackageQuery = context.kind === 'customer'
+    ? loadCustomerQuotaPackage(supabase, context)
+    : Promise.resolve({ data: null, error: null });
   const packageCatalogQuery = context.kind === 'admin'
     ? loadServicePackages(supabase, byOrganization)
     : Promise.resolve({ data: [], error: null });
   const receiptColumns = context.kind === 'admin'
     ? 'organization_id, id, customer_id, origin_bill_id, received_on, amount_cents, method, created_at'
     : 'id, customer_id, origin_bill_id, received_on, amount_cents, method';
-  const [customerResult, billResult, receipts, allocations, incidents, privateCustomerDetails, privateIncidentDetails, cashflowExpenses, customerServiceCosts, branding, customerBandwidthUsage, packageCatalog] = await Promise.all([
+  const [customerResult, billResult, receipts, allocations, incidents, privateCustomerDetails, privateIncidentDetails, cashflowExpenses, customerServiceCosts, branding, customerBandwidthUsage, customerMonthlyBandwidthUsage, packageCatalog, customerQuotaPackage] = await Promise.all([
     customerQuery,
     loadBillRows(supabase, context, context.kind === 'admin' ? byOrganization : customerOnly),
     rowsFor(supabase, 'receipts', receiptColumns,
@@ -215,12 +256,15 @@ export async function loadPortalRows(supabase, context) {
     customerServiceCostsQuery,
     loadOrganizationBranding(supabase, context.organizationId),
     customerBandwidthUsageQuery,
+    customerMonthlyBandwidthUsageQuery,
     packageCatalogQuery,
+    customerQuotaPackageQuery,
   ]);
   const adminBillingRows = context.kind === 'admin' ? {
     invoiceNumberAvailable: billResult.invoiceNumberAvailable,
     packages: packageCatalog.data,
     packagesError: packageCatalog.error,
+    packageQuotaMetadataAvailable: packageCatalog.quotaMetadataAvailable,
   } : {};
   return {
     customers: customerResult.rows,
@@ -231,6 +275,10 @@ export async function loadPortalRows(supabase, context) {
     cashflowExpenses, customerServiceCosts, branding,
     customerBandwidthUsage: customerBandwidthUsage.data,
     customerBandwidthUsageError: customerBandwidthUsage.error,
+    customerMonthlyBandwidthUsage: customerMonthlyBandwidthUsage.data,
+    customerMonthlyBandwidthUsageError: customerMonthlyBandwidthUsage.error,
+    customerQuotaPackage: customerQuotaPackage.data,
+    customerQuotaPackageError: customerQuotaPackage.error,
   };
 }
 

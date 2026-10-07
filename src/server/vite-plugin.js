@@ -7,7 +7,8 @@ function matchesPppoeApi(requestUrl) {
     const pathname = new URL(requestUrl ?? '/', 'http://vite.local').pathname;
     return pathname.startsWith('/api/admin/pppoe/')
       || pathname.startsWith('/api/admin/subscribers/')
-      || pathname.startsWith('/api/admin/billing/');
+      || pathname.startsWith('/api/admin/billing/')
+      || pathname === '/api/customer/live-traffic';
   } catch {
     return false;
   }

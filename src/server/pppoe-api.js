@@ -7,6 +7,7 @@ const DISCOVER_PATH = '/api/admin/subscribers/discover';
 const IMPORT_PATH = '/api/admin/subscribers/import';
 const PACKAGE_PRICE_PATH = '/api/admin/billing/packages';
 const GENERATE_INVOICES_PATH = '/api/admin/billing/generate';
+const CUSTOMER_LIVE_TRAFFIC_PATH = '/api/customer/live-traffic';
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MAX_IMPORT_COUNT = 500;
 const importQueues = new Map();
@@ -103,6 +104,102 @@ async function authorizeAdmin(request, organizationId, { env, createClient }) {
   } catch {
     return { status: 503, error: 'Administrator access could not be verified.' };
   }
+}
+
+async function authorizeCustomerTraffic(request, { env, createClient }) {
+  const authorization = request.headers.get('authorization') ?? '';
+  const match = /^Bearer\s+(.+)$/i.exec(authorization);
+  if (!match?.[1]?.trim()) return { status: 401, error: 'Sign in to view customer traffic.' };
+  const { url, key } = supabaseConfig(env);
+  if (!url || !key || typeof createClient !== 'function') {
+    return { status: 503, error: 'Customer traffic authorization is not configured.' };
+  }
+
+  try {
+    const bearerToken = match[1].trim();
+    const client = createClient(url, key, {
+      global: { headers: { Authorization: `Bearer ${bearerToken}` } },
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
+    const { data: userResult, error: userError } = await client.auth.getUser(bearerToken);
+    if (userError || !userResult?.user?.id) return { status: 401, error: 'The sign-in session is invalid or expired.' };
+
+    const { data: passwordStates, error: passwordStateError } = await client.rpc('my_customer_portal_password_state');
+    if (passwordStateError) return { status: 503, error: 'Customer portal access could not be verified.' };
+    const passwordState = passwordStates?.[0]?.state ?? 'none';
+    if (!['none', 'active'].includes(passwordState)) return { status: 403, error: 'Active customer portal access is required.' };
+
+    const { data: contexts, error: contextsError } = await client.rpc('my_customer_portal_contexts');
+    if (contextsError) return { status: 503, error: 'Customer portal access could not be verified.' };
+    if (!Array.isArray(contexts) || contexts.length !== 1) {
+      return { status: 403, error: 'A single linked customer account is required.' };
+    }
+    const context = contexts[0];
+    const organizationId = String(context?.organization_id ?? '');
+    const customerId = String(context?.customer_id ?? '');
+    if (!UUID_PATTERN.test(organizationId) || !customerId || customerId.length > 255) {
+      return { status: 403, error: 'The linked customer account could not be verified.' };
+    }
+
+    const { data: customer, error: customerError } = await client
+      .from('customers')
+      .select('id,organization_id,pppoe_username')
+      .eq('organization_id', organizationId)
+      .eq('id', customerId)
+      .maybeSingle();
+    if (customerError) return { status: 503, error: 'The linked customer profile could not be verified.' };
+    if (!customer
+        || String(customer.id) !== customerId
+        || String(customer.organization_id).toLowerCase() !== organizationId.toLowerCase()) {
+      return { status: 403, error: 'The linked customer profile could not be verified.' };
+    }
+    const pppoeUsername = typeof customer.pppoe_username === 'string' ? customer.pppoe_username : '';
+    if (!pppoeUsername || pppoeUsername.trim() !== pppoeUsername) {
+      return { status: 404, error: 'Live traffic is not linked to this customer account.' };
+    }
+    return { client, user: userResult.user, customer: { id: customerId, organizationId, pppoeUsername } };
+  } catch {
+    return { status: 503, error: 'Customer portal access could not be verified.' };
+  }
+}
+
+function createTrafficRateLimiter({
+  now = () => Date.now(),
+  minUserIntervalMs = 2000,
+  maxRequestsPerSecond = 10,
+  maxConcurrent = 4,
+} = {}) {
+  const lastByUser = new Map();
+  const recentRequests = [];
+  let inFlight = 0;
+  return {
+    acquire(userId) {
+      const currentTime = Number(now());
+      while (recentRequests.length && currentTime - recentRequests[0] >= 1000) recentRequests.shift();
+      if (minUserIntervalMs > 0) {
+        const last = lastByUser.get(userId);
+        if (last !== undefined && currentTime - last < minUserIntervalMs) {
+          return { allowed: false, retryAfterMs: minUserIntervalMs - (currentTime - last) };
+        }
+      }
+      if (recentRequests.length >= maxRequestsPerSecond) {
+        return { allowed: false, retryAfterMs: Math.max(1, 1000 - (currentTime - recentRequests[0])) };
+      }
+      if (inFlight >= maxConcurrent) return { allowed: false, retryAfterMs: 1000 };
+      if (minUserIntervalMs > 0) lastByUser.set(userId, currentTime);
+      recentRequests.push(currentTime);
+      inFlight += 1;
+      let released = false;
+      return {
+        allowed: true,
+        release() {
+          if (released) return;
+          released = true;
+          inFlight = Math.max(0, inFlight - 1);
+        },
+      };
+    },
+  };
 }
 
 async function loadOrganizationCustomers(client, organizationId) {
@@ -223,9 +320,17 @@ export function createPppoeApiHandler({
   createClient,
   adapterFactory = createRouterAdapter,
   adapter,
+  now = () => Date.now(),
 } = {}) {
   const router = adapter ?? adapterFactory({ env });
   const origins = allowedOrigins(env);
+  const customerTrafficLimiter = createTrafficRateLimiter({ now });
+  const customerTrafficIngressLimiter = createTrafficRateLimiter({
+    now,
+    minUserIntervalMs: 0,
+    maxRequestsPerSecond: 30,
+    maxConcurrent: 20,
+  });
 
   return async function handlePppoeApi(request) {
     const requestUrl = new URL(request.url);
@@ -235,10 +340,54 @@ export function createPppoeApiHandler({
     if (request.method === 'OPTIONS') return jsonResponse(204, {}, origin, true);
 
     const pathname = requestUrl.pathname;
-    const knownPaths = [SESSION_PATH, HEALTH_PATH, DISCOVER_PATH, IMPORT_PATH, PACKAGE_PRICE_PATH, GENERATE_INVOICES_PATH];
+    const knownPaths = [SESSION_PATH, HEALTH_PATH, DISCOVER_PATH, IMPORT_PATH, PACKAGE_PRICE_PATH, GENERATE_INVOICES_PATH, CUSTOMER_LIVE_TRAFFIC_PATH];
     if (!knownPaths.includes(pathname)) return jsonResponse(404, { error: 'Not found.' }, origin, true);
     const allowedMethod = [IMPORT_PATH, PACKAGE_PRICE_PATH, GENERATE_INVOICES_PATH].includes(pathname) ? 'POST' : 'GET';
     if (request.method !== allowedMethod) return jsonResponse(405, { error: 'Method not allowed.' }, origin, true);
+
+    if (pathname === CUSTOMER_LIVE_TRAFFIC_PATH) {
+      if (requestUrl.search) return jsonResponse(400, { error: 'This route does not accept customer or organization identifiers.' }, origin, true);
+      const ingress = customerTrafficIngressLimiter.acquire('all');
+      if (!ingress.allowed) {
+        const limited = jsonResponse(429, { error: 'Customer traffic requests are temporarily rate limited.' }, origin, true);
+        limited.headers.set('retry-after', String(Math.max(1, Math.ceil(ingress.retryAfterMs / 1000))));
+        return limited;
+      }
+      try {
+        const authorization = await authorizeCustomerTraffic(request, { env, createClient });
+        if (authorization.error) return jsonResponse(authorization.status, { error: authorization.error }, origin, true);
+        const permit = customerTrafficLimiter.acquire(authorization.user.id);
+        if (!permit.allowed) {
+          const limited = jsonResponse(429, { error: 'Live traffic is temporarily rate limited. Try again in a moment.' }, origin, true);
+          limited.headers.set('retry-after', String(Math.max(1, Math.ceil(permit.retryAfterMs / 1000))));
+          return limited;
+        }
+        try {
+          if (typeof router.getLiveTrafficForUsername !== 'function') {
+            return jsonResponse(503, { error: 'The configured router adapter does not support live traffic.' }, origin, true);
+          }
+          const sample = await router.getLiveTrafficForUsername(authorization.customer.pppoeUsername);
+          if (!Number.isFinite(Number(sample?.downloadBitsPerSecond))
+              || Number(sample.downloadBitsPerSecond) < 0
+              || !Number.isFinite(Number(sample?.uploadBitsPerSecond))
+              || Number(sample.uploadBitsPerSecond) < 0) {
+            throw new Error('Router returned an invalid live traffic sample.');
+          }
+          return jsonResponse(200, {
+            downloadBitsPerSecond: Number(sample.downloadBitsPerSecond),
+            uploadBitsPerSecond: Number(sample.uploadBitsPerSecond),
+            sampledAt: typeof sample.sampledAt === 'string' ? sample.sampledAt : new Date(now()).toISOString(),
+            source: sample.source === 'demo' ? 'demo' : 'routeros',
+          }, origin, true);
+        } catch {
+          return jsonResponse(503, { error: 'Live router traffic is temporarily unavailable.' }, origin, true);
+        } finally {
+          permit.release();
+        }
+      } finally {
+        ingress.release();
+      }
+    }
 
     const organizationId = String(requestUrl.searchParams.get('organizationId') ?? '').trim();
     if (!UUID_PATTERN.test(organizationId)) return jsonResponse(400, { error: 'A valid organizationId is required.' }, origin, true);
@@ -365,5 +514,6 @@ export const pppoeApiRoutes = Object.freeze({
   import: IMPORT_PATH,
   packagePricing: PACKAGE_PRICE_PATH,
   generateInvoices: GENERATE_INVOICES_PATH,
+  customerLiveTraffic: CUSTOMER_LIVE_TRAFFIC_PATH,
 });
-export const pppoeApiInternals = Object.freeze({ asBigInt, jsonSession, authorizeAdmin, loadOrganizationCustomers, normalizeDiscoveredSubscribers, markImportStatus, importSubscribers, isMissingPppoeUsernameColumn });
+export const pppoeApiInternals = Object.freeze({ asBigInt, jsonSession, authorizeAdmin, authorizeCustomerTraffic, createTrafficRateLimiter, loadOrganizationCustomers, normalizeDiscoveredSubscribers, markImportStatus, importSubscribers, isMissingPppoeUsernameColumn });
