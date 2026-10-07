@@ -52,6 +52,7 @@ import { initializeTheme } from './theme.js';
 import { initializeAppInstall } from './app-install.js';
 import { renderDashboardAnalyticsSkeleton } from './dashboard-analytics-loading.js';
 import { renderPortalLoadError, safePortalErrorDetails } from './portal-load-error.js';
+import { mountPppoeSessionsDashboard } from './admin-pppoe-sessions.js';
 import './styles.css';
 
 const app = document.querySelector('#app');
@@ -84,6 +85,7 @@ const themeControl = initializeTheme({
 });
 let recoveryMode = hasPasswordRecoveryMarker(window.location.search, window.location.hash);
 let rerenderForLanguage = () => {};
+let cleanupPppoeDashboard = () => {};
 
 function applyStaticTranslations(root = document) {
   for (const element of root.querySelectorAll('[data-i18n]')) {
@@ -549,6 +551,8 @@ if (!supabase) {
 
   async function handleSession(session) {
     if (!session) {
+      cleanupPppoeDashboard();
+      cleanupPppoeDashboard = () => {};
       const recoveryLinkWasPresent = recoveryMode;
       pageState.user = null;
       pageState.contexts = [];
@@ -692,7 +696,11 @@ if (!supabase) {
     if (!pageState.context || !pageState.rows) return;
     applyBrandIdentity();
     if (pageState.context.kind === 'admin') renderAdmin();
-    else renderCustomer();
+    else {
+      cleanupPppoeDashboard();
+      cleanupPppoeDashboard = () => {};
+      renderCustomer();
+    }
   }
 
   function snapshotPortalUi() {
@@ -824,7 +832,7 @@ if (!supabase) {
 
   function renderPortalNavigation(kind) {
     const links = kind === 'admin'
-      ? [['#admin-overview', 'Overview'], ['#customer-list', 'Customers'], ['#admin-bills', 'Bills'], ['#admin-receipts', 'Receipts'], ['#admin-incidents', 'Service incidents'], ['#admin-network-diagnostics', 'AI Network Engineer · Simulation'], ...(pageState.context?.role === 'owner' ? [['#company-branding', 'Company profile']] : [])]
+      ? [['#admin-overview', 'Overview'], ['#admin-pppoe-sessions', 'Active Sessions'], ['#customer-list', 'Customers'], ['#admin-bills', 'Bills'], ['#admin-receipts', 'Receipts'], ['#admin-incidents', 'Service incidents'], ['#admin-network-diagnostics', 'AI Network Engineer · Simulation'], ...(pageState.context?.role === 'owner' ? [['#company-branding', 'Company profile']] : [])]
       : [['#customer-account', 'My account'], ['#customer-usage', 'Usage dashboard'], ['#customer-expiry', 'Service expiry'], ['#customer-billing', 'Billing history'], ['#customer-incidents', 'Service updates']];
     return `<nav class="portal-nav" aria-label="${escapeHtml(t('Portal navigation'))}">${links.map(([href, label]) => `<a href="${href}">${escapeHtml(t(label))}</a>`).join('')}</nav>`;
   }
@@ -1604,6 +1612,8 @@ if (!supabase) {
   }
 
   function renderAdmin() {
+    cleanupPppoeDashboard();
+    cleanupPppoeDashboard = () => {};
     const renderGeneration = ++dashboardAnalyticsRenderGeneration;
     pageState.dashboardAnalyticsRenderGeneration = renderGeneration;
     const context = pageState.context;
@@ -1729,6 +1739,7 @@ if (!supabase) {
 
     portalPanel.innerHTML = `${shellHeader(t('Administrator portal'))}
       ${renderPortalNavigation('admin')}
+      <section id="admin-pppoe-sessions" class="panel data-panel pppoe-dashboard-panel" aria-labelledby="pppoe-sessions-title"></section>
       ${brandingSettingsHtml()}
       ${renderDashboardMetrics({ month: pageState.selectedMonth, today: dashboardToday, totals, previousTotals, trendSeries: dashboardTrendSeries, t })}
       <section class="panel month-panel" data-feature-key="admin-month-controls" data-feature-default-expanded="true"><div class="month-panel__row"><label for="dashboard-month">${escapeHtml(t('Dashboard month'))}<input type="month" id="dashboard-month" value="${escapeHtml(pageState.selectedMonth)}"></label><div class="dashboard-month-shortcuts" role="group" aria-label="${escapeHtml(t('Dashboard month shortcuts'))}"><button class="button secondary small" type="button" data-dashboard-month-target="previous">${escapeHtml(t('Previous month'))}</button><button class="button secondary small" type="button" data-dashboard-month-target="current">${escapeHtml(t('This month'))}</button><button class="button secondary small" type="button" data-dashboard-month-target="last">${escapeHtml(t('Last month'))}</button><button class="button secondary small" type="button" data-dashboard-month-target="next" ${pageState.selectedMonth >= localMonth() ? 'disabled' : ''}>${escapeHtml(t('Next month'))}</button></div></div><p class="muted">${escapeHtml(t('Cash totals follow receipt dates. Credit allocation is shown separately and is never counted as another payment.'))}</p></section>
@@ -1915,6 +1926,16 @@ if (!supabase) {
     }));
     portalPanel.querySelector('#receipt-customer')?.addEventListener('change', (event) => populateReceiptBills(event.target.value));
     updateAdminReceiptResults();
+    const pppoeDashboardRoot = portalPanel.querySelector('#admin-pppoe-sessions');
+    cleanupPppoeDashboard = mountPppoeSessionsDashboard(pppoeDashboardRoot, {
+      organizationId: context.organizationId,
+      getAccessToken: async () => {
+        const { data, error } = await supabase.auth.getSession();
+        if (error) throw error;
+        return data?.session?.access_token ?? '';
+      },
+      t,
+    });
     bindNetworkDiagnostics(context);
     bindAdminReceiptActions(context);
     bindAdminForms(context);

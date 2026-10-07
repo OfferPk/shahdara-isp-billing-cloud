@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
+    "start": "node src/server/start.js",
+    "start:api": "node src/server/api-only.js",
     "preview": "vite preview --host 0.0.0.0",
     "test": "node --test",
     "test:db": "bash scripts/test-db.sh"

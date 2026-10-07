@@ -1215,3 +1215,92 @@ td { color: #25433b; }
 @media (max-width: 460px) {
   .network-diagnostics__capability-group dl { grid-template-columns: 1fr; }
 }
+
+/* Read-only live PPPoE sessions dashboard */
+.pppoe-dashboard-panel { padding: 22px; scroll-margin-top: 18px; }
+.pppoe-dashboard { min-width: 0; }
+.pppoe-dashboard__heading { align-items: flex-start; }
+.pppoe-dashboard__heading h2 { font-size: clamp(22px, 3vw, 30px); }
+.pppoe-dashboard__heading .muted { margin: 7px 0 0; }
+.pppoe-last-updated { margin: 2px 0 0; color: var(--muted); font-size: 11px; text-align: right; }
+.pppoe-summary-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 13px; margin: 16px 0; }
+.pppoe-summary-card { display: grid; min-width: 0; min-height: 132px; align-content: start; gap: 12px; padding: 17px; border: 1px solid #d9e6df; border-radius: 15px; background: linear-gradient(145deg, #fff, #f5faf7); box-shadow: 0 10px 28px rgba(24,54,45,.045); }
+.pppoe-summary-card__top { display: flex; align-items: center; justify-content: space-between; gap: 9px; color: var(--muted); font-size: 12px; font-weight: 750; }
+.pppoe-summary-card > strong { min-width: 0; overflow-wrap: anywhere; color: var(--ink); font: 800 clamp(23px, 3vw, 34px) Manrope, sans-serif; letter-spacing: -.04em; }
+.pppoe-summary-card > small { color: var(--muted); font-size: 11px; }
+.pppoe-summary-card--users { border-color: #cfe6d9; background: linear-gradient(145deg, #fff, #f0faf4); }
+.pppoe-summary-card--traffic { border-color: #d5e1f8; background: linear-gradient(145deg, #fff, #f3f7ff); }
+.pppoe-summary-card--router { border-color: #d9e6df; background: linear-gradient(145deg, #fff, #f6f9f7); }
+.pppoe-live-indicator { display: inline-flex; align-items: center; gap: 6px; padding: 5px 8px; border-radius: 999px; color: #176443; background: #e7f6ec; font-size: 10px; font-weight: 850; letter-spacing: .07em; }
+.pppoe-live-indicator i, .pppoe-status > span { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #1c9b63; box-shadow: 0 0 0 3px rgba(28,155,99,.12); }
+.pppoe-traffic-values { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.pppoe-traffic-values p { display: grid; min-width: 0; gap: 4px; margin: 0; }
+.pppoe-traffic-values small { color: var(--muted); font-size: 10px; font-weight: 750; }
+.pppoe-traffic-values strong { color: var(--ink); font-size: clamp(17px, 2.2vw, 24px); overflow-wrap: anywhere; }
+.pppoe-router-badge { display: inline-flex; align-items: center; min-height: 26px; padding: 4px 9px; border-radius: 999px; font-size: 10px; font-weight: 800; }
+.pppoe-router-badge--connected { color: #176443; background: #e7f6ec; }
+.pppoe-router-badge--disconnected { color: #8c3932; background: #fdecea; }
+.pppoe-router-badge--unknown { color: #5f706a; background: #edf2ef; }
+.pppoe-toolbar { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 10px; margin: 16px 0 9px; padding: 13px; border: 1px solid var(--line); border-radius: 13px; background: color-mix(in srgb, var(--paper) 94%, var(--mint)); }
+.pppoe-toolbar label { display: grid; min-width: 150px; gap: 5px; color: var(--muted); font-size: 11px; }
+.pppoe-toolbar .pppoe-search { flex: 1 1 260px; }
+.pppoe-toolbar label input, .pppoe-toolbar label select, .pppoe-toolbar > .button { min-height: 44px; }
+.pppoe-auto-refresh { display: flex; min-height: 43px; align-items: center; gap: 3px; padding: 3px; border: 1px solid #d6e1db; border-radius: 11px; background: var(--paper); }
+.pppoe-auto-refresh > span { padding: 0 7px; color: var(--muted); font-size: 11px; font-weight: 700; }
+.pppoe-auto-refresh button { min-width: 44px; min-height: 44px; padding: 6px 8px; border: 0; border-radius: 8px; color: #436156; background: transparent; font-size: 11px; font-weight: 750; }
+.pppoe-auto-refresh button[aria-pressed="true"] { color: #fff; background: var(--green); }
+.pppoe-auto-refresh button:focus-visible { outline: 2px solid #102e27; outline-offset: 2px; }
+.pppoe-data-mode { margin: 9px 0; color: var(--muted); font-size: 12px; }
+.pppoe-data-mode[data-mode="demo"] { color: #7c5a10; }
+.pppoe-data-mode[data-mode="live"] { color: #176443; }
+.pppoe-session-count { margin: 9px 0; color: var(--muted); font-size: 12px; }
+.pppoe-api-error { margin: 12px 0; padding: 12px 14px; border: 1px solid #e7c3be; border-radius: 10px; color: #842d27; background: #fff3f0; font-size: 13px; overflow-wrap: anywhere; }
+.pppoe-table-wrap { max-width: 100%; }
+.pppoe-table { min-width: 1120px; }
+.pppoe-table th, .pppoe-table td { padding: 11px 12px; }
+.pppoe-table td:first-child { min-width: 165px; }
+.pppoe-table .button.small, .pppoe-session-dialog__header .button.small { min-height: 44px; }
+.pppoe-table code { color: inherit; font-size: 12px; }
+.pppoe-status { display: inline-flex; align-items: center; gap: 7px; min-height: 25px; padding: 4px 9px; border-radius: 999px; font-size: 11px; font-weight: 800; }
+.pppoe-status--online { color: #176443; background: #e7f6ec; }
+.pppoe-status--offline { color: #56635e; background: #edf0ee; }
+.pppoe-status--offline > span { background: #8a9690; box-shadow: 0 0 0 3px rgba(138,150,144,.14); }
+.pppoe-session-dialog { width: min(640px, calc(100vw - 28px)); max-height: min(82vh, 760px); padding: 21px; border: 1px solid var(--line); border-radius: 17px; color: var(--ink); background: var(--paper); box-shadow: 0 24px 80px rgba(0,0,0,.27); }
+.pppoe-session-dialog::backdrop { background: rgba(11,27,21,.52); backdrop-filter: blur(2px); }
+.pppoe-session-dialog__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+.pppoe-session-dialog__header h3 { font-size: 23px; }
+.pppoe-detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; margin: 0; }
+.pppoe-detail-grid > div { min-width: 0; padding: 10px 11px; border: 1px solid var(--line); border-radius: 10px; background: color-mix(in srgb, var(--paper) 92%, var(--mint)); }
+.pppoe-detail-grid dt { margin-bottom: 4px; color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; }
+.pppoe-detail-grid dd { margin: 0; overflow-wrap: anywhere; font-size: 12px; font-weight: 700; }
+:root[data-theme="dark"] .pppoe-summary-card { border-color: var(--line); background: linear-gradient(145deg, #1a2821, #202f27); }
+:root[data-theme="dark"] .pppoe-live-indicator, :root[data-theme="dark"] .pppoe-router-badge--connected { color: #9ce1b9; background: #203d2d; }
+:root[data-theme="dark"] .pppoe-router-badge--disconnected { color: #ffb5aa; background: #442a26; }
+:root[data-theme="dark"] .pppoe-router-badge--unknown { color: #c6d7ce; background: #303a34; }
+:root[data-theme="dark"] .pppoe-toolbar { border-color: var(--line); background: #1a2821; }
+:root[data-theme="dark"] .pppoe-data-mode[data-mode="demo"] { color: #f0cf80; }
+:root[data-theme="dark"] .pppoe-data-mode[data-mode="live"] { color: #9ce1b9; }
+:root[data-theme="dark"] .pppoe-auto-refresh { border-color: var(--line); background: var(--paper); }
+:root[data-theme="dark"] .pppoe-auto-refresh button { color: #c6d7ce; }
+:root[data-theme="dark"] .pppoe-table th { color: #c6d7ce; background: #202d26; }
+:root[data-theme="dark"] .pppoe-table td { color: #d7e4dd; }
+:root[data-theme="dark"] .pppoe-status--online { color: #9ce1b9; background: #203d2d; }
+:root[data-theme="dark"] .pppoe-status--offline { color: #c6d7ce; background: #303a34; }
+:root[data-theme="dark"] .pppoe-api-error { border-color: #6d423c; color: #ffb5aa; background: #392623; }
+@media (max-width: 850px) {
+  .pppoe-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .pppoe-summary-card--router { grid-column: 1 / -1; }
+}
+@media (max-width: 600px) {
+  .pppoe-dashboard-panel { padding: 15px; }
+  .pppoe-dashboard__heading { flex-direction: column; align-items: flex-start; }
+  .pppoe-last-updated { text-align: left; }
+  .pppoe-summary-grid { grid-template-columns: 1fr; }
+  .pppoe-summary-card--router { grid-column: auto; }
+  .pppoe-toolbar { align-items: stretch; flex-direction: column; }
+  .pppoe-toolbar label, .pppoe-toolbar .pppoe-search { width: 100%; }
+  .pppoe-toolbar > .button { width: 100%; }
+  .pppoe-auto-refresh { justify-content: space-between; }
+  .pppoe-auto-refresh > span { flex: 1; }
+  .pppoe-detail-grid { grid-template-columns: 1fr; }
+}
