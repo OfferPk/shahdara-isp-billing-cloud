@@ -35,7 +35,12 @@ test('customer RLS is server-gated and portal contexts return only IDs from a sa
   assert.doesNotMatch(contexts, /login_id|auth_email_alias|expires_at|temporary_password/i);
   assert.match(portalData, /\.rpc\('my_customer_portal_contexts'\)/);
   assert.doesNotMatch(portalData, /\.from\('customer_portal_accounts'\)/);
-  assert.ok(main.indexOf("supabase.rpc('my_customer_portal_password_state')") < main.indexOf('loadContexts(supabase, session.user)'), 'password state must be checked before loading contexts');
+  const sessionLoader = portalData.slice(portalData.indexOf('export async function loadPortalSessionContexts'));
+  const adminCheck = sessionLoader.indexOf('if (adminContexts.length)');
+  const passwordStateCheck = sessionLoader.indexOf("supabase.rpc('my_customer_portal_password_state')");
+  const customerContextsLoad = sessionLoader.indexOf('loadContexts(supabase, user, memberships)');
+  assert.ok(adminCheck >= 0 && adminCheck < passwordStateCheck && passwordStateCheck < customerContextsLoad, 'admins bypass only the customer gate; customer password state remains checked before customer contexts');
+  assert.match(main, /loadPortalSessionContexts\(supabase, session\.user\)/);
   assert.match(main, /showCustomerPasswordGate\(passwordState\)/);
   assert.doesNotMatch(main, /functions\.invoke\('change-customer-password'/);
 });

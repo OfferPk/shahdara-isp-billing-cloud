@@ -2,9 +2,18 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   isCustomerLoginFallbackError,
+  isStaffUsername,
   signInWithUsernamePassword,
   usernameToAuthEmail,
 } from '../src/auth-flows.js';
+
+test('only the trimmed, case-insensitive admin alias is treated as staff login', () => {
+  assert.equal(isStaffUsername(' admin '), true);
+  assert.equal(isStaffUsername('ADMIN'), true);
+  assert.equal(isStaffUsername('admin@example.com'), false);
+  assert.equal(isStaffUsername('customer-01'), false);
+  assert.equal(isStaffUsername('  '), false);
+});
 
 test('username/password login maps trimmed username to the invisible Supabase Auth alias', async () => {
   const calls = [];

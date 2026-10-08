@@ -15,6 +15,26 @@ async function rowsFor(supabase, table, columns, applyFilters, orderBy) {
   throw new Error('The current screen reached its safe paging limit. Narrow the date range and try again.');
 }
 
+function isMissingOptionalPortalTable(error, table) {
+  const code = String(error?.code ?? '');
+  if (!['42P01', 'PGRST205'].includes(code)) return false;
+  const diagnostics = [error?.message, error?.details, error?.hint].filter(Boolean).join(' ');
+  const escapedTable = table.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const missingTablePattern = code === 'PGRST205'
+    ? new RegExp(`(?:table|relation)\\s+['\"']?(?:public\\.)?${escapedTable}['\"']?\\s+(?:in the schema cache|does not exist)`, 'i')
+    : new RegExp(`relation\\s+['\"']?(?:public\\.)?${escapedTable}['\"']?\\s+does not exist`, 'i');
+  return missingTablePattern.test(diagnostics);
+}
+
+async function optionalRowsFor(supabase, table, columns, applyFilters, orderBy) {
+  try {
+    return await rowsFor(supabase, table, columns, applyFilters, orderBy);
+  } catch (error) {
+    if (isMissingOptionalPortalTable(error, table)) return [];
+    throw error;
+  }
+}
+
 export function isMissingPppoeUsernameColumn(error) {
   const code = String(error?.code ?? '');
   const message = String(error?.message ?? '');
@@ -58,30 +78,41 @@ async function loadCustomerRows(supabase, context, applyFilters) {
   }
 }
 
-export async function loadContexts(supabase, user) {
-  const { data: memberships, error: membershipError } = await supabase
+async function readOrganizationMemberships(supabase, user) {
+  const { data, error } = await supabase
     .from('organization_memberships')
     .select('organization_id, role')
     .eq('user_id', user.id);
-  if (membershipError) throw membershipError;
+  if (error) throw error;
+  return data ?? [];
+}
 
-  if ((memberships ?? []).length) {
-    const organizationIds = [...new Set(memberships.map((entry) => entry.organization_id))];
-    const { data: organizations, error: organizationError } = await supabase
-      .from('organizations')
-      .select('id, name')
-      .in('id', organizationIds);
-    if (organizationError) throw organizationError;
-    const nameById = new Map((organizations ?? []).map((organization) => [organization.id, organization.name]));
-    return memberships
-      .filter((entry) => ['owner', 'admin'].includes(entry.role))
-      .map((entry) => ({
-        kind: 'admin',
-        organizationId: entry.organization_id,
-        organizationName: nameById.get(entry.organization_id) ?? 'ISP organization',
-        role: entry.role,
-      }));
-  }
+async function loadAdminContextsFromMemberships(supabase, memberships) {
+  const adminMemberships = memberships.filter((entry) => ['owner', 'admin'].includes(entry.role));
+  if (!adminMemberships.length) return [];
+  const organizationIds = [...new Set(adminMemberships.map((entry) => entry.organization_id))];
+  const { data: organizations, error: organizationError } = await supabase
+    .from('organizations')
+    .select('id, name')
+    .in('id', organizationIds);
+  if (organizationError) throw organizationError;
+  const nameById = new Map((organizations ?? []).map((organization) => [organization.id, organization.name]));
+  return adminMemberships.map((entry) => ({
+    kind: 'admin',
+    organizationId: entry.organization_id,
+    organizationName: nameById.get(entry.organization_id) ?? 'ISP organization',
+    role: entry.role,
+  }));
+}
+
+async function loadAdminContexts(supabase, user) {
+  const memberships = await readOrganizationMemberships(supabase, user);
+  return { memberships, contexts: await loadAdminContextsFromMemberships(supabase, memberships) };
+}
+
+export async function loadContexts(supabase, user, membershipRows = null) {
+  const memberships = membershipRows ?? await readOrganizationMemberships(supabase, user);
+  if (memberships.length) return loadAdminContextsFromMemberships(supabase, memberships);
 
   const { data: accounts, error: accountError } = await supabase
     .rpc('my_customer_portal_contexts');
@@ -118,14 +149,34 @@ export async function loadContexts(supabase, user) {
   });
 }
 
+export async function loadPortalSessionContexts(supabase, user) {
+  const { memberships, contexts: adminContexts } = await loadAdminContexts(supabase, user);
+  // Organization membership is sufficient for Admin access; this RPC is customer-only.
+  if (adminContexts.length) return { contexts: adminContexts, passwordState: null };
+
+  const { data: passwordStates, error: passwordStateError } = await supabase.rpc('my_customer_portal_password_state');
+  if (passwordStateError) throw passwordStateError;
+  const passwordState = passwordStates?.[0]?.state ?? 'none';
+  if (!['none', 'active'].includes(passwordState)) return { contexts: [], passwordState };
+  return {
+    contexts: await loadContexts(supabase, user, memberships),
+    passwordState,
+  };
+}
+
 export async function loadOrganizationBranding(supabase, organizationId) {
-  const { data, error } = await supabase
-    .from('organization_branding')
-    .select('organization_id, display_name, logo_path, support_phone, address')
-    .eq('organization_id', organizationId)
-    .maybeSingle();
-  if (error) throw error;
-  return data ?? null;
+  try {
+    const { data, error } = await supabase
+      .from('organization_branding')
+      .select('organization_id, display_name, logo_path, support_phone, address')
+      .eq('organization_id', organizationId)
+      .maybeSingle();
+    if (error) throw error;
+    return data ?? null;
+  } catch (error) {
+    if (isMissingOptionalPortalTable(error, 'organization_branding')) return null;
+    throw error;
+  }
 }
 
 async function loadBillRows(supabase, context, applyFilters) {
@@ -201,10 +252,10 @@ export async function loadPortalRows(supabase, context) {
     ? rowsFor(supabase, 'incident_private_details', 'incident_id, staff_notes', byOrganization, { column: 'incident_id' })
     : Promise.resolve([]);
   const cashflowExpensesQuery = context.kind === 'admin'
-    ? rowsFor(supabase, 'cashflow_expenses', 'organization_id, id, category, amount_paisa, note, created_at', byOrganization, { column: 'created_at', ascending: false })
+    ? optionalRowsFor(supabase, 'cashflow_expenses', 'organization_id, id, category, amount_paisa, note, created_at', byOrganization, { column: 'created_at', ascending: false })
     : Promise.resolve([]);
   const customerServiceCostsQuery = context.kind === 'admin'
-    ? rowsFor(supabase, 'customer_service_cost_history', 'organization_id, customer_id, id, effective_on, monthly_cost_paisa, note, created_at', byOrganization, { column: 'effective_on', ascending: false })
+    ? optionalRowsFor(supabase, 'customer_service_cost_history', 'organization_id, customer_id, id, effective_on, monthly_cost_paisa, note, created_at', byOrganization, { column: 'effective_on', ascending: false })
     : Promise.resolve([]);
   const customerQuery = loadCustomerRows(
     supabase,

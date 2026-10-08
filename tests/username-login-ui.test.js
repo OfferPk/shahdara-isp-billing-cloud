@@ -28,6 +28,7 @@ test('username auth maps staff to an internal alias while PPPoE customers use th
   assert.match(main, /functions\.invoke\('customer-login'/);
   assert.match(main, /isCustomerLoginFallbackError\(error\)/);
   assert.match(main, /signInWithUsernamePassword\(supabase\.auth, username, password\)/);
+  assert.match(main, /if \(isStaffUsername\(username\)\)[\s\S]*?signInWithUsernamePassword\(supabase\.auth, username, password\)[\s\S]*?return;[\s\S]*?functions\.invoke\('customer-login'/);
   assert.match(authFlows, /\$\{normalizedUsername\}@shahdara\.local/);
   assert.match(authFlows, /auth\.signInWithPassword\(\{ email, password \}\)/);
   assert.doesNotMatch(main, /signInWithOtp|signInWithEmailPassword/);

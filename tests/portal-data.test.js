@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { createCustomer, invokeRpc, isMissingPortalTestAccountColumn, isMissingPppoeUsernameColumn, loadContexts, loadPortalRows, manageServiceIncident, saveCustomerPppoeUsername, saveCustomerPortalTestAccount } from '../src/portal-data.js';
+import { createCustomer, invokeRpc, isMissingPortalTestAccountColumn, isMissingPppoeUsernameColumn, loadContexts, loadPortalRows, loadPortalSessionContexts, manageServiceIncident, saveCustomerPppoeUsername, saveCustomerPortalTestAccount } from '../src/portal-data.js';
 
 function mockClient(results = {}, rpcResult = { data: null, error: null }) {
   const calls = [];
@@ -34,7 +34,7 @@ function mockClient(results = {}, rpcResult = { data: null, error: null }) {
     },
     async rpc(name, args) {
       calls.push({ rpc: name, args });
-      return rpcResult;
+      return typeof rpcResult === 'function' ? rpcResult(name, args) : rpcResult;
     },
   };
 }
@@ -51,6 +51,21 @@ test('admin contexts are selected from the signed-in user membership and organiz
   }]);
   assert.deepEqual(client.calls[0].filters, [['eq', 'user_id', 'synthetic-user']]);
   assert.deepEqual(client.calls[1].filters, [['in', 'id', ['synthetic-org']]]);
+});
+
+test('owner/admin session contexts load without calling the customer password-state RPC', async () => {
+  const client = mockClient({
+    organization_memberships: { data: [{ organization_id: 'synthetic-org', role: 'owner' }], error: null },
+    organizations: { data: [{ id: 'synthetic-org', name: 'Synthetic ISP' }], error: null },
+  }, { data: null, error: { code: 'PGRST202', message: 'function not found' } });
+
+  const result = await loadPortalSessionContexts(client, { id: 'synthetic-user' });
+
+  assert.deepEqual(result, {
+    contexts: [{ kind: 'admin', organizationId: 'synthetic-org', organizationName: 'Synthetic ISP', role: 'owner' }],
+    passwordState: null,
+  });
+  assert.deepEqual(client.calls.map((call) => call.table ?? call.rpc), ['organization_memberships', 'organizations']);
 });
 
 test('only owner and admin memberships receive administrator portal contexts', async () => {
@@ -91,6 +106,49 @@ test('customer contexts come only from the authenticated safe account-link RPC',
     ['in', 'id', ['synthetic-customer']],
   ]);
   assert.equal(client.calls.filter((call) => call.table === 'customers').length, 1);
+});
+
+test('customer password state is checked before customer contexts are requested', async () => {
+  const client = mockClient({
+    organization_memberships: { data: [], error: null },
+    customers: { data: [{ organization_id: 'synthetic-org', id: 'synthetic-customer', name: 'Synthetic Customer' }], error: null },
+  }, (name) => {
+    if (name === 'my_customer_portal_password_state') return { data: [{ state: 'active' }], error: null };
+    if (name === 'my_customer_portal_contexts') return { data: [{ organization_id: 'synthetic-org', customer_id: 'synthetic-customer' }], error: null };
+    return { data: null, error: null };
+  });
+
+  const result = await loadPortalSessionContexts(client, { id: 'synthetic-customer-user' });
+
+  assert.equal(result.passwordState, 'active');
+  assert.equal(result.contexts[0].kind, 'customer');
+  assert.deepEqual(client.calls.filter((call) => call.rpc).map((call) => call.rpc), [
+    'my_customer_portal_password_state',
+    'my_customer_portal_contexts',
+  ]);
+});
+
+test('restricted customer password state blocks before customer contexts are requested', async () => {
+  const client = mockClient({
+    organization_memberships: { data: [], error: null },
+  }, (name) => name === 'my_customer_portal_password_state'
+    ? { data: [{ state: 'change_required' }], error: null }
+    : { data: null, error: null });
+
+  const result = await loadPortalSessionContexts(client, { id: 'synthetic-customer-user' });
+
+  assert.deepEqual(result, { contexts: [], passwordState: 'change_required' });
+  assert.deepEqual(client.calls.filter((call) => call.rpc).map((call) => call.rpc), ['my_customer_portal_password_state']);
+});
+
+test('customer password-state RPC errors fail closed before customer contexts are requested', async () => {
+  const missingRpcError = { code: 'PGRST202', message: 'function not found' };
+  const client = mockClient({
+    organization_memberships: { data: [], error: null },
+  }, { data: null, error: missingRpcError });
+
+  await assert.rejects(loadPortalSessionContexts(client, { id: 'synthetic-customer-user' }), (error) => error === missingRpcError);
+  assert.deepEqual(client.calls.filter((call) => call.rpc).map((call) => call.rpc), ['my_customer_portal_password_state']);
 });
 
 test('customer contexts batch only exact linked IDs per organization, including same-ID cross-organization links', async () => {
@@ -588,6 +646,54 @@ test('PPPoE clearing is explicit, and an unconfirmed update is never treated as 
   assert.equal(isMissingPortalTestAccountColumn({ code: 'PGRST204', message: "Could not find 'portal_test_account' column" }), true);
   assert.equal(isMissingPortalTestAccountColumn({ code: '42501', message: 'permission denied' }), false);
 });
+test('owner dashboard tolerates only the three optional tables missing from production schema', async () => {
+  const optionalTables = ['cashflow_expenses', 'customer_service_cost_history', 'organization_branding'];
+  const missingTables = Object.fromEntries(optionalTables.map((table) => [table, {
+    data: null,
+    error: {
+      code: 'PGRST205',
+      message: `Could not find the table 'public.${table}' in the schema cache`,
+    },
+  }]));
+  const client = mockClient(missingTables);
+
+  const rows = await loadPortalRows(client, { kind: 'admin', organizationId: 'synthetic-org', role: 'owner' });
+
+  assert.deepEqual(rows.cashflowExpenses, []);
+  assert.deepEqual(rows.customerServiceCosts, []);
+  assert.equal(rows.branding, null);
+  assert.deepEqual(rows.customers, []);
+  assert.deepEqual(rows.bills, []);
+  assert.deepEqual(rows.receipts, []);
+  assert.deepEqual(rows.incidents, []);
+});
+
+test('optional portal-table fallbacks preserve permission errors and mismatched missing-table errors', async () => {
+  const optionalTables = ['cashflow_expenses', 'customer_service_cost_history', 'organization_branding'];
+  for (const table of optionalTables) {
+    const permissionError = { code: '42501', message: `permission denied for table ${table}` };
+    const permissionClient = mockClient({ [table]: { data: null, error: permissionError } });
+    await assert.rejects(
+      loadPortalRows(permissionClient, { kind: 'admin', organizationId: 'synthetic-org', role: 'owner' }),
+      (error) => error === permissionError,
+      `${table} authorization failures must remain visible`,
+    );
+  }
+
+  const unrelatedTableError = {
+    code: 'PGRST205',
+    message: "Could not find the table 'public.customer_service_cost_history' in the schema cache",
+  };
+  const mismatchedClient = mockClient({
+    cashflow_expenses: { data: null, error: unrelatedTableError },
+  });
+  await assert.rejects(
+    loadPortalRows(mismatchedClient, { kind: 'admin', organizationId: 'synthetic-org', role: 'owner' }),
+    (error) => error === unrelatedTableError,
+    'a missing different table must not be mistaken for a missing cashflow table',
+  );
+});
+
 test('Admin financial reads select exact rows and remain filtered to the selected organization', async () => {
   const client = mockClient({
     customers: { data: [{ id: 'synthetic-customer', created_at: '2020-01-01T00:00:00.000Z' }], error: null },

@@ -3,6 +3,10 @@ export function usernameToAuthEmail(username) {
   return normalizedUsername ? `${normalizedUsername}@shahdara.local` : '';
 }
 
+export function isStaffUsername(username) {
+  return String(username ?? '').trim().toLowerCase() === 'admin';
+}
+
 export async function signInWithUsernamePassword(auth, username, password) {
   const email = usernameToAuthEmail(username);
   if (!email) return { data: null, error: new Error('Username is required.') };

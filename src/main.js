@@ -1,8 +1,8 @@
 import { createPortalClient, isStagingProjectUrl } from './supabase-client.js';
-import { isCustomerLoginFallbackError, signInWithUsernamePassword } from './auth-flows.js';
+import { isCustomerLoginFallbackError, isStaffUsername, signInWithUsernamePassword } from './auth-flows.js';
 import { togglePasswordVisibility } from './password-visibility.js';
 import { validatePakistanPhone } from './customer-input.js';
-import { createCustomer, invokeRpc, loadContexts, loadOrganizationBranding, loadPortalRows, manageServiceIncident, saveCustomerPppoeUsername, saveCustomerPortalTestAccount } from './portal-data.js';
+import { createCustomer, invokeRpc, loadOrganizationBranding, loadPortalRows, loadPortalSessionContexts, manageServiceIncident, saveCustomerPppoeUsername, saveCustomerPortalTestAccount } from './portal-data.js';
 import { getBillingCycleQuickDate, isValidBillingMonth, localDateString, localMonthString } from './bill-dates.js';
 import { amountToMinorUnits, calculateDashboard, formatMoney } from './ledger.js';
 import { CASHFLOW_CATEGORIES, filterCashflowExpenses, summarizeCashflow } from './cashflow.js';
@@ -666,14 +666,12 @@ if (!supabase) {
     pageState.user = session.user;
     showPortalLoading();
     try {
-      const { data: passwordStates, error: passwordStateError } = await supabase.rpc('my_customer_portal_password_state');
-      if (passwordStateError) throw passwordStateError;
-      const passwordState = passwordStates?.[0]?.state ?? 'none';
-      if (!['none', 'active'].includes(passwordState)) {
+      const { contexts, passwordState } = await loadPortalSessionContexts(supabase, session.user);
+      if (passwordState && !['none', 'active'].includes(passwordState)) {
         showCustomerPasswordGate(passwordState);
         return;
       }
-      pageState.contexts = await loadContexts(supabase, session.user);
+      pageState.contexts = contexts;
       if (!pageState.contexts.length) {
         portalPanel.innerHTML = `<div class="panel" role="status"><p class="eyebrow">${escapeHtml(t('No portal access'))}</p><h2>${escapeHtml(t('Account access is not available'))}</h2><p>${escapeHtml(t('Ask the ISP administrator to verify this account or issue an invitation.'))}</p><button class="button secondary" data-action="sign-out">${escapeHtml(t('Sign out'))}</button></div>`;
         announceApp('Account access is not available.');
@@ -3330,6 +3328,11 @@ if (!supabase) {
     submitButton.disabled = true;
     setMessage(customerLoginMessage, 'Signing in…');
     try {
+      if (isStaffUsername(username)) {
+        const { error: usernameLoginError } = await signInWithUsernamePassword(supabase.auth, username, password);
+        if (usernameLoginError) setMessage(customerLoginMessage, 'Username or password is incorrect or unavailable.', true);
+        return;
+      }
       const { data, error } = await supabase.functions.invoke('customer-login', {
         body: { username, password },
       });
