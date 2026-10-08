@@ -7,7 +7,7 @@ const root = resolve(import.meta.dirname, '..');
 const read = (path) => readFile(resolve(root, path), 'utf8');
 
 test('customer WhatsApp phone updates are scoped to same-organization Admins and stay private', async () => {
-  const migration = await read('supabase/migrations/20261009010000_admin_edit_customer_whatsapp_phone.sql');
+  const migration = await read('supabase/migrations/20261008205921_admin_edit_customer_whatsapp_phone.sql');
   const portalData = await read('src/portal-data.js');
   const main = await read('src/main.js');
   const billCards = await read('src/admin-bills.js');
