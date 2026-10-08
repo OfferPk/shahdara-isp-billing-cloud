@@ -56,8 +56,10 @@ test('username-only login maps internally and customer portal exposes no passwor
   assert.doesNotMatch(login, /type="email"|name="email"|Email/i);
   assert.doesNotMatch(html, /password-recovery-form|mandatory-password-change-form/);
   assert.match(html, /self-service sign-up is disabled/i);
-  assert.match(main, /functions\.invoke\('customer-login'/);
-  assert.match(main, /signInWithUsernamePassword\(supabase\.auth, username, password\)/);
+  assert.match(main, /authenticatePortalLogin\(\{/);
+  assert.match(authFlows, /functions\.invoke\('customer-login'/);
+  assert.match(authFlows, /if \(mode === 'admin'\) return signInWithUsernamePassword\(auth, username, password\)/);
+  assert.match(authFlows, /if \(isStaffUsername\(username\)\)/);
   assert.doesNotMatch(main, /signInWithOtp|PASSWORD_RECOVERY|change-customer-password/);
   assert.match(authFlows, /auth\.signInWithPassword\(/);
   assert.match(authFlows, /\$\{normalizedUsername\}@shahdara\.local/);

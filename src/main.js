@@ -1,5 +1,5 @@
 import { createPortalClient, isStagingProjectUrl } from './supabase-client.js';
-import { isCustomerLoginFallbackError, isStaffUsername, signInWithUsernamePassword } from './auth-flows.js';
+import { authenticatePortalLogin, loginModeFromHash, loginModeToHash } from './auth-flows.js';
 import { togglePasswordVisibility } from './password-visibility.js';
 import { validatePakistanPhone } from './customer-input.js';
 import { createCustomer, invokeRpc, loadOrganizationBranding, loadPortalRows, loadPortalSessionContexts, manageServiceIncident, saveCustomerPppoeUsername, saveCustomerPortalTestAccount } from './portal-data.js';
@@ -103,6 +103,76 @@ function applyStaticTranslations(root = document) {
 
 applyDocumentLanguage(document, currentLanguage);
 applyStaticTranslations();
+const loginModeTabList = document.querySelector('#login-mode-tabs');
+const loginModeTabs = [...document.querySelectorAll('[data-login-mode]')];
+const loginModeDescription = document.querySelector('#login-mode-description');
+const loginFormTitle = document.querySelector('#login-form-title');
+const loginUsernameInput = customerLoginForm?.elements.username;
+const loginPasswordInput = customerLoginForm?.elements.password;
+const loginSubmitButton = customerLoginForm?.querySelector('button[type="submit"]');
+let selectedLoginMode = loginModeFromHash(window.location.hash);
+const loginUsernames = { customer: '', admin: selectedLoginMode === 'admin' ? 'admin' : '' };
+
+function setLoginMode(mode, { updateHash = false } = {}) {
+  const nextMode = mode === 'admin' ? 'admin' : 'customer';
+  const changed = selectedLoginMode !== nextMode;
+  if (changed && loginUsernameInput) loginUsernames[selectedLoginMode] = loginUsernameInput.value;
+  selectedLoginMode = nextMode;
+  if (changed && loginPasswordInput) loginPasswordInput.value = '';
+  if (loginUsernameInput) {
+    if (nextMode === 'admin' && !loginUsernames.admin) loginUsernames.admin = 'admin';
+    loginUsernameInput.value = loginUsernames[nextMode] ?? '';
+  }
+  for (const tab of loginModeTabs) {
+    const selected = tab.dataset.loginMode === nextMode;
+    tab.setAttribute('aria-selected', String(selected));
+    tab.tabIndex = selected ? 0 : -1;
+    tab.classList.toggle('is-active', selected);
+  }
+  const activeTab = loginModeTabs.find((tab) => tab.dataset.loginMode === nextMode);
+  if (activeTab) document.querySelector('#login-options')?.setAttribute('aria-labelledby', activeTab.id);
+  const titleKey = nextMode === 'admin' ? 'Sign in to the ISP Management Portal' : 'Sign in to Customer Self-Care';
+  const descriptionKey = nextMode === 'admin'
+    ? 'Use your assigned staff username and password. The admin account username is admin.'
+    : 'Use your PPPoE username and separately issued customer portal password.';
+  for (const [element, key] of [[loginFormTitle, titleKey], [loginModeDescription, descriptionKey], [loginSubmitButton, titleKey]]) {
+    if (!element) continue;
+    element.dataset.i18n = key;
+    element.textContent = t(key);
+  }
+  const message = document.querySelector('#customer-login-message');
+  if (changed && message) {
+    message.textContent = '';
+    message.classList.remove('error-text', 'success-text');
+  }
+  if (updateHash) {
+    const url = new URL(window.location.href);
+    url.hash = loginModeToHash(nextMode);
+    window.history.replaceState(window.history.state, '', url);
+  }
+}
+
+setLoginMode(selectedLoginMode);
+loginModeTabList?.addEventListener('click', (event) => {
+  const tab = event.target instanceof Element ? event.target.closest('[data-login-mode]') : null;
+  if (tab) setLoginMode(tab.dataset.loginMode, { updateHash: true });
+});
+loginModeTabList?.addEventListener('keydown', (event) => {
+  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+  const currentIndex = loginModeTabs.findIndex((tab) => tab.dataset.loginMode === selectedLoginMode);
+  const nextIndex = event.key === 'Home' ? 0
+    : event.key === 'End' ? loginModeTabs.length - 1
+      : (currentIndex + (event.key === 'ArrowRight' ? 1 : loginModeTabs.length - 1)) % loginModeTabs.length;
+  event.preventDefault();
+  loginModeTabs[nextIndex]?.focus();
+  if (loginModeTabs[nextIndex]) setLoginMode(loginModeTabs[nextIndex].dataset.loginMode, { updateHash: true });
+});
+window.addEventListener('hashchange', () => {
+  if (!authPanel.hidden) setLoginMode(loginModeFromHash(window.location.hash));
+});
+window.addEventListener('popstate', () => {
+  if (!authPanel.hidden) setLoginMode(loginModeFromHash(window.location.hash));
+});
 for (const button of document.querySelectorAll('[data-password-visibility]')) {
   const input = document.getElementById(button.dataset.passwordVisibility);
   if (!input) continue;
@@ -569,6 +639,7 @@ if (!supabase) {
     stopCustomerLiveTraffic();
     configMessage.hidden = true;
     portalPanel.hidden = true;
+    setLoginMode(loginModeFromHash(window.location.hash));
     authPanel.hidden = false;
     loginOptions.hidden = false;
     setMessage(customerLoginMessage, '', false);
@@ -3321,40 +3392,27 @@ if (!supabase) {
 
   customerLoginForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
-    const submitButton = customerLoginForm.querySelector('button[type="submit"]');
     const username = String(new FormData(customerLoginForm).get('username') ?? '').trim();
     const passwordInput = customerLoginForm.elements.password;
     const password = String(passwordInput.value ?? '');
-    submitButton.disabled = true;
+    loginSubmitButton.disabled = true;
+    for (const tab of loginModeTabs) tab.disabled = true;
     setMessage(customerLoginMessage, 'Signing in…');
     try {
-      if (isStaffUsername(username)) {
-        const { error: usernameLoginError } = await signInWithUsernamePassword(supabase.auth, username, password);
-        if (usernameLoginError) setMessage(customerLoginMessage, 'Username or password is incorrect or unavailable.', true);
-        return;
-      }
-      const { data, error } = await supabase.functions.invoke('customer-login', {
-        body: { username, password },
+      const { error } = await authenticatePortalLogin({
+        auth: supabase.auth,
+        functions: supabase.functions,
+        mode: selectedLoginMode,
+        username,
+        password,
       });
-      if (!error && data?.session?.access_token && data?.session?.refresh_token) {
-        const { error: sessionError } = await supabase.auth.setSession(data.session);
-        if (sessionError) {
-          await supabase.auth.signOut();
-          setMessage(customerLoginMessage, 'Username or password is incorrect or unavailable.', true);
-        }
-        return;
-      }
-      if (isCustomerLoginFallbackError(error)) {
-        const { error: usernameLoginError } = await signInWithUsernamePassword(supabase.auth, username, password);
-        if (usernameLoginError) setMessage(customerLoginMessage, 'Username or password is incorrect or unavailable.', true);
-        return;
-      }
-      setMessage(customerLoginMessage, 'Username or password is incorrect or unavailable.', true);
+      if (error) setMessage(customerLoginMessage, 'Username or password is incorrect or unavailable.', true);
     } catch {
       setMessage(customerLoginMessage, 'Username or password is incorrect or unavailable.', true);
     } finally {
       passwordInput.value = '';
-      submitButton.disabled = false;
+      loginSubmitButton.disabled = false;
+      for (const tab of loginModeTabs) tab.disabled = false;
     }
   });
 

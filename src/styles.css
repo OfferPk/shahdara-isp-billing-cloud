@@ -70,6 +70,11 @@ button:focus-visible, a:focus-visible { outline: 3px solid #102e27; outline-offs
 .button.secondary { color: #1a6049; border-color: #bed9cb; background: #f0f7f2; }
 .button.small { min-height: 40px; padding: 7px 12px; font-size: 12px; }
 .auth-panel .button { min-height: 44px; }
+.login-mode-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 18px 0 10px; padding: 5px; border: 1px solid #dce6e1; border-radius: 14px; background: #f2f7f4; }
+.login-mode-tab { min-width: 0; min-height: 46px; padding: 9px 10px; border: 1px solid transparent; border-radius: 10px; color: #31564a; background: transparent; font-size: 13px; font-weight: 750; line-height: 1.35; }
+.login-mode-tab:hover { background: #e5f0e9; }
+.login-mode-tab.is-active { border-color: #a9d4bd; color: #124a36; background: #fff; box-shadow: 0 3px 10px rgba(18, 74, 54, .08); }
+.login-mode-tabs + .muted { margin: 0 2px 13px; }
 .auth-panel .password-input-control { position: relative; min-width: 0; }
 .auth-panel .password-input-control input { padding-inline-end: 112px; }
 .auth-panel .password-visibility-toggle { position: absolute; inset-inline-end: 4px; top: 50%; display: inline-flex; min-width: 44px; min-height: 44px; align-items: center; justify-content: center; padding: 6px 8px; transform: translateY(-50%); border: 1px solid transparent; border-radius: 8px; color: var(--green-dark); background: transparent; font-size: 12px; font-weight: 750; white-space: nowrap; }
@@ -756,6 +761,10 @@ td { color: #25433b; }
 :root[data-theme="dark"] :is(input, select, textarea)::placeholder { color: #91a79b; opacity: 1; }
 :root[data-theme="dark"] :is(input, select, textarea):focus { border-color: #77d7a9; box-shadow: 0 0 0 3px rgba(119, 215, 169, .2); }
 :root[data-theme="dark"] :is(button, a, input, select, textarea, .table-wrap, .customer-fab, .customer-filter-pill, .customer-action, .bill-filter-pill, .bill-action, .bill-receipt-print, .due-date-preset):focus-visible { outline-color: #a7f0c8; box-shadow: 0 0 0 5px #111a15; }
+:root[data-theme="dark"] .login-mode-tabs { border-color: var(--line); background: #111a15; }
+:root[data-theme="dark"] .login-mode-tab { color: #c6ddd0; }
+:root[data-theme="dark"] .login-mode-tab:hover { background: #24362c; }
+:root[data-theme="dark"] .login-mode-tab.is-active { border-color: #4b8265; color: #dcf5e6; background: #24362c; }
 :root[data-theme="dark"] .skip-link { color: #0d2117; background: #a0ebc0; }
 :root[data-theme="dark"] :is(.eyebrow, .bill-card__period, .metric__action) { color: #80dfb1; }
 :root[data-theme="dark"] :is(label, .admin-metrics .metric__label, .profile-card__number, .profile-field span, .profile-card__status p, .incident-item__summary, .incident-timeline__label, .incident-recovery, .customer-history-count, .customer-filter-pill, .customer-card__due, .filter-summary p, .bill-card__due, .bill-card__receipts h4, .bill-receipt-list li, .incident-card__warning, .usage-snapshot__label, .usage-metric span, .usage-quota__facts span, .usage-note, .usage-sync, .usage-expiry > p, .usage-expiry__date, .usage-state, .provider-card__contact strong, .provider-card__contact a) { color: #c6d7ce; }
