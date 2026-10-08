@@ -16,6 +16,11 @@ const ROUTEROS_DISCOVERY_COMMANDS = Object.freeze({
   secrets: Object.freeze(['/ppp/secret/print', '=.proplist=name,profile,remote-address,comment']),
   active: Object.freeze(['/ppp/active/print', '=.proplist=name,profile,address,comment']),
 });
+const ROUTEROS_TELEMETRY_COMMAND = Object.freeze([
+  '/ppp/active/print',
+  '=stats=',
+  '=.proplist=name,uptime,caller-id,address,session-id,bytes',
+]);
 
 export function parseLocalEnvText(text) {
   const values = {};
@@ -474,6 +479,17 @@ async function readRouterSubscribers(config, address) {
   }
 }
 
+export async function readRouterActiveTelemetry(config, address) {
+  const connection = new LocalRouterConnection({ ...config, address });
+  try {
+    await connection.connect();
+    const reply = await connection.read(ROUTEROS_TELEMETRY_COMMAND);
+    return reply.rows;
+  } finally {
+    connection.close();
+  }
+}
+
 async function importSubscriber({ supabase, args, fetchImpl = globalThis.fetch }) {
   const endpoint = `${supabase.url}/rest/v1/rpc/import_router_subscriber`;
   let response;
@@ -573,6 +589,7 @@ export async function runLocalRouterSync({ argv = process.argv.slice(2), cwd = p
 export const localRouterSyncInternals = Object.freeze({
   DEFAULT_ROUTER_PORT,
   ROUTEROS_DISCOVERY_COMMANDS,
+  ROUTEROS_TELEMETRY_COMMAND,
   isPublishableSupabaseKey,
   parseJwtPayload,
   resolvePrivateRouterAddress,

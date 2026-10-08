@@ -5,6 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TEST_FILES_RELATIVE=(
   "supabase/tests/organization_branding.test.sql"
   "supabase/tests/customer_bandwidth_usage.test.sql"
+  "supabase/tests/live_telemetry_bridge.test.sql"
   "supabase/tests/cashflow.test.sql"
 )
 TEST_TMP=""
