@@ -57,7 +57,7 @@ import { renderSubscriberImportContent, renderSubscriberImportDialog, setSelecte
 import { discoverRouterSubscribers, fetchCustomerLiveTraffic, importRouterSubscribers } from './pppoe-api-client.js';
 import { buildInvoiceShareText, buildMonthlyInvoiceRequest } from './billing-engine.js';
 import { DEFAULT_PACKAGE_PRESETS, renderAdminPackageCards, renderAdminPackageCreationForm, buildPackagePricingRows } from './admin-packages.js';
-import { generateMonthlyInvoices, updatePackageMonthlyFee } from './billing-api-client.js';
+import { generateMonthlyInvoices, updatePackageMonthlyFee } from './billing-rpc-client.js';
 import './styles.css';
 
 const app = document.querySelector('#app');
@@ -1876,7 +1876,7 @@ if (!supabase) {
       : `<p class="billing-engine-notice" role="note">${escapeHtml(t('Package pricing and monthly invoicing are unavailable until the billing-engine migration is applied. No database migration is run from this page.'))}</p>`;
     const packageQuotaMetadataAvailable = rows.packageQuotaMetadataAvailable === true && !rows.packagesError;
     const packageQuotaNotice = packageQuotaMetadataAvailable ? ''
-      : `<p class="billing-engine-notice" role="note">${escapeHtml(t('Quota package editing requires the dual-mode FUP quota migration. This app does not apply database migrations automatically.'))}</p>`;
+      : `<p class="billing-engine-notice" role="note">${escapeHtml(t('Package creation is unavailable until the dual-mode FUP quota migration is applied. This page never applies database migrations.'))}</p>`;
     const packagePricingMarkup = renderAdminPackageCards(packagePricingRows, formatMoney, t, {
       disabled: !billingEngineReady,
       quotaMetadataAvailable: packageQuotaMetadataAvailable,
@@ -2757,12 +2757,11 @@ if (!supabase) {
           });
           pageState.packagePricingMessage = `${t(packageId ? 'Package updated' : 'Package created')}. ${t('Effective from')} ${result?.effectiveOn ?? localMonth()}; ${result?.updatedCustomers ?? 0} ${t('linked customers updated')}.`;
         } else {
-          const token = await currentAdminAccessToken();
           const result = await updatePackageMonthlyFee({
+            supabase,
             organizationId: context.organizationId,
             packageId,
             monthlyFeeCents,
-            token,
           });
           pageState.packagePricingMessage = formatUiMessage('Rate saved from {date}. Updated {count} linked customer records.', currentLanguage, {
             date: result.package?.effectiveOn ?? localMonth(),
@@ -2820,11 +2819,10 @@ if (!supabase) {
         pageState.invoiceGenerationBusy = true;
         if (submitButton) submitButton.disabled = true;
         setMessage(portalPanel.querySelector('#invoice-generation-message'), 'Generating monthly invoices…');
-        const token = await currentAdminAccessToken();
         const result = await generateMonthlyInvoices({
+          supabase,
           organizationId: context.organizationId,
           ...request,
-          token,
         });
         pageState.invoiceGenerationMessage = formatUiMessage('Generated {generated}; already existed {existing}; skipped without a price {unpriced}.', currentLanguage, {
           generated: result.generated ?? 0,

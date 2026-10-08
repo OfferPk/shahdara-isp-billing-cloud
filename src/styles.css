@@ -1417,9 +1417,11 @@ td { color: #25433b; }
 
 /* Dual-mode FUP package management and customer quota summary. */
 .package-create { display: grid; gap: 10px; margin: 14px 0 18px; padding: 16px; border: 1px solid var(--line); border-radius: 15px; background: color-mix(in srgb, var(--paper) 88%, var(--mint)); }
+.package-create__heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .package-create__heading h3 { margin: 0; }
 .package-create__heading .eyebrow { margin: 0 0 4px; }
 .package-create > .muted { margin: 0; font-size: 12px; }
+.package-create__disabled { margin: 0; padding: 10px 12px; border: 1px solid #dfc68f; border-radius: 10px; color: #765117; background: #fff8e8; font-size: 12px; line-height: 1.5; }
 .package-presets { display: flex; flex-wrap: wrap; gap: 7px; }
 .package-presets .button { min-height: 38px; font-size: 11px; }
 .package-editor-form { display: grid; gap: 10px; margin-top: 10px; }
@@ -1444,6 +1446,7 @@ td { color: #25433b; }
 :root[data-theme="dark"] .usage-fup__warning p { color: #ffd0c9; }
 .usage-month-summary { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
 :root[data-theme="dark"] :is(.package-create, .usage-fup) { border-color: var(--line); color: var(--ink); background: linear-gradient(145deg, #1a2821, #17231d); }
+:root[data-theme="dark"] .package-create__disabled { border-color: #705b35; color: #f4d394; background: #3c321f; }
 :root[data-theme="dark"] .usage-fup__heading h3 { color: var(--ink); }
 :root[data-theme="dark"] :is(.usage-fup__heading > span, .usage-fup__heading > strong, .usage-fup__summary) { color: #d1e2d8; }
 @media (max-width: 760px) {
@@ -1452,6 +1455,9 @@ td { color: #25433b; }
 }
 @media (max-width: 600px) {
   .package-create { padding: 13px; }
+  .package-create__heading { align-items: stretch; flex-direction: column; }
+  .package-create__heading .button { width: 100%; }
+  .package-create__disabled { padding: 9px 10px; }
   .package-editor-form__grid, .package-form__quota-fields { grid-template-columns: 1fr; }
   .package-editor-form > button { width: 100%; }
   .package-presets { display: grid; grid-template-columns: 1fr; }
