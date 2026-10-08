@@ -50,8 +50,12 @@ test('forced mock mode drives telemetry and subscriber discovery without network
   assert.equal(fetchCalls, 0);
 });
 
-test('GitHub Pages build pins both router selectors to mock and injects no API endpoint or router secret', async () => {
+test('GitHub Pages build pins mock routing and uses only the approved public Supabase configuration', async () => {
   const workflow = await readFile(new URL('../.github/workflows/pages.yml', import.meta.url), 'utf8');
+  assert.match(workflow, /VITE_SUPABASE_URL:\s*['"]https:\/\/pocvrbwcfvtsupgdlouv\.supabase\.co['"]/);
+  assert.match(workflow, /VITE_SUPABASE_PUBLISHABLE_KEY:\s*\$\{\{\s*vars\.VITE_SUPABASE_PUBLISHABLE_KEY\s*\}\}/);
+  assert.doesNotMatch(workflow, /VITE_SUPABASE_URL:.*(?:SERVICE_ROLE|SECRET_KEY|secret:)/i);
+  assert.doesNotMatch(workflow, /VITE_SUPABASE_PUBLISHABLE_KEY:.*(?:SERVICE_ROLE|SECRET_KEY|secret:)/i);
   assert.match(workflow, /VITE_ROUTER_DRIVER:\s*mock/);
   assert.match(workflow, /ROUTER_DRIVER:\s*mock/);
   assert.doesNotMatch(workflow, /VITE_PPPOE_API_BASE_URL/);
