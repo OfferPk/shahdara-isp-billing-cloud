@@ -35,7 +35,7 @@ function renderPackageEditor(row, index, t, disabled = false, { create = false }
   const actionOnExhaust = ['notify', 'throttle', 'suspend'].includes(row?.actionOnExhaust) ? row.actionOnExhaust : 'notify';
   const feeValue = row?.monthlyFeeCents == null ? '' : (Number(row.monthlyFeeCents) / 100).toFixed(2);
   const formDisabled = disabled || (!packageId && !create);
-  return `<form class="package-editor-form" data-package-form data-package-id="${escapeHtml(packageId)}">
+  return `<form ${create ? 'id="package-create-form"' : ''} class="package-editor-form" data-package-form data-package-id="${escapeHtml(packageId)}">
     <div class="package-editor-form__grid">
       <label for="${inputId}-name">${escapeHtml(t('Package name'))}<input id="${inputId}-name" name="package_name" maxlength="100" value="${escapeHtml(row?.name ?? '')}" required ${formDisabled ? 'disabled' : ''}></label>
       <label for="${inputId}-fee">${escapeHtml(t('Monthly rate (PKR)'))}<input id="${inputId}-fee" name="monthly_fee" inputmode="decimal" autocomplete="off" value="${escapeHtml(feeValue)}" placeholder="1800.00" required ${formDisabled ? 'disabled' : ''}></label>
@@ -54,8 +54,9 @@ export function renderAdminPackageCreationForm(t = (value) => value, { disabled 
   const presets = DEFAULT_PACKAGE_PRESETS.map((preset, index) => `<button class="button secondary small" type="button" data-package-preset="${index}" ${disabled ? 'disabled' : ''}>${escapeHtml(preset.name)} · ${escapeHtml(t('Rs.'))} ${escapeHtml((preset.monthlyFeeCents / 100).toLocaleString('en-PK'))}</button>`).join('');
   const draft = { name: '', monthlyFeeCents: null, quotaType: 'unlimited', quotaLimitGb: null, actionOnExhaust: 'notify' };
   return `<section class="package-create" aria-labelledby="package-create-title">
-    <div class="package-create__heading"><div><p class="eyebrow">${escapeHtml(t('Package management'))}</p><h3 id="package-create-title">${escapeHtml(t('Create package'))}</h3></div></div>
+    <div class="package-create__heading"><div><p class="eyebrow">${escapeHtml(t('Package management'))}</p><h3 id="package-create-title">${escapeHtml(t('Create package'))}</h3></div><a class="button primary small" href="#package-create-form">${escapeHtml(t('Add package'))}</a></div>
     <p class="muted">${escapeHtml(t('Starter plans are local presets only. Choose one to fill this form, then save it to this organization.'))}</p>
+    ${disabled ? `<p class="package-create__disabled" role="note">${escapeHtml(t('The form is locked until the required package migration is installed. Starter presets are not saved until you submit this form.'))}</p>` : ''}
     <div class="package-presets" aria-label="${escapeHtml(t('Default package presets'))}">${presets}</div>
     ${renderPackageEditor(draft, 'new', t, disabled, { create: true }).replace('data-package-id=""', 'data-package-id="" data-package-create')}
     <p class="package-policy-note">${escapeHtml(t('Throttle and Suspend are saved as policy metadata only; no router-side action is applied.'))}</p>

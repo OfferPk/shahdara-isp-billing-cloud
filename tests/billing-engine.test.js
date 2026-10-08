@@ -53,11 +53,21 @@ test('five requested package presets remain local unsaved FUP defaults with exac
   ]);
   const html = renderAdminPackageCreationForm();
   assert.equal((html.match(/data-package-preset=/g) ?? []).length, 5);
+  assert.match(html, /href="#package-create-form"/);
+  assert.match(html, /id="package-create-form"/);
   assert.match(html, /data-package-create/);
   assert.match(html, /data-quota-type-select/);
   assert.match(html, /name="quota_limit_gb"/);
   assert.match(html, /name="action_on_exhaust"/);
   assert.match(html, /no router-side action is applied/i);
+});
+
+test('disabled package creation explains the migration gate and keeps local presets unsaved', () => {
+  const html = renderAdminPackageCreationForm((value) => value, { disabled: true });
+  assert.match(html, /The form is locked until the required package migration is installed/);
+  assert.match(html, /data-package-preset="0" disabled/);
+  assert.match(html, /name="package_name"[^>]*disabled/);
+  assert.match(html, /type="submit" disabled/);
 });
 
 test('monthly invoice request requires real month and exact valid dates', () => {
