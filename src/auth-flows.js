@@ -1,20 +1,18 @@
-export function signInWithEmailPassword(auth, email, password) {
-  return auth.signInWithPassword({
-    email: String(email ?? '').trim(),
-    password,
-  });
+export function usernameToAuthEmail(username) {
+  const normalizedUsername = String(username ?? '').trim();
+  return normalizedUsername ? `${normalizedUsername}@shahdara.local` : '';
 }
 
-export function requestPasswordRecovery(auth, email, redirectTo) {
-  return auth.resetPasswordForEmail(String(email ?? '').trim(), { redirectTo });
+export function isStaffUsername(username) {
+  return String(username ?? '').trim().toLowerCase() === 'admin';
 }
 
-export function setRecoveredPassword(auth, password) {
-  return auth.updateUser({ password });
+export async function signInWithUsernamePassword(auth, username, password) {
+  const email = usernameToAuthEmail(username);
+  if (!email) return { data: null, error: new Error('Username is required.') };
+  return auth.signInWithPassword({ email, password });
 }
 
-export function hasPasswordRecoveryMarker(search = '', hash = '') {
-  const queryParams = new URLSearchParams(String(search).replace(/^\?/, ''));
-  const hashParams = new URLSearchParams(String(hash).replace(/^#/, ''));
-  return queryParams.get('type') === 'recovery' || hashParams.get('type') === 'recovery';
+export function isCustomerLoginFallbackError(error) {
+  return error?.context?.status === 401;
 }

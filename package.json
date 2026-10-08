@@ -6,9 +6,14 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
+    "start": "node src/server/start.js",
+    "start:api": "node src/server/api-only.js",
     "preview": "vite preview --host 0.0.0.0",
+    "router:sync": "node scripts/local-router-sync.js",
     "test": "node --test",
-    "test:db": "bash scripts/test-db.sh"
+    "test:db": "bash scripts/test-db.sh",
+    "db:migrate": "node scripts/migrate.js",
+    "db:migrate:apply": "node scripts/migrate.js --apply"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.0"

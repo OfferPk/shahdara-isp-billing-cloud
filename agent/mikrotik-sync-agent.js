@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url';
 const MAX_BIGINT = 9_223_372_036_854_775_807n;
 const MAX_USERNAME_BYTES = 128;
 const DEFAULTS = Object.freeze({
-  pollIntervalMs: 300_000,
+  pollIntervalMs: 60_000,
   requestTimeoutMs: 10_000,
   maxRetries: 3,
   maxBackoffMs: 30_000,
@@ -133,6 +133,14 @@ function parseRouterOsBytePair(value) {
   throw new AgentFailure('invalid-session-counters');
 }
 
+function validateSessionId(value) {
+  if (typeof value !== 'string' || value.length === 0 || value !== value.trim()
+    || value.includes('\u0000') || Buffer.byteLength(value, 'utf8') > 128) {
+    throw new AgentFailure('invalid-session-record');
+  }
+  return value;
+}
+
 /**
  * RouterOS PPP active byte pairs are directional from the router's point of
  * view: transmitted bytes are subscriber download (RPC bytes_in), received
@@ -143,29 +151,25 @@ export function normalizeRouterOsActiveSession(record) {
     throw new AgentFailure('invalid-session-record');
   }
   const username = validateUsername(record.name);
-  const sessionId = record['session-id'];
-  if (typeof sessionId !== 'string' || sessionId.length === 0 || sessionId.length > 128) {
-    throw new AgentFailure('invalid-session-record');
-  }
+  const sessionId = validateSessionId(record['session-id']);
   const [routerTransmitted, routerReceived] = parseRouterOsBytePair(record.bytes);
   return {
     username,
+    session_id: sessionId,
     bytes_in: normalizeCounter(routerTransmitted),
     bytes_out: normalizeCounter(routerReceived),
-    is_online: true,
   };
 }
 
-function normalizeCumulativeSnapshot(record) {
+function normalizeSessionDeltaSnapshot(record) {
   if (!record || typeof record !== 'object' || Array.isArray(record)) {
-    throw new AgentFailure('invalid-cumulative-snapshot');
+    throw new AgentFailure('invalid-session-record');
   }
-  if (typeof record.is_online !== 'boolean') throw new AgentFailure('invalid-cumulative-snapshot');
   return {
     username: validateUsername(record.username),
+    session_id: validateSessionId(record.session_id),
     bytes_in: normalizeCounter(record.bytes_in),
     bytes_out: normalizeCounter(record.bytes_out),
-    is_online: record.is_online,
   };
 }
 
@@ -243,7 +247,7 @@ export async function pollRouterOsActive({
   }
   if (!Array.isArray(records)) throw new AgentFailure('invalid-router-response');
   const items = records.map(normalizeRouterOsActiveSession);
-  return { complete: true, counterScope: 'routeros-active-session', items };
+  return { complete: true, counterScope: 'routeros-session-delta', items };
 }
 
 export async function runSyncCycle({ pollSnapshots, publishSnapshots, logger = console }) {
@@ -259,27 +263,28 @@ export async function runSyncCycle({ pollSnapshots, publishSnapshots, logger = c
     return { status: 'empty', sessions: 0, synced: 0 };
   }
 
-  if (poll.counterScope !== 'subscriber-cumulative') {
+  if (poll.counterScope !== 'routeros-session-delta') {
     emit(logger, 'warn', 'sync_skipped', {
       sessions: poll.items.length,
       synced: 0,
-      reason: 'counter_source_not_subscriber_cumulative',
+      reason: 'counter_source_not_routeros_session_delta',
     });
     return { status: 'blocked-counter-semantics', sessions: poll.items.length, synced: 0 };
   }
 
-  const items = poll.items.map(normalizeCumulativeSnapshot);
-  const usernames = new Set();
+  const items = poll.items.map(normalizeSessionDeltaSnapshot);
+  const sessions = new Set();
   for (const item of items) {
-    if (usernames.has(item.username)) throw new AgentFailure('duplicate-username');
-    usernames.add(item.username);
+    const key = `${item.username}\u0000${item.session_id}`;
+    if (sessions.has(key)) throw new AgentFailure('duplicate-session');
+    sessions.add(key);
   }
   if (typeof publishSnapshots !== 'function') throw new AgentFailure('ingest-not-configured');
-  await publishSnapshots({ counter_scope: 'subscriber_cumulative', items });
+  await publishSnapshots({ counter_scope: 'routeros-session-delta', items });
   emit(logger, 'info', 'sync_poll_complete', {
     sessions: items.length,
     synced: items.length,
-    outcome: 'published',
+    outcome: 'session_deltas_published',
   });
   return { status: 'published', sessions: items.length, synced: items.length };
 }

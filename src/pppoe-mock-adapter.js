@@ -1,0 +1,106 @@
+const DEFAULT_ROUTER_HOST = '10.10.20.1';
+const MAC_OUIS = ['48:8F:5A', 'A4:2B:B0', 'D8:3A:DD', '60:32:B1', '2C:C8:1B'];
+const SAMPLE_CUSTOMERS = [
+  ['Ahsan Ali', '03001230001', 'Shahdara'], ['Sana Iqbal', '03001230002', 'Kot Abdul Malik'],
+  ['Bilal Hussain', '03001230003', 'Begum Kot'], ['Hira Ahmed', '03001230004', 'Ferozewala'],
+  ['Usman Raza', '03001230005', 'Shahdara'], ['Maryam Khalid', '03001230006', 'Lahore Road'],
+  ['Hamza Tariq', '03001230007', 'Kot Abdul Malik'], ['Noor Fatima', '03001230008', 'Begum Kot'],
+  ['Ali Hassan', '03001230009', 'Shahdara'], ['Ayesha Malik', '03001230010', 'Ferozewala'],
+  ['Danish Akram', '03001230011', 'Lahore Road'], ['Iqra Shah', '03001230012', 'Shahdara'],
+  ['Saad Javed', '03001230013', 'Begum Kot'], ['Maham Asif', '03001230014', 'Kot Abdul Malik'],
+  ['Zain Abbas', '03001230015', 'Ferozewala'], ['Eman Tariq', '03001230016', 'Lahore Road'],
+  ['Farhan Nawaz', '03001230017', 'Shahdara'], ['Laiba Imran', '03001230018', 'Begum Kot'],
+  ['Rehan Anwar', '03001230019', 'Kot Abdul Malik'], ['Sadia Noor', '03001230020', 'Ferozewala'],
+];
+
+function formatUptime(seconds) {
+  let remaining = Math.max(0, Math.floor(Number(seconds) || 0));
+  const days = Math.floor(remaining / 86400);
+  remaining %= 86400;
+  const hours = Math.floor(remaining / 3600);
+  remaining %= 3600;
+  const minutes = Math.floor(remaining / 60);
+  const secs = remaining % 60;
+  return `${days}d ${String(hours).padStart(2, '0')}h ${String(minutes).padStart(2, '0')}m ${String(secs).padStart(2, '0')}s`;
+}
+
+/** Synthetic, browser-safe RouterOS-shaped data; never connects to a router. */
+export class MockRouterAdapter {
+  constructor({ now = () => new Date(), host = DEFAULT_ROUTER_HOST, subscriberCount = 20 } = {}) {
+    this.now = now;
+    this.host = host;
+    this.pollCount = 0;
+    this.subscriberCount = Math.max(15, Math.min(20, Math.trunc(subscriberCount)));
+    this.baseRows = Array.from({ length: this.subscriberCount }, (_, index) => {
+      const serial = index + 1;
+      const username = `shahdara_user_${String(serial).padStart(2, '0')}`;
+      const oui = MAC_OUIS[index % MAC_OUIS.length];
+      const macTail = [serial, (serial * 37) % 256, (serial * 73) % 256]
+        .map((part) => part.toString(16).padStart(2, '0')).join(':');
+      const uptimeSeconds = 2300 + ((serial * 7919) % 250000);
+      const [customerName, phone, area] = SAMPLE_CUSTOMERS[index % SAMPLE_CUSTOMERS.length];
+      return {
+        sessionId: `*${(0xA100 + serial).toString(16)}`,
+        username,
+        callerId: `${oui}:${macTail}`,
+        ipAddress: `10.10.20.${100 + serial}`,
+        interfaceName: `<pppoe-${username}>`,
+        uptime: formatUptime(uptimeSeconds),
+        uptimeSeconds,
+        bytesIn: BigInt(95_000_000 + serial * 13_750_000),
+        bytesOut: BigInt(18_000_000 + serial * 4_250_000),
+        rateLimit: serial % 3 === 0 ? '20M/5M' : '10M/3M',
+        profile: serial % 3 === 0 ? '15M' : '10M',
+        comment: `${customerName} - ${phone} - ${area}`,
+        status: 'Online',
+      };
+    });
+  }
+
+  async getActiveSessions() {
+    this.pollCount += 1;
+    const timestamp = this.now().toISOString();
+    return this.baseRows.map((row, index) => ({
+      ...row,
+      bytesIn: row.bytesIn + BigInt(this.pollCount * (index + 1) * 17321),
+      bytesOut: row.bytesOut + BigInt(this.pollCount * (index + 1) * 7919),
+      lastPolledAt: timestamp,
+    }));
+  }
+
+  async getLiveTrafficForUsername(username) {
+    const row = this.baseRows.find((candidate) => candidate.username === username);
+    if (!row) throw new Error('No demo customer interface matches this username.');
+    this.pollCount += 1;
+    const serial = Number(/(\d+)$/.exec(username)?.[1] ?? 1);
+    return {
+      downloadBitsPerSecond: 1_200_000 + serial * 75_000 + (this.pollCount % 5) * 110_000,
+      uploadBitsPerSecond: 240_000 + serial * 18_000 + (this.pollCount % 4) * 26_000,
+      sampledAt: this.now().toISOString(),
+      source: 'demo',
+    };
+  }
+
+  async discoverSubscribers() {
+    return this.baseRows.map((row) => ({
+      username: row.username,
+      profile: row.profile,
+      ipAddress: row.ipAddress,
+      comment: row.comment,
+    }));
+  }
+
+  async getRouterHealth() {
+    return {
+      connected: true,
+      routerHost: this.host,
+      routerOsVersion: '7.16.2 (mock)',
+      cpuLoadPercent: 12,
+      freeMemoryMb: 184,
+      latencyMs: 5,
+      lastCheckedAt: this.now().toISOString(),
+    };
+  }
+}
+
+export const pppoeMockAdapterInternals = Object.freeze({ formatUptime });

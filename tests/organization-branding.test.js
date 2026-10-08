@@ -65,8 +65,8 @@ test('public brand defaults are separate from customer-private fields', () => {
 test('printable bill escapes user-facing values and restricts its logo to the approved project origin', () => {
   const maliciousName = '<img src=x onerror=alert(1)>';
   const printed = renderPrintableBillHtml({
-    bill: { id: 'synthetic-bill-1', period: '2026-10-01', amount_due_cents: 10000, plan_snapshot: '<script>bad</script>' },
-    customer: { name: maliciousName, customer_number: 4 },
+    bill: { id: 'synthetic-bill-1', invoice_number: 'SIF-202610-4', period: '2026-10-01', due_date: '2026-10-15', amount_due_cents: 10000, plan_snapshot: '<script>bad</script>' },
+    customer: { name: maliciousName, customer_number: 4, pppoe_username: 'amina-10m' },
     summary: { status: 'unpaid', receiptCashCents: 0, creditAppliedCents: 0, balanceCents: 10000 },
     branding: {
       displayName: '<b>Globe Expert</b>',
@@ -83,6 +83,11 @@ test('printable bill escapes user-facing values and restricts its logo to the ap
   assert.match(printed, /&lt;script&gt;bad&lt;\/script&gt;/);
   assert.match(printed, /&lt;svg onload=bad&gt;/);
   assert.match(printed, /1 &amp; &lt;Main Street&gt;/);
+  assert.match(printed, /Invoice No\. SIF-202610-4/);
+  assert.match(printed, /PPPoE Username/);
+  assert.match(printed, /amina-10m/);
+  assert.match(printed, /2026-10-15/);
+  assert.match(printed, /Total Amount/);
   assert.doesNotMatch(printed, /evil\.example|<script>|<img src=x/);
   assert.doesNotMatch(printed, /customer phone|staff_notes|private_details/i);
 });

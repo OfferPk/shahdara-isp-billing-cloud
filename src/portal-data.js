@@ -15,6 +15,26 @@ async function rowsFor(supabase, table, columns, applyFilters, orderBy) {
   throw new Error('The current screen reached its safe paging limit. Narrow the date range and try again.');
 }
 
+function isMissingOptionalPortalTable(error, table) {
+  const code = String(error?.code ?? '');
+  if (!['42P01', 'PGRST205'].includes(code)) return false;
+  const diagnostics = [error?.message, error?.details, error?.hint].filter(Boolean).join(' ');
+  const escapedTable = table.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const missingTablePattern = code === 'PGRST205'
+    ? new RegExp(`(?:table|relation)\\s+['\"']?(?:public\\.)?${escapedTable}['\"']?\\s+(?:in the schema cache|does not exist)`, 'i')
+    : new RegExp(`relation\\s+['\"']?(?:public\\.)?${escapedTable}['\"']?\\s+does not exist`, 'i');
+  return missingTablePattern.test(diagnostics);
+}
+
+async function optionalRowsFor(supabase, table, columns, applyFilters, orderBy) {
+  try {
+    return await rowsFor(supabase, table, columns, applyFilters, orderBy);
+  } catch (error) {
+    if (isMissingOptionalPortalTable(error, table)) return [];
+    throw error;
+  }
+}
+
 export function isMissingPppoeUsernameColumn(error) {
   const code = String(error?.code ?? '');
   const message = String(error?.message ?? '');
@@ -25,6 +45,11 @@ export function isMissingPortalTestAccountColumn(error) {
   const code = String(error?.code ?? '');
   const message = String(error?.message ?? '');
   return ['42703', 'PGRST204'].includes(code) && /portal_test_account/i.test(message);
+}
+
+function isMissingInvoiceNumberColumn(error) {
+  return ['42703', 'PGRST204'].includes(String(error?.code ?? ''))
+    && /invoice_number/i.test(String(error?.message ?? ''));
 }
 
 async function loadCustomerRows(supabase, context, applyFilters) {
@@ -53,30 +78,41 @@ async function loadCustomerRows(supabase, context, applyFilters) {
   }
 }
 
-export async function loadContexts(supabase, user) {
-  const { data: memberships, error: membershipError } = await supabase
+async function readOrganizationMemberships(supabase, user) {
+  const { data, error } = await supabase
     .from('organization_memberships')
     .select('organization_id, role')
     .eq('user_id', user.id);
-  if (membershipError) throw membershipError;
+  if (error) throw error;
+  return data ?? [];
+}
 
-  if ((memberships ?? []).length) {
-    const organizationIds = [...new Set(memberships.map((entry) => entry.organization_id))];
-    const { data: organizations, error: organizationError } = await supabase
-      .from('organizations')
-      .select('id, name')
-      .in('id', organizationIds);
-    if (organizationError) throw organizationError;
-    const nameById = new Map((organizations ?? []).map((organization) => [organization.id, organization.name]));
-    return memberships
-      .filter((entry) => ['owner', 'admin'].includes(entry.role))
-      .map((entry) => ({
-        kind: 'admin',
-        organizationId: entry.organization_id,
-        organizationName: nameById.get(entry.organization_id) ?? 'ISP organization',
-        role: entry.role,
-      }));
-  }
+async function loadAdminContextsFromMemberships(supabase, memberships) {
+  const adminMemberships = memberships.filter((entry) => ['owner', 'admin'].includes(entry.role));
+  if (!adminMemberships.length) return [];
+  const organizationIds = [...new Set(adminMemberships.map((entry) => entry.organization_id))];
+  const { data: organizations, error: organizationError } = await supabase
+    .from('organizations')
+    .select('id, name')
+    .in('id', organizationIds);
+  if (organizationError) throw organizationError;
+  const nameById = new Map((organizations ?? []).map((organization) => [organization.id, organization.name]));
+  return adminMemberships.map((entry) => ({
+    kind: 'admin',
+    organizationId: entry.organization_id,
+    organizationName: nameById.get(entry.organization_id) ?? 'ISP organization',
+    role: entry.role,
+  }));
+}
+
+async function loadAdminContexts(supabase, user) {
+  const memberships = await readOrganizationMemberships(supabase, user);
+  return { memberships, contexts: await loadAdminContextsFromMemberships(supabase, memberships) };
+}
+
+export async function loadContexts(supabase, user, membershipRows = null) {
+  const memberships = membershipRows ?? await readOrganizationMemberships(supabase, user);
+  if (memberships.length) return loadAdminContextsFromMemberships(supabase, memberships);
 
   const { data: accounts, error: accountError } = await supabase
     .rpc('my_customer_portal_contexts');
@@ -113,14 +149,96 @@ export async function loadContexts(supabase, user) {
   });
 }
 
+export async function loadPortalSessionContexts(supabase, user) {
+  const { memberships, contexts: adminContexts } = await loadAdminContexts(supabase, user);
+  // Organization membership is sufficient for Admin access; this RPC is customer-only.
+  if (adminContexts.length) return { contexts: adminContexts, passwordState: null };
+
+  const { data: passwordStates, error: passwordStateError } = await supabase.rpc('my_customer_portal_password_state');
+  if (passwordStateError) throw passwordStateError;
+  const passwordState = passwordStates?.[0]?.state ?? 'none';
+  if (!['none', 'active'].includes(passwordState)) return { contexts: [], passwordState };
+  return {
+    contexts: await loadContexts(supabase, user, memberships),
+    passwordState,
+  };
+}
+
 export async function loadOrganizationBranding(supabase, organizationId) {
-  const { data, error } = await supabase
-    .from('organization_branding')
-    .select('organization_id, display_name, logo_path, support_phone, address')
-    .eq('organization_id', organizationId)
-    .maybeSingle();
-  if (error) throw error;
-  return data ?? null;
+  try {
+    const { data, error } = await supabase
+      .from('organization_branding')
+      .select('organization_id, display_name, logo_path, support_phone, address')
+      .eq('organization_id', organizationId)
+      .maybeSingle();
+    if (error) throw error;
+    return data ?? null;
+  } catch (error) {
+    if (isMissingOptionalPortalTable(error, 'organization_branding')) return null;
+    throw error;
+  }
+}
+
+async function loadBillRows(supabase, context, applyFilters) {
+  const billColumns = context.kind === 'admin'
+    ? 'id, invoice_number, customer_id, period, amount_due_cents, issued_on, due_date, plan_snapshot, created_at'
+    : 'id, invoice_number, customer_id, period, amount_due_cents, plan_snapshot';
+  const fallbackBillColumns = context.kind === 'admin'
+    ? 'id, customer_id, period, amount_due_cents, issued_on, due_date, plan_snapshot, created_at'
+    : 'id, customer_id, period, amount_due_cents, plan_snapshot';
+  try {
+    const rows = await rowsFor(supabase, 'bills', billColumns,
+      applyFilters, { column: 'period', ascending: false });
+    return { rows, invoiceNumberAvailable: true };
+  } catch (error) {
+    if (!isMissingInvoiceNumberColumn(error)) throw error;
+    const rows = await rowsFor(supabase, 'bills', fallbackBillColumns,
+      applyFilters, { column: 'period', ascending: false });
+    return { rows: rows.map((bill) => ({ ...bill, invoice_number: null })), invoiceNumberAvailable: false };
+  }
+}
+
+async function loadServicePackages(supabase, applyFilters) {
+  try {
+    const rows = await rowsFor(supabase, 'service_packages', 'id, name, monthly_fee_cents, effective_on, updated_at, quota_type, quota_limit_gb, action_on_exhaust',
+      applyFilters, { column: 'name' });
+    return { data: rows, error: null, quotaMetadataAvailable: true };
+  } catch (error) {
+    if (!['42703', 'PGRST204'].includes(String(error?.code ?? ''))
+        || !/(effective_on|updated_at|quota_type|quota_limit_gb|action_on_exhaust)/i.test(String(error?.message ?? ''))) {
+      return { data: [], error, quotaMetadataAvailable: false };
+    }
+    try {
+      const rows = await rowsFor(supabase, 'service_packages', 'id, name, monthly_fee_cents, effective_on, updated_at',
+        applyFilters, { column: 'name' });
+      return { data: rows.map((row) => ({ ...row, quota_type: 'unlimited', quota_limit_gb: null, action_on_exhaust: 'notify' })), error: null, quotaMetadataAvailable: false };
+    } catch (fallbackError) {
+      if (!['42703', 'PGRST204'].includes(String(fallbackError?.code ?? ''))
+          || !/(effective_on|updated_at)/i.test(String(fallbackError?.message ?? ''))) {
+        return { data: [], error: fallbackError, quotaMetadataAvailable: false };
+      }
+      try {
+        const rows = await rowsFor(supabase, 'service_packages', 'id, name, monthly_fee_cents',
+          applyFilters, { column: 'name' });
+        return { data: rows.map((row) => ({ ...row, quota_type: 'unlimited', quota_limit_gb: null, action_on_exhaust: 'notify' })), error: null, quotaMetadataAvailable: false };
+      } catch (minimumError) {
+        return { data: [], error: minimumError, quotaMetadataAvailable: false };
+      }
+    }
+  }
+}
+
+async function loadCustomerQuotaPackage(supabase, context) {
+  try {
+    const { data, error } = await supabase.rpc('my_customer_package_quota', {
+      p_organization_id: context.organizationId,
+      p_customer_id: context.customerId,
+    });
+    if (error) return { data: null, error };
+    return { data: Array.isArray(data) ? (data[0] ?? null) : (data ?? null), error: null };
+  } catch (error) {
+    return { data: null, error };
+  }
 }
 
 export async function loadPortalRows(supabase, context) {
@@ -134,14 +252,11 @@ export async function loadPortalRows(supabase, context) {
     ? rowsFor(supabase, 'incident_private_details', 'incident_id, staff_notes', byOrganization, { column: 'incident_id' })
     : Promise.resolve([]);
   const cashflowExpensesQuery = context.kind === 'admin'
-    ? rowsFor(supabase, 'cashflow_expenses', 'organization_id, id, category, amount_paisa, note, created_at', byOrganization, { column: 'created_at', ascending: false })
+    ? optionalRowsFor(supabase, 'cashflow_expenses', 'organization_id, id, category, amount_paisa, note, created_at', byOrganization, { column: 'created_at', ascending: false })
     : Promise.resolve([]);
   const customerServiceCostsQuery = context.kind === 'admin'
-    ? rowsFor(supabase, 'customer_service_cost_history', 'organization_id, customer_id, id, effective_on, monthly_cost_paisa, note, created_at', byOrganization, { column: 'effective_on', ascending: false })
+    ? optionalRowsFor(supabase, 'customer_service_cost_history', 'organization_id, customer_id, id, effective_on, monthly_cost_paisa, note, created_at', byOrganization, { column: 'effective_on', ascending: false })
     : Promise.resolve([]);
-  const billColumns = context.kind === 'admin'
-    ? 'id, customer_id, period, amount_due_cents, issued_on, due_date, plan_snapshot, created_at'
-    : 'id, customer_id, period, amount_due_cents, plan_snapshot';
   const customerQuery = loadCustomerRows(
     supabase,
     context,
@@ -153,13 +268,33 @@ export async function loadPortalRows(supabase, context) {
       .then((data) => ({ data, error: null }))
       .catch((error) => ({ data: [], error }))
     : Promise.resolve({ data: [], error: null });
+  const now = new Date();
+  const usageMonthParts = new Intl.DateTimeFormat('en', {
+    timeZone: 'Asia/Karachi', year: 'numeric', month: '2-digit',
+  }).formatToParts(now);
+  const usageMonthYear = usageMonthParts.find((part) => part.type === 'year')?.value;
+  const usageMonthNumber = usageMonthParts.find((part) => part.type === 'month')?.value;
+  const currentUsageMonth = `${usageMonthYear}-${usageMonthNumber}-01`;
+  const customerMonthlyBandwidthUsageQuery = context.kind === 'customer'
+    ? supabase.from('customer_bandwidth_monthly_usage')
+      .select('usage_month, bytes_in, bytes_out, last_synced_at')
+      .eq('usage_month', currentUsageMonth)
+      .maybeSingle()
+      .then(({ data, error }) => ({ data: data ? [data] : [], error }))
+      .catch((error) => ({ data: [], error }))
+    : Promise.resolve({ data: [], error: null });
+  const customerQuotaPackageQuery = context.kind === 'customer'
+    ? loadCustomerQuotaPackage(supabase, context)
+    : Promise.resolve({ data: null, error: null });
+  const packageCatalogQuery = context.kind === 'admin'
+    ? loadServicePackages(supabase, byOrganization)
+    : Promise.resolve({ data: [], error: null });
   const receiptColumns = context.kind === 'admin'
     ? 'organization_id, id, customer_id, origin_bill_id, received_on, amount_cents, method, created_at'
     : 'id, customer_id, origin_bill_id, received_on, amount_cents, method';
-  const [customerResult, bills, receipts, allocations, incidents, privateCustomerDetails, privateIncidentDetails, cashflowExpenses, customerServiceCosts, branding, customerBandwidthUsage] = await Promise.all([
+  const [customerResult, billResult, receipts, allocations, incidents, privateCustomerDetails, privateIncidentDetails, cashflowExpenses, customerServiceCosts, branding, customerBandwidthUsage, customerMonthlyBandwidthUsage, packageCatalog, customerQuotaPackage] = await Promise.all([
     customerQuery,
-    rowsFor(supabase, 'bills', billColumns,
-      context.kind === 'admin' ? byOrganization : customerOnly, { column: 'period', ascending: false }),
+    loadBillRows(supabase, context, context.kind === 'admin' ? byOrganization : customerOnly),
     rowsFor(supabase, 'receipts', receiptColumns,
       context.kind === 'admin' ? byOrganization : customerOnly, { column: 'received_on', ascending: false }),
     rowsFor(supabase, 'receipt_allocations', 'receipt_id, bill_id, customer_id, amount_cents, allocation_kind',
@@ -172,14 +307,29 @@ export async function loadPortalRows(supabase, context) {
     customerServiceCostsQuery,
     loadOrganizationBranding(supabase, context.organizationId),
     customerBandwidthUsageQuery,
+    customerMonthlyBandwidthUsageQuery,
+    packageCatalogQuery,
+    customerQuotaPackageQuery,
   ]);
+  const adminBillingRows = context.kind === 'admin' ? {
+    invoiceNumberAvailable: billResult.invoiceNumberAvailable,
+    packages: packageCatalog.data,
+    packagesError: packageCatalog.error,
+    packageQuotaMetadataAvailable: packageCatalog.quotaMetadataAvailable,
+  } : {};
   return {
     customers: customerResult.rows,
     pppoeMappingAvailable: customerResult.pppoeMappingAvailable,
-    bills, receipts, allocations, incidents, privateCustomerDetails, privateIncidentDetails,
+    bills: billResult.rows,
+    ...adminBillingRows,
+    receipts, allocations, incidents, privateCustomerDetails, privateIncidentDetails,
     cashflowExpenses, customerServiceCosts, branding,
     customerBandwidthUsage: customerBandwidthUsage.data,
     customerBandwidthUsageError: customerBandwidthUsage.error,
+    customerMonthlyBandwidthUsage: customerMonthlyBandwidthUsage.data,
+    customerMonthlyBandwidthUsageError: customerMonthlyBandwidthUsage.error,
+    customerQuotaPackage: customerQuotaPackage.data,
+    customerQuotaPackageError: customerQuotaPackage.error,
   };
 }
 

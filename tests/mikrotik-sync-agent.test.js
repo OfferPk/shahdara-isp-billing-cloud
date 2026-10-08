@@ -37,9 +37,9 @@ test('normalization maps router-transmitted bytes to download and router-receive
     bytes: '9007199254740993/184467440737095516',
   }), {
     username: 'subscriber-1',
+    session_id: '*A1',
     bytes_in: '9007199254740993',
     bytes_out: '184467440737095516',
-    is_online: true,
   });
   assert.deepEqual(normalizeRouterOsActiveSession({
     name: 'subscriber-2',
@@ -80,7 +80,7 @@ test('empty session response is a successful poll and never posts or marks subsc
   assert.match(logger.messages[0], /"outcome":"empty"/);
 });
 
-test('RouterOS active-session counters are never posted as subscriber-lifetime counters', async () => {
+test('RouterOS active-session counters are posted only as keyed session deltas', async () => {
   const calls = [];
   const logger = makeLogger();
   const agent = createAgent(config, {
@@ -95,15 +95,16 @@ test('RouterOS active-session counters are never posted as subscriber-lifetime c
     },
   });
 
-  assert.deepEqual(await agent.runCycle(), {
-    status: 'blocked-counter-semantics',
-    sessions: 1,
-    synced: 0,
-  });
-  assert.equal(calls.length, 1);
+  assert.deepEqual(await agent.runCycle(), { status: 'published', sessions: 1, synced: 1 });
+  assert.equal(calls.length, 2);
   assert.equal(calls[0].init.method, 'GET');
+  assert.equal(calls[1].init.method, 'POST');
+  assert.deepEqual(JSON.parse(calls[1].init.body), {
+    counter_scope: 'routeros-session-delta',
+    items: [{ username: 'subscriber-private-name', session_id: '*A9', bytes_in: '100', bytes_out: '200' }],
+  });
   assert.equal(logger.messages.some((message) => message.includes('subscriber-private-name')), false);
-  assert.match(logger.messages[0], /counter_source_not_subscriber_cumulative/);
+  assert.match(logger.messages[0], /session_deltas_published/);
 });
 
 test('timeout is bounded and no fallback or broker request is attempted', async () => {
@@ -129,16 +130,16 @@ test('timeout is bounded and no fallback or broker request is attempted', async 
   assert.equal(requestCount, 1);
 });
 
-test('happy path posts only an explicitly cumulative snapshot over HTTPS', async () => {
+test('happy path posts only an explicitly session-scoped delta snapshot over HTTPS', async () => {
   const calls = [];
   const logger = makeLogger();
   const agent = createAgent(config, {
     logger,
     pollSnapshots: async () => ({
       complete: true,
-      counterScope: 'subscriber-cumulative',
+      counterScope: 'routeros-session-delta',
       items: [
-        { username: 'subscriber-approved', bytes_in: '9007199254740993', bytes_out: '12', is_online: true },
+        { username: 'subscriber-approved', session_id: '*A77', bytes_in: '9007199254740993', bytes_out: '12' },
       ],
     }),
     fetchImpl: async (url, init) => {
@@ -154,8 +155,8 @@ test('happy path posts only an explicitly cumulative snapshot over HTTPS', async
   assert.equal(calls[0].init.redirect, 'manual');
   assert.equal(calls[0].init.headers.Authorization, `Bearer ${token}`);
   assert.deepEqual(JSON.parse(calls[0].init.body), {
-    counter_scope: 'subscriber_cumulative',
-    items: [{ username: 'subscriber-approved', bytes_in: '9007199254740993', bytes_out: '12', is_online: true }],
+    counter_scope: 'routeros-session-delta',
+    items: [{ username: 'subscriber-approved', session_id: '*A77', bytes_in: '9007199254740993', bytes_out: '12' }],
   });
   assert.equal(logger.messages.some((message) => message.includes('subscriber-approved')), false);
 });
@@ -163,7 +164,7 @@ test('happy path posts only an explicitly cumulative snapshot over HTTPS', async
 test('a partial or failed poll never reaches the broker', async () => {
   let postCount = 0;
   const agent = createAgent(config, {
-    pollSnapshots: async () => ({ complete: false, counterScope: 'subscriber-cumulative', items: [] }),
+    pollSnapshots: async () => ({ complete: false, counterScope: 'routeros-session-delta', items: [] }),
     fetchImpl: async () => {
       postCount += 1;
       return new Response(null, { status: 200 });

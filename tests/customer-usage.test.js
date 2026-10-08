@@ -76,6 +76,41 @@ test('quota meter changes color at 75 and 90 percent consumed thresholds', () =>
   assert.equal(getMeterClass(1000), 'critical');
 });
 
+test('FUP package without trusted calendar-month usage shows its limit but no invented progress bar', () => {
+  const html = renderCustomerUsageDashboard({
+    customer,
+    quotaPackage: { package_name: '3 Mbps / 100 GB', quota_type: 'fup_capped', quota_limit_gb: 100 },
+    now: fixedNow,
+  });
+  assert.match(html, /FUP quota/);
+  assert.match(html, /100 GB total/);
+  assert.match(html, /Monthly usage is unavailable/);
+  assert.match(html, /No quota percentage is shown until a trusted monthly traffic source is configured/);
+  assert.doesNotMatch(html, /aria-label="Monthly FUP quota consumed"/);
+});
+
+test('FUP progress uses trusted monthly usage, shows used and remaining GB, and follows green/orange/red thresholds', () => {
+  const renderTone = (used) => renderCustomerUsageDashboard({
+    customer,
+    quotaPackage: { package_name: '5 Mbps / 100 GB', quota_type: 'fup_capped', quota_limit_gb: 100 },
+    currentMonthUsageBytes: String(used * 1_000_000_000),
+    monthlyFeeLabel: 'Rs. 1,000',
+    now: fixedNow,
+  });
+  const green = renderTone(74);
+  const exactlySeventyFive = renderTone(75);
+  const orange = renderTone(80);
+  const exactlyNinety = renderTone(90);
+  const red = renderTone(91);
+  assert.match(green, /usage-progress usage-progress--good/);
+  assert.match(exactlySeventyFive, /usage-progress usage-progress--warning/);
+  assert.match(orange, /usage-progress usage-progress--warning/);
+  assert.match(exactlyNinety, /usage-progress usage-progress--warning/);
+  assert.match(red, /usage-progress usage-progress--critical/);
+  assert.match(green, /Used: 74 GB \/ Total: 100 GB \(26 GB Remaining\)/);
+  assert.match(green, /customer-fixed-monthly-bill[\s\S]*Rs\. 1,000/);
+});
+
 test('usage above quota reports zero remaining and a bounded accessible meter', () => {
   const overQuota = { ...fixture, total_quota_bytes: '1000', bytes_in: '1200', bytes_out: '100' };
   const summary = summarizeCustomerUsage(overQuota);

@@ -58,66 +58,28 @@
         <section class="panel auth-panel" id="auth-panel" hidden>
           <p class="eyebrow" data-i18n="Private sign-in">Private sign-in</p>
           <h1 data-i18n="Sign in to your account">Sign in to your account</h1>
-          <p data-i18n="Customer usernames and temporary passwords are issued by an authorized Shahdara administrator. Temporary passwords must be changed at first sign-in. Email-invited accounts can sign in with a password or a secure sign-in link. Use Forgot password once to choose an initial password. Self-service sign-up is disabled.">Customer usernames and temporary passwords are issued by an authorized Shahdara administrator. Temporary passwords must be changed at first sign-in. Email-invited accounts can sign in with a password or a secure sign-in link. Use Forgot password once to choose an initial password. Self-service sign-up is disabled.</p>
+          <p data-i18n="Customers sign in with their PPPoE username and a separately provisioned portal password. Shahdara staff sign in with their assigned username and password. Customer portal passwords are read-only here; self-service sign-up is disabled.">Customers sign in with their PPPoE username and a separately provisioned portal password. Shahdara staff sign in with their assigned username and password. Customer portal passwords are read-only here; self-service sign-up is disabled.</p>
           <div id="login-options">
             <section class="auth-method-panel" data-feature-toggle data-feature-key="auth-customer-username">
-            <h2 data-i18n="Customer username sign-in">Customer username sign-in</h2>
+            <h2 data-i18n="Username and password sign-in">Username and password sign-in</h2>
             <form id="customer-login-form" class="stack">
               <label for="customer-login-username" data-i18n="Username">Username</label>
               <input id="customer-login-username" name="username" type="text" autocomplete="username" inputmode="text" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="next" required maxlength="64" />
-              <p class="muted" id="staging-customer-login-help" hidden data-i18n="Internal staging test accounts sign in with their linked PPPoE username and the initial portal password shared by a Shahdara administrator. Change it at first sign-in before customer data is available.">Internal staging test accounts sign in with their linked PPPoE username and the initial portal password shared by a Shahdara administrator. Change it at first sign-in before customer data is available.</p>
+              <p class="muted" id="staging-customer-login-help" hidden data-i18n="Internal staging accounts use a separately assigned portal password; their PPPoE password is not changed by portal sign-in.">Internal staging accounts use a separately assigned portal password; their PPPoE password is not changed by portal sign-in.</p>
               <label for="customer-login-password" data-i18n="Password">Password</label>
               <div class="password-input-control">
                 <input id="customer-login-password" name="password" type="password" autocomplete="current-password" enterkeyhint="go" required maxlength="512" />
                 <button class="password-visibility-toggle" type="button" data-password-visibility="customer-login-password" data-i18n="Show" data-i18n-aria-label="Show password" aria-label="Show password" aria-pressed="false">Show</button>
               </div>
-              <button class="button primary" type="submit" data-i18n="Sign in with username">Sign in with username</button>
+              <button class="button primary" type="submit" data-i18n="Sign in">Sign in</button>
             </form>
             <p class="form-message" id="customer-login-message" role="status"></p>
             </section>
-            <section class="auth-method-panel" data-feature-toggle data-feature-key="auth-email-password">
-            <h2 data-i18n="Email and password sign-in">Email and password sign-in</h2>
-            <form id="email-password-login-form" class="stack">
-              <label for="email-password-email" data-i18n="Email address">Email address</label>
-              <input id="email-password-email" name="email" type="email" autocomplete="username" required maxlength="254" />
-              <label for="email-password" data-i18n="Password">Password</label>
-              <div class="password-input-control">
-                <input id="email-password" name="password" type="password" autocomplete="current-password" required maxlength="512" />
-                <button class="password-visibility-toggle" type="button" data-password-visibility="email-password" data-i18n="Show" data-i18n-aria-label="Show password" aria-label="Show password" aria-pressed="false">Show</button>
-              </div>
-              <button class="button primary" type="submit" data-i18n="Sign in with email and password">Sign in with email and password</button>
-              <button class="button secondary" id="request-password-recovery" type="button" data-i18n="Forgot password? Send a recovery email">Forgot password? Send a recovery email</button>
-            </form>
-            <p class="form-message" id="email-password-login-message" role="status"></p>
-            </section>
-            <section class="auth-method-panel" data-feature-toggle data-feature-key="auth-email-link">
-            <h2 data-i18n="Email sign-in for invited accounts">Email sign-in for invited accounts</h2>
-            <form id="login-form" class="stack">
-              <label for="login-email" data-i18n="Email address">Email address</label>
-              <input id="login-email" name="email" type="email" autocomplete="email" required maxlength="254" />
-              <button class="button primary" type="submit" data-i18n="Email me a secure sign-in link">Email me a secure sign-in link</button>
-            </form>
-            <p class="form-message" id="login-message" role="status"></p>
-            <p class="muted" data-i18n="A Shahdara administrator can request a customer portal invitation. This page cannot confirm email delivery.">A Shahdara administrator can request a customer portal invitation. This page cannot confirm email delivery.</p>
-            </section>
           </div>
-          <section id="password-recovery-panel" data-feature-toggle data-feature-key="auth-password-recovery" aria-labelledby="password-recovery-title" hidden>
-            <h2 id="password-recovery-title" data-i18n="Choose a new password">Choose a new password</h2>
-            <p data-i18n="The recovery link is for this app. Set a password here; future sign-ins can use email and password without another email.">The recovery link is for this app. Set a password here; future sign-ins can use email and password without another email.</p>
-            <form id="password-recovery-form" class="stack">
-              <label for="recovery-new-password" data-i18n="New password">New password</label>
-              <input id="recovery-new-password" name="new_password" type="password" autocomplete="new-password" required minlength="12" maxlength="72" />
-              <label for="recovery-confirm-password" data-i18n="Confirm new password">Confirm new password</label>
-              <input id="recovery-confirm-password" name="confirm_password" type="password" autocomplete="new-password" required minlength="12" maxlength="72" />
-              <button class="button primary" type="submit" data-i18n="Save new password">Save new password</button>
-            </form>
-            <p class="form-message" id="password-recovery-message" role="status"></p>
-            <button class="button secondary" id="cancel-password-recovery" type="button" data-i18n="Cancel and return to sign in">Cancel and return to sign in</button>
-          </section>
         </section>
         <section class="panel portal-panel" id="portal-panel" hidden></section>
       </main>
-      <footer class="site-footer" data-i18n="Private customer and billing records are protected by Supabase Auth and database row-level security. Customer invitations are managed by the server-side invite-customer function; email delivery is not confirmed here.">Private customer and billing records are protected by Supabase Auth and database row-level security. Customer invitations are managed by the server-side invite-customer function; email delivery is not confirmed here.</footer>
+      <footer class="site-footer" data-i18n="Private customer and billing records are protected by Supabase Auth and database row-level security. Customer portal access is issued by an authorized Shahdara administrator.">Private customer and billing records are protected by Supabase Auth and database row-level security. Customer portal access is issued by an authorized Shahdara administrator.</footer>
     </div>
     <script type="module" src="/src/main.js"></script>
   </body>

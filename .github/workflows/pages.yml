@@ -23,6 +23,8 @@ jobs:
     env:
       VITE_SUPABASE_URL: https://qkdsuvmlutkatcqoewkh.supabase.co
       VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
+      VITE_ROUTER_DRIVER: mock
+      ROUTER_DRIVER: mock
     steps:
       - name: Check out cloud portal
         uses: actions/checkout@v4
@@ -53,7 +55,7 @@ jobs:
       - name: Run cloud portal tests
         run: npm test
       - name: Build cloud portal
-        run: npm run build
+        run: npm run build -- --base=/shahdara-isp-billing-cloud/
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:

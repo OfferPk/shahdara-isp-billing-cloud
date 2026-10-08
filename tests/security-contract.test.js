@@ -74,17 +74,18 @@ test('customer-account linking is not writable by authenticated clients', () => 
   assert.match(migration, /create policy customer_accounts_scoped_read[\s\S]*user_id = \(select auth\.uid\(\)\)/i);
 });
 
-test('portal sign-in remains auth-first with self-service sign-up disabled', async () => {
+test('portal sign-in uses username/password aliases and has no customer password mutation path', async () => {
   const main = await readFile(resolve(root, 'src/main.js'), 'utf8');
   const authFlows = await readFile(resolve(root, 'src/auth-flows.js'), 'utf8');
-  assert.match(main, /signInWithOtp/);
-  assert.match(main, /shouldCreateUser:\s*false/);
+  assert.match(main, /functions\.invoke\('customer-login'/);
+  assert.match(main, /signInWithUsernamePassword\(supabase\.auth, username, password\)/);
+  assert.doesNotMatch(main, /signInWithOtp|signInWithEmailPassword/);
   assert.match(main, /onAuthStateChange/);
   assert.match(main, /getSession\(\)/);
-  assert.match(main, /event === 'PASSWORD_RECOVERY'/);
+  assert.doesNotMatch(main, /PASSWORD_RECOVERY|passwordRecoveryForm|change-customer-password/);
   assert.match(authFlows, /auth\.signInWithPassword\(/);
-  assert.match(authFlows, /auth\.resetPasswordForEmail\(/);
-  assert.match(authFlows, /auth\.updateUser\(/);
+  assert.match(authFlows, /\$\{normalizedUsername\}@shahdara\.local/);
+  assert.doesNotMatch(authFlows, /updateUser|resetPasswordForEmail|signUp/);
   assert.doesNotMatch(`${main}\n${authFlows}`, /auth\.signUp\s*\(/);
 });
 
@@ -238,7 +239,7 @@ test('incident writes use a same-organization Admin RPC and never grant browser 
   assert.match(incidentMigration, /grant execute on function public\.manage_service_incident[\s\S]*?to authenticated/i);
   assert.doesNotMatch(incidentMigration, /grant\s+(?:insert|update|delete)[^;]*public\.(?:incidents|incident_private_details)/i);
   assert.match(portalData, /context\.kind === 'admin'[\s\S]*rowsFor\(supabase, 'incident_private_details', 'incident_id, staff_notes'/i);
-  assert.match(portalData, /: Promise\.resolve\(\[\]\)[\s\S]*const billColumns/);
+  assert.match(portalData, /const packageCatalogQuery = context\.kind === 'admin'[\s\S]*loadServicePackages/);
   assert.match(portalData, /'incidents', 'id, customer_id, customer_visible_summary, status, reported_at, offline_at, restored_at'/);
   assert.match(adminIncidents, /Private to same-organization Admins; stored separately and never copied into the customer-visible summary/);
   assert.match(pgTap, /customer cannot read private incident notes/);

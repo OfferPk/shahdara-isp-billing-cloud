@@ -1,13 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  hasPasswordRecoveryMarker,
-  requestPasswordRecovery,
-  setRecoveredPassword,
-  signInWithEmailPassword,
+  isCustomerLoginFallbackError,
+  isStaffUsername,
+  signInWithUsernamePassword,
+  usernameToAuthEmail,
 } from '../src/auth-flows.js';
 
-test('email/password login uses Supabase password sign-in and never creates an account', async () => {
+test('only the trimmed, case-insensitive admin alias is treated as staff login', () => {
+  assert.equal(isStaffUsername(' admin '), true);
+  assert.equal(isStaffUsername('ADMIN'), true);
+  assert.equal(isStaffUsername('admin@example.com'), false);
+  assert.equal(isStaffUsername('customer-01'), false);
+  assert.equal(isStaffUsername('  '), false);
+});
+
+test('username/password login maps trimmed username to the invisible Supabase Auth alias', async () => {
   const calls = [];
   const auth = {
     async signInWithPassword(credentials) {
@@ -16,53 +24,32 @@ test('email/password login uses Supabase password sign-in and never creates an a
     },
   };
 
-  const result = await signInWithEmailPassword(auth, ' owner@example.test ', 'synthetic-user-password');
+  const result = await signInWithUsernamePassword(auth, ' ADMIN ', 'synthetic-user-password');
 
   assert.deepEqual(calls, [[
     'signInWithPassword',
-    { email: 'owner@example.test', password: 'synthetic-user-password' },
+    { email: 'ADMIN@shahdara.local', password: 'synthetic-user-password' },
   ]]);
+  assert.equal(usernameToAuthEmail('  customer@isp  '), 'customer@isp@shahdara.local');
   assert.equal(result.error, null);
   assert.equal('signUp' in auth, false);
+  assert.equal('updateUser' in auth, false);
 });
 
-test('password recovery requests a redirect to the app without creating an account', async () => {
-  const calls = [];
-  const auth = {
-    async resetPasswordForEmail(email, options) {
-      calls.push(['resetPasswordForEmail', email, options]);
-      return { data: {}, error: null };
-    },
-  };
+test('empty usernames are rejected locally without email-format validation or an Auth request', async () => {
+  let called = false;
+  const result = await signInWithUsernamePassword({
+    async signInWithPassword() { called = true; return { error: null }; },
+  }, '  ', 'synthetic-password');
 
-  await requestPasswordRecovery(auth, ' owner@example.test ', 'https://portal.example.test/');
-
-  assert.deepEqual(calls, [[
-    'resetPasswordForEmail',
-    'owner@example.test',
-    { redirectTo: 'https://portal.example.test/' },
-  ]]);
-  assert.equal('signUp' in auth, false);
+  assert.equal(called, false);
+  assert.ok(result.error instanceof Error);
+  assert.equal(usernameToAuthEmail('  '), '');
 });
 
-test('recovery completion changes only the authenticated user password', async () => {
-  const calls = [];
-  const auth = {
-    async updateUser(attributes) {
-      calls.push(['updateUser', attributes]);
-      return { data: { user: { id: 'synthetic-owner' } }, error: null };
-    },
-  };
-
-  await setRecoveredPassword(auth, 'synthetic-user-password');
-
-  assert.deepEqual(calls, [['updateUser', { password: 'synthetic-user-password' }]]);
-  assert.equal('signUp' in auth, false);
-});
-
-test('only recovery callbacks enter the password recovery flow', () => {
-  assert.equal(hasPasswordRecoveryMarker('?type=recovery&code=synthetic'), true);
-  assert.equal(hasPasswordRecoveryMarker('', '#access_token=synthetic&type=recovery'), true);
-  assert.equal(hasPasswordRecoveryMarker('?type=magiclink'), false);
-  assert.equal(hasPasswordRecoveryMarker('', '#type=invite'), false);
+test('only customer-broker unauthorized responses permit staff username fallback', () => {
+  assert.equal(isCustomerLoginFallbackError({ context: { status: 401 } }), true);
+  assert.equal(isCustomerLoginFallbackError({ context: { status: 429 } }), false);
+  assert.equal(isCustomerLoginFallbackError({ context: { status: 503 } }), false);
+  assert.equal(isCustomerLoginFallbackError(new Error('network unavailable')), false);
 });

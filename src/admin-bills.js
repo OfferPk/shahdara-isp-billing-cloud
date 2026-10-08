@@ -68,6 +68,8 @@ export function buildAdminBillRows({
       bill,
       customerName: customer?.name ?? '',
       customerNumber: customer?.customer_number ?? null,
+      invoiceNumber: String(bill.invoice_number ?? '').trim() || String(bill.id),
+      pppoeUsername: String(customer?.pppoe_username ?? '').trim(),
       phone,
       period,
       packageName: String(bill.plan_snapshot ?? '').trim() || String(customer?.plan_name ?? '').trim(),
@@ -188,6 +190,12 @@ export function renderAdminBillCards(rows, formatMoney, t = (value) => value) {
       ? `<a class="bill-action bill-action--whatsapp" href="${escapeHtml(reminderHref)}" target="_blank" rel="noopener noreferrer" aria-label="${escapeHtml(t('Open a prefilled WhatsApp reminder for'))} ${customerName}">${escapeHtml(t('WhatsApp reminder'))}</a>`
       : `<button class="bill-action" type="button" disabled title="${escapeHtml(t('A valid Admin phone and an outstanding priced bill are required.'))}">${escapeHtml(t('WhatsApp reminder'))}</button>`;
     const correct = `<button class="bill-action" type="button" data-action="edit-bill" data-id="${billId}" aria-label="${escapeHtml(t('Correct bill for'))} ${customerName}, ${period}">${escapeHtml(t('Correct bill'))}</button>`;
+    const receivePayment = row.status === 'unpaid' && row.balanceCents > 0
+      ? `<button class="bill-action bill-action--paid" type="button" data-action="receive-payment" data-id="${billId}" aria-label="${escapeHtml(t('Receive payment for'))} ${customerName}, ${period}">${escapeHtml(t('Receive Payment'))}</button>`
+      : '';
+    const viewInvoice = row.amountDueCents !== null
+      ? `<button class="bill-action" type="button" data-action="view-invoice" data-id="${billId}" aria-label="${escapeHtml(t('View or print invoice for'))} ${customerName}, ${period}">${escapeHtml(t('Print / Copy Invoice'))}</button>`
+      : `<button class="bill-action" type="button" disabled title="${escapeHtml(t('Set a price before printing an invoice.'))}">${escapeHtml(t('Print / Copy Invoice'))}</button>`;
     const receipts = row.receipts.length
       ? `<ul class="bill-receipt-list">${row.receipts.map((receipt) => {
         const receiptId = escapeHtml(receipt.id);
@@ -198,9 +206,9 @@ export function renderAdminBillCards(rows, formatMoney, t = (value) => value) {
       }).join('')}</ul>`
       : `<p class="bill-card__no-receipts">${escapeHtml(t('No actual receipt is recorded against this bill.'))}</p>`;
     return `<article class="bill-card">
-      <div class="bill-card__top"><div><p class="bill-card__period">${escapeHtml(t('Billing Month'))} · ${period}</p><h3>${customerName}</h3>${row.customerNumber !== null ? `<p class="bill-card__account">${escapeHtml(t('Account'))} #${escapeHtml(row.customerNumber)}</p>` : ''}</div><span class="status-pill ${badgeClass}">${escapeHtml(badge)}</span></div>
-      <dl class="bill-card__facts"><div><dt>${escapeHtml(t('Issue Date'))}</dt><dd>${escapeHtml(row.issuedOn || t('Issue date not recorded'))}</dd></div><div><dt>${escapeHtml(t('Due Date'))}</dt><dd>${escapeHtml(row.dueDate || t('Due date not recorded'))}</dd></div><div><dt>${escapeHtml(t('Bill amount'))}</dt><dd>${escapeHtml(formatMoney(row.amountDueCents))}</dd></div><div><dt>${escapeHtml(t('Outstanding'))}</dt><dd>${escapeHtml(formatMoney(row.balanceCents))}</dd></div><div><dt>${escapeHtml(t('Package'))}</dt><dd>${packageName}</dd></div><div><dt>${escapeHtml(t('Admin phone'))}</dt><dd>${phone}</dd></div><div><dt>${escapeHtml(t('Actual receipts linked'))}</dt><dd>${escapeHtml(formatMoney(row.cashReceiptCents))}</dd></div><div><dt>${escapeHtml(t('Carry-forward credit'))}</dt><dd>${escapeHtml(formatMoney(row.creditAppliedCents))}</dd></div></dl>
-      <div class="bill-card__actions" role="group" aria-label="${escapeHtml(t('Bill actions for'))} ${customerName}">${collect}${reminder}${correct}</div>
+      <div class="bill-card__top"><div><p class="bill-card__period">${escapeHtml(t('Invoice No.'))} · ${escapeHtml(row.invoiceNumber)}</p><p class="bill-card__period">${escapeHtml(t('Billing Month'))} · ${period}</p><h3>${customerName}</h3>${row.customerNumber !== null ? `<p class="bill-card__account">${escapeHtml(t('Account'))} #${escapeHtml(row.customerNumber)}</p>` : ''}</div><span class="status-pill ${badgeClass}">${escapeHtml(badge)}</span></div>
+      <dl class="bill-card__facts"><div><dt>${escapeHtml(t('PPPoE Username'))}</dt><dd>${escapeHtml(row.pppoeUsername || t('Not recorded'))}</dd></div><div><dt>${escapeHtml(t('Issue Date'))}</dt><dd>${escapeHtml(row.issuedOn || t('Issue date not recorded'))}</dd></div><div><dt>${escapeHtml(t('Due Date'))}</dt><dd>${escapeHtml(row.dueDate || t('Due date not recorded'))}</dd></div><div><dt>${escapeHtml(t('Bill amount'))}</dt><dd>${escapeHtml(formatMoney(row.amountDueCents))}</dd></div><div><dt>${escapeHtml(t('Outstanding'))}</dt><dd>${escapeHtml(formatMoney(row.balanceCents))}</dd></div><div><dt>${escapeHtml(t('Package'))}</dt><dd>${packageName}</dd></div><div><dt>${escapeHtml(t('Admin phone'))}</dt><dd>${phone}</dd></div><div><dt>${escapeHtml(t('Actual receipts linked'))}</dt><dd>${escapeHtml(formatMoney(row.cashReceiptCents))}</dd></div><div><dt>${escapeHtml(t('Carry-forward credit'))}</dt><dd>${escapeHtml(formatMoney(row.creditAppliedCents))}</dd></div></dl>
+      <div class="bill-card__actions" role="group" aria-label="${escapeHtml(t('Bill actions for'))} ${customerName}">${viewInvoice}${receivePayment}${collect}${reminder}${correct}</div>
       <div class="bill-card__receipts"><h4>${escapeHtml(t('Actual receipt records'))}</h4>${receipts}</div>
     </article>`;
   }).join('');

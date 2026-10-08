@@ -1,8 +1,8 @@
 import { createPortalClient, isStagingProjectUrl } from './supabase-client.js';
-import { hasPasswordRecoveryMarker, requestPasswordRecovery, setRecoveredPassword, signInWithEmailPassword } from './auth-flows.js';
+import { isCustomerLoginFallbackError, isStaffUsername, signInWithUsernamePassword } from './auth-flows.js';
 import { togglePasswordVisibility } from './password-visibility.js';
 import { validatePakistanPhone } from './customer-input.js';
-import { createCustomer, invokeRpc, loadContexts, loadOrganizationBranding, loadPortalRows, manageServiceIncident, saveCustomerPppoeUsername, saveCustomerPortalTestAccount } from './portal-data.js';
+import { createCustomer, invokeRpc, loadOrganizationBranding, loadPortalRows, loadPortalSessionContexts, manageServiceIncident, saveCustomerPppoeUsername, saveCustomerPortalTestAccount } from './portal-data.js';
 import { getBillingCycleQuickDate, isValidBillingMonth, localDateString, localMonthString } from './bill-dates.js';
 import { amountToMinorUnits, calculateDashboard, formatMoney } from './ledger.js';
 import { CASHFLOW_CATEGORIES, filterCashflowExpenses, summarizeCashflow } from './cashflow.js';
@@ -45,13 +45,19 @@ import {
 import { applyDocumentLanguage, formatUiMessage, getStoredLanguage, loadLanguageResources, normalizeLanguage, setLanguagePreference, translateUi } from './language.js';
 import { BRANDING_BUCKET, buildBrandLogoPath, getOrganizationBranding, getPublicBrandLogoUrl, isSafeBrandLogoPath, safeSupportPhoneHref, validateBrandLogoFile } from './organization-branding.js';
 import { renderPrintableBillHtml } from './customer-documents.js';
-import { renderCustomerUsageDashboard, renderCustomerUsageSkeleton } from './customer-usage.js';
-import { prepareSuccessSound } from './success-sound.js';
+import { buildDemoCustomerMonthlyUsage, renderCustomerUsageDashboard, renderCustomerUsageSkeleton } from './customer-usage.js';
+import { appendLiveTrafficSample, drawLiveTrafficGraph, formatLiveTrafficRate, LIVE_TRAFFIC_POLL_INTERVAL_MS, normalizeLiveTrafficSample } from './live-traffic.js';
 import { initializeFeatureToggles, refreshFeatureToggleLabels, ALL_FEATURE_SELECTOR } from './feature-toggles.js';
 import { initializeTheme } from './theme.js';
 import { initializeAppInstall } from './app-install.js';
 import { renderDashboardAnalyticsSkeleton } from './dashboard-analytics-loading.js';
 import { renderPortalLoadError, safePortalErrorDetails } from './portal-load-error.js';
+import { mountPppoeSessionsDashboard } from './admin-pppoe-sessions.js';
+import { renderSubscriberImportContent, renderSubscriberImportDialog, setSelectedSubscriberUsernames } from './admin-subscriber-import.js';
+import { discoverRouterSubscribers, fetchCustomerLiveTraffic, importRouterSubscribers } from './pppoe-api-client.js';
+import { buildInvoiceShareText, buildMonthlyInvoiceRequest } from './billing-engine.js';
+import { DEFAULT_PACKAGE_PRESETS, renderAdminPackageCards, renderAdminPackageCreationForm, buildPackagePricingRows } from './admin-packages.js';
+import { generateMonthlyInvoices, updatePackageMonthlyFee } from './billing-api-client.js';
 import './styles.css';
 
 const app = document.querySelector('#app');
@@ -59,18 +65,9 @@ const configMessage = document.querySelector('#configuration-message');
 const authPanel = document.querySelector('#auth-panel');
 const portalPanel = document.querySelector('#portal-panel');
 const appToast = document.querySelector('#app-toast');
-const loginForm = document.querySelector('#login-form');
-const loginMessage = document.querySelector('#login-message');
 const customerLoginForm = document.querySelector('#customer-login-form');
 const customerLoginMessage = document.querySelector('#customer-login-message');
 const loginOptions = document.querySelector('#login-options');
-const emailPasswordLoginForm = document.querySelector('#email-password-login-form');
-const emailPasswordLoginMessage = document.querySelector('#email-password-login-message');
-const requestPasswordRecoveryButton = document.querySelector('#request-password-recovery');
-const passwordRecoveryPanel = document.querySelector('#password-recovery-panel');
-const passwordRecoveryForm = document.querySelector('#password-recovery-form');
-const passwordRecoveryMessage = document.querySelector('#password-recovery-message');
-const cancelPasswordRecoveryButton = document.querySelector('#cancel-password-recovery');
 let currentLanguage = getStoredLanguage();
 const romanUrduResourcesAvailable = await loadLanguageResources(currentLanguage);
 if (!romanUrduResourcesAvailable) currentLanguage = 'en';
@@ -82,8 +79,9 @@ const themeControl = initializeTheme({
   themeColorMeta: document.querySelector('meta[name="theme-color"]'),
   translate: t,
 });
-let recoveryMode = hasPasswordRecoveryMarker(window.location.search, window.location.hash);
+let stopCustomerLiveTraffic = () => {};
 let rerenderForLanguage = () => {};
+let cleanupPppoeDashboard = () => {};
 
 function applyStaticTranslations(root = document) {
   for (const element of root.querySelectorAll('[data-i18n]')) {
@@ -170,6 +168,13 @@ if (!supabase) {
     billCycleMonth: localMonth(),
     billIssueDate: localDate(),
     billDueDate: '',
+    invoiceGenerationMonth: localMonth(),
+    invoiceGenerationIssueDate: localDate(),
+    invoiceGenerationDueDate: '',
+    invoiceGenerationBusy: false,
+    invoiceGenerationMessage: '',
+    packagePricingBusyId: '',
+    packagePricingMessage: '',
     loadingUserId: null,
     customerListSearch: '',
     customerListStatus: 'all',
@@ -195,7 +200,75 @@ if (!supabase) {
     customerReceiptFrom: '',
     customerReceiptThrough: '',
     dashboardDrilldown: null,
+    subscriberImport: { subscribers: [], selectedUsernames: [], loading: false, busy: false, error: '', mockMode: false },
   };
+  let customerLiveTrafficTimer = null;
+  let customerLiveTrafficStartTimer = null;
+  let customerLiveTrafficInFlight = false;
+  let customerLiveTrafficGeneration = 0;
+  let customerLiveTrafficSamples = [];
+  stopCustomerLiveTraffic = () => {
+    customerLiveTrafficGeneration += 1;
+    if (customerLiveTrafficTimer !== null) window.clearTimeout(customerLiveTrafficTimer);
+    if (customerLiveTrafficStartTimer !== null) window.clearTimeout(customerLiveTrafficStartTimer);
+    customerLiveTrafficTimer = null;
+    customerLiveTrafficStartTimer = null;
+    customerLiveTrafficSamples = [];
+  };
+
+  async function pollCustomerLiveTraffic(generation) {
+    if (generation !== customerLiveTrafficGeneration || pageState.context?.kind !== 'customer') return;
+    if (customerLiveTrafficInFlight) return;
+    if (document.hidden) {
+      customerLiveTrafficTimer = window.setTimeout(() => void pollCustomerLiveTraffic(generation), LIVE_TRAFFIC_POLL_INTERVAL_MS);
+      return;
+    }
+    const canvas = portalPanel.querySelector('#customer-live-traffic-graph');
+    if (!canvas) return;
+    customerLiveTrafficInFlight = true;
+    let nextDelay = LIVE_TRAFFIC_POLL_INTERVAL_MS;
+    try {
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !sessionData?.session?.access_token) throw new Error('Sign-in session unavailable.');
+      const sample = normalizeLiveTrafficSample(await fetchCustomerLiveTraffic({ token: sessionData.session.access_token }));
+      if (!sample) throw new Error('Traffic sample unavailable.');
+      if (generation !== customerLiveTrafficGeneration || !portalPanel.contains(canvas)) return;
+      customerLiveTrafficSamples = appendLiveTrafficSample(customerLiveTrafficSamples, sample);
+      drawLiveTrafficGraph(canvas, customerLiveTrafficSamples);
+      const download = portalPanel.querySelector('#customer-live-download');
+      const upload = portalPanel.querySelector('#customer-live-upload');
+      const status = portalPanel.querySelector('#customer-live-traffic-status');
+      if (download) download.textContent = formatLiveTrafficRate(sample.downloadBitsPerSecond, currentLanguage === 'ur-Latn' ? 'ur-Latn-PK' : 'en-PK');
+      if (upload) upload.textContent = formatLiveTrafficRate(sample.uploadBitsPerSecond, currentLanguage === 'ur-Latn' ? 'ur-Latn-PK' : 'en-PK');
+      if (status) status.textContent = sample.source === 'demo'
+        ? t('Demo rates · not live RouterOS')
+        : t('Live traffic updated');
+    } catch (error) {
+      if (generation !== customerLiveTrafficGeneration || !portalPanel.contains(canvas)) return;
+      const status = portalPanel.querySelector('#customer-live-traffic-status');
+      const wasRateLimited = String(error?.message ?? '').toLowerCase().includes('rate limited');
+      if (wasRateLimited) nextDelay += Math.random() * 3000;
+      if (status) status.textContent = wasRateLimited
+        ? t('Live traffic is rate-limited. The next attempt will be staggered.')
+        : t('Live traffic is temporarily unavailable. The graph will retry automatically.');
+    } finally {
+      customerLiveTrafficInFlight = false;
+      if (generation === customerLiveTrafficGeneration && pageState.context?.kind === 'customer') {
+        customerLiveTrafficTimer = window.setTimeout(() => void pollCustomerLiveTraffic(generation), nextDelay);
+      }
+    }
+  }
+
+  function startCustomerLiveTraffic() {
+    stopCustomerLiveTraffic();
+    if (pageState.context?.kind !== 'customer' || !portalPanel.querySelector('#customer-live-traffic-graph')) return;
+    const generation = customerLiveTrafficGeneration;
+    customerLiveTrafficStartTimer = window.setTimeout(() => {
+      if (generation !== customerLiveTrafficGeneration) return;
+      void pollCustomerLiveTraffic(generation);
+    }, Math.random() * 750);
+  }
+
   let pendingReceiptAttempt = null;
   const pendingFinancialAttempts = new Map();
   const dashboardControlRoots = new WeakSet();
@@ -369,6 +442,39 @@ if (!supabase) {
     pendingReceiptAttempt = null;
   }
 
+  function paymentAttemptKey(context, billId) {
+    return `shahdara-cloud-payment-attempt:${pageState.user?.id ?? 'signed-out'}:${context.organizationId}:${billId}`;
+  }
+
+  function getPaymentAttempt(context, billId) {
+    const key = paymentAttemptKey(context, billId);
+    const saved = pendingFinancialAttempts.get(key);
+    if (saved) return saved;
+    try {
+      const id = sessionStorage.getItem(key);
+      if (!id) return null;
+      const attempt = { key, id };
+      pendingFinancialAttempts.set(key, attempt);
+      return attempt;
+    } catch {
+      return null;
+    }
+  }
+
+  function savePaymentAttempt(context, billId, id) {
+    const key = paymentAttemptKey(context, billId);
+    const attempt = { key, id };
+    pendingFinancialAttempts.set(key, attempt);
+    try { sessionStorage.setItem(key, id); } catch { /* Retain the request ID in memory for this tab. */ }
+    return attempt;
+  }
+
+  function clearPaymentAttempt(attempt) {
+    if (!attempt) return;
+    pendingFinancialAttempts.delete(attempt.key);
+    try { sessionStorage.removeItem(attempt.key); } catch { /* Storage is optional. */ }
+  }
+
   function financialAttemptKey(kind, context, customerId = '') {
     return `${kind}:${pageState.user?.id ?? 'signed-out'}:${context.organizationId}:${customerId}`;
   }
@@ -460,29 +566,17 @@ if (!supabase) {
   }
 
   function showLogin(message = '', isError = false) {
-    recoveryMode = false;
+    stopCustomerLiveTraffic();
     configMessage.hidden = true;
     portalPanel.hidden = true;
     authPanel.hidden = false;
     loginOptions.hidden = false;
-    passwordRecoveryPanel.hidden = true;
-    setMessage(loginMessage, message, isError);
     setMessage(customerLoginMessage, '', false);
-    setMessage(emailPasswordLoginMessage, '', false);
-    setMessage(passwordRecoveryMessage, '', false);
-  }
-
-  function showPasswordRecovery() {
-    configMessage.hidden = true;
-    portalPanel.hidden = true;
-    authPanel.hidden = false;
-    loginOptions.hidden = true;
-    passwordRecoveryPanel.hidden = false;
-    setMessage(passwordRecoveryMessage, '', false);
-    passwordRecoveryForm?.querySelector('input[name="new_password"]')?.focus();
+    setMessage(customerLoginMessage, message, isError);
   }
 
   function showPortalLoading(includeCustomerUsage = false) {
+    stopCustomerLiveTraffic();
     configMessage.hidden = true;
     authPanel.hidden = true;
     portalPanel.hidden = false;
@@ -490,6 +584,7 @@ if (!supabase) {
   }
 
   function showPortalLoadError({ error, scope, eyebrow, title, description, retryKind }) {
+    stopCustomerLiveTraffic();
     console.warn('Portal data load failed.', { scope, ...safePortalErrorDetails(error) });
     portalPanel.innerHTML = renderPortalLoadError({
       eyebrow: t(eyebrow),
@@ -549,17 +644,15 @@ if (!supabase) {
 
   async function handleSession(session) {
     if (!session) {
-      const recoveryLinkWasPresent = recoveryMode;
+      cleanupPppoeDashboard();
+      cleanupPppoeDashboard = () => {};
+      stopCustomerLiveTraffic();
       pageState.user = null;
       pageState.contexts = [];
       pageState.context = null;
       pageState.rows = null;
       pendingReceiptAttempt = null;
-      showLogin(recoveryLinkWasPresent ? 'Recovery link could not be verified or has expired. Request a new one.' : '', recoveryLinkWasPresent);
-      return;
-    }
-    if (recoveryMode) {
-      showPasswordRecovery();
+      showLogin();
       return;
     }
     if (pageState.loadingUserId === session.user.id) return;
@@ -573,14 +666,12 @@ if (!supabase) {
     pageState.user = session.user;
     showPortalLoading();
     try {
-      const { data: passwordStates, error: passwordStateError } = await supabase.rpc('my_customer_portal_password_state');
-      if (passwordStateError) throw passwordStateError;
-      const passwordState = passwordStates?.[0]?.state ?? 'none';
-      if (!['none', 'active'].includes(passwordState)) {
+      const { contexts, passwordState } = await loadPortalSessionContexts(supabase, session.user);
+      if (passwordState && !['none', 'active'].includes(passwordState)) {
         showCustomerPasswordGate(passwordState);
         return;
       }
-      pageState.contexts = await loadContexts(supabase, session.user);
+      pageState.contexts = contexts;
       if (!pageState.contexts.length) {
         portalPanel.innerHTML = `<div class="panel" role="status"><p class="eyebrow">${escapeHtml(t('No portal access'))}</p><h2>${escapeHtml(t('Account access is not available'))}</h2><p>${escapeHtml(t('Ask the ISP administrator to verify this account or issue an invitation.'))}</p><button class="button secondary" data-action="sign-out">${escapeHtml(t('Sign out'))}</button></div>`;
         announceApp('Account access is not available.');
@@ -619,63 +710,18 @@ if (!supabase) {
   }
 
   function showCustomerPasswordGate(state) {
+    stopCustomerLiveTraffic();
     pageState.contexts = [];
     pageState.context = null;
     pageState.rows = null;
     authPanel.hidden = true;
     portalPanel.hidden = false;
-    const canChange = state === 'change_required';
-    const heading = canChange ? 'Change your temporary password' : state === 'expired'
-      ? 'Temporary password expired'
-      : 'Customer access is temporarily unavailable';
-    const description = canChange
-      ? 'Set a new password before portal data is available. The temporary password can be used only once and expires after 24 hours.'
-      : state === 'expired'
-        ? 'This temporary password expired or was already used. Ask a Shahdara administrator to issue a new one.'
-        : 'Customer data is blocked until an administrator reviews or resets this account.';
-    portalPanel.innerHTML = `<section class="panel" aria-labelledby="password-gate-title"><p class="eyebrow">${escapeHtml(t('Customer account security'))}</p><h1 id="password-gate-title">${escapeHtml(t(heading))}</h1><p>${escapeHtml(t(description))}</p>${canChange ? `<form id="mandatory-password-change-form" class="stack"><label for="mandatory-new-password">${escapeHtml(t('New password'))}</label><input id="mandatory-new-password" name="new_password" type="password" autocomplete="new-password" required minlength="12" maxlength="72" /><label for="mandatory-confirm-password">${escapeHtml(t('Confirm new password'))}</label><input id="mandatory-confirm-password" name="confirm_password" type="password" autocomplete="new-password" required minlength="12" maxlength="72" /><button class="button primary" type="submit">${escapeHtml(t('Save new password'))}</button></form><p id="password-change-message" class="form-message" role="status"></p>` : ''}<button class="button secondary" data-action="sign-out">${escapeHtml(t('Sign out'))}</button></section>`;
+    const heading = state === 'expired' ? 'Customer access expired' : 'Customer access unavailable';
+    const description = state === 'expired'
+      ? 'This customer portal account has expired. Ask a Shahdara administrator to review access.'
+      : 'This customer portal account is not active. Ask a Shahdara administrator to review or activate portal access.';
+    portalPanel.innerHTML = `<section class="panel" aria-labelledby="customer-access-gate-title"><p class="eyebrow">${escapeHtml(t('Customer portal access'))}</p><h1 id="customer-access-gate-title">${escapeHtml(t(heading))}</h1><p>${escapeHtml(t(description))}</p><button class="button secondary" data-action="sign-out">${escapeHtml(t('Sign out'))}</button></section>`;
     bindSharedActions();
-    const form = portalPanel.querySelector('#mandatory-password-change-form');
-    form?.addEventListener('submit', async (event) => {
-      event.preventDefault();
-      const newPasswordInput = form.elements.new_password;
-      const confirmPasswordInput = form.elements.confirm_password;
-      let newPassword = String(newPasswordInput.value ?? '');
-      const message = portalPanel.querySelector('#password-change-message');
-      const submit = form.querySelector('button[type="submit"]');
-      if (newPassword !== String(confirmPasswordInput.value ?? '')) {
-        setMessage(message, 'The new passwords do not match.', true);
-        return;
-      }
-      const byteLength = new TextEncoder().encode(newPassword).byteLength;
-      if (byteLength < 12 || byteLength > 72) {
-        setMessage(message, 'Choose a password between 12 and 72 UTF-8 bytes.', true);
-        return;
-      }
-      submit.disabled = true;
-      setMessage(message, 'Updating password…');
-      try {
-        const { data, error } = await supabase.functions.invoke('change-customer-password', {
-          body: { new_password: newPassword },
-        });
-        newPasswordInput.value = '';
-        confirmPasswordInput.value = '';
-        newPassword = '';
-        if (error || data?.ok !== true) {
-          setMessage(message, 'Password could not be changed. Try again or contact an administrator.', true);
-          return;
-        }
-        const { data: sessionData } = await supabase.auth.getSession();
-        await handleSession(sessionData.session);
-      } catch {
-        newPasswordInput.value = '';
-        confirmPasswordInput.value = '';
-        newPassword = '';
-        setMessage(message, 'Password could not be changed. Try again or contact an administrator.', true);
-      } finally {
-        if (submit.isConnected) submit.disabled = false;
-      }
-    });
   }
 
   function allocationTotals(rows, billId) {
@@ -692,7 +738,11 @@ if (!supabase) {
     if (!pageState.context || !pageState.rows) return;
     applyBrandIdentity();
     if (pageState.context.kind === 'admin') renderAdmin();
-    else renderCustomer();
+    else {
+      cleanupPppoeDashboard();
+      cleanupPppoeDashboard = () => {};
+      renderCustomer();
+    }
   }
 
   function snapshotPortalUi() {
@@ -824,7 +874,7 @@ if (!supabase) {
 
   function renderPortalNavigation(kind) {
     const links = kind === 'admin'
-      ? [['#admin-overview', 'Overview'], ['#customer-list', 'Customers'], ['#admin-bills', 'Bills'], ['#admin-receipts', 'Receipts'], ['#admin-incidents', 'Service incidents'], ['#admin-network-diagnostics', 'AI Network Engineer · Simulation'], ...(pageState.context?.role === 'owner' ? [['#company-branding', 'Company profile']] : [])]
+      ? [['#admin-overview', 'Overview'], ['#admin-pppoe-sessions', 'Active Sessions'], ['#customer-list', 'Customers'], ['#admin-packages', 'Packages / Plans'], ['#admin-bills', 'Bills'], ['#admin-receipts', 'Receipts'], ['#admin-incidents', 'Service incidents'], ['#admin-network-diagnostics', 'AI Network Engineer · Simulation'], ...(pageState.context?.role === 'owner' ? [['#company-branding', 'Company profile']] : [])]
       : [['#customer-account', 'My account'], ['#customer-usage', 'Usage dashboard'], ['#customer-expiry', 'Service expiry'], ['#customer-billing', 'Billing history'], ['#customer-incidents', 'Service updates']];
     return `<nav class="portal-nav" aria-label="${escapeHtml(t('Portal navigation'))}">${links.map(([href, label]) => `<a href="${href}">${escapeHtml(t(label))}</a>`).join('')}</nav>`;
   }
@@ -1413,6 +1463,40 @@ if (!supabase) {
     return true;
   }
 
+  function openPaymentDialogForBill(billRow) {
+    if (!billRow || billRow.status !== 'unpaid' || billRow.balanceCents == null || billRow.balanceCents <= 0) return false;
+    const bill = billRow.bill;
+    const customer = pageState.rows?.customers.find((row) => row.id === bill.customer_id);
+    const dialog = portalPanel.querySelector('#invoice-payment-dialog');
+    const form = portalPanel.querySelector('#invoice-payment-form');
+    if (!dialog || !form || !customer) return false;
+    form.elements.bill_id.value = bill.id;
+    form.elements.customer_id.value = bill.customer_id;
+    form.elements.received_on.value = localDate();
+    form.elements.amount.value = (billRow.balanceCents / 100).toFixed(2);
+    form.elements.method.value = '';
+    const description = dialog.querySelector('#invoice-payment-description');
+    if (description) description.textContent = `${customer.name} · ${billRow.invoiceNumber} · ${formatMoney(billRow.balanceCents)}`;
+    setMessage(dialog.querySelector('#invoice-payment-message'), 'Review the amount, actual receipt date, and payment method. Payment is recorded only when you submit this form.');
+    dialog.showModal();
+    form.elements.received_on.focus();
+    return true;
+  }
+
+  function openInvoicePreview(billId) {
+    const row = currentAdminBillRows().find((entry) => entry.bill.id === billId);
+    const bill = row?.bill;
+    const customer = pageState.rows?.customers.find((entry) => entry.id === bill?.customer_id);
+    const dialog = portalPanel.querySelector('#invoice-view-dialog');
+    const content = portalPanel.querySelector('#invoice-view-content');
+    if (!bill || !customer || !dialog || !content) return false;
+    const invoiceNumber = row.invoiceNumber;
+    const shareText = buildInvoiceShareText({ bill, customer, formatMoney, t });
+    content.innerHTML = `<div class="dialog-header"><div><p class="eyebrow">${escapeHtml(t('Printable invoice'))}</p><h2 id="invoice-view-title">${escapeHtml(invoiceNumber)}</h2></div><button class="icon-button" type="button" data-action="close-invoice-view" aria-label="${escapeHtml(t('Close'))}">×</button></div><dl class="invoice-preview-facts"><div><dt>${escapeHtml(t('Customer'))}</dt><dd>${escapeHtml(customer.name)}</dd></div><div><dt>${escapeHtml(t('PPPoE Username'))}</dt><dd>${escapeHtml(customer.pppoe_username || t('Not recorded'))}</dd></div><div><dt>${escapeHtml(t('Package'))}</dt><dd>${escapeHtml(row.packageName || t('Package not recorded'))}</dd></div><div><dt>${escapeHtml(t('Billing Month'))}</dt><dd>${escapeHtml(row.period)}</dd></div><div><dt>${escapeHtml(t('Due Date'))}</dt><dd>${escapeHtml(row.dueDate || t('Due date not recorded'))}</dd></div><div><dt>${escapeHtml(t('Total Amount'))}</dt><dd>${escapeHtml(formatMoney(row.amountDueCents))}</dd></div></dl><label class="invoice-copy-field">${escapeHtml(t('WhatsApp / SMS text'))}<textarea id="invoice-copy-text" rows="8" readonly>${escapeHtml(shareText)}</textarea></label><p id="invoice-view-message" class="form-message" role="status" aria-live="polite"></p><div class="form-actions"><button class="button primary" type="button" data-action="print-invoice" data-id="${escapeHtml(bill.id)}">${escapeHtml(t('Print Invoice'))}</button><button class="button secondary" type="button" data-action="copy-invoice-text">${escapeHtml(t('Copy WhatsApp / SMS text'))}</button><button class="button secondary" type="button" data-action="close-invoice-view">${escapeHtml(t('Close'))}</button></div>`;
+    dialog.showModal();
+    return true;
+  }
+
   function openReceiptFormForCustomer(row) {
     const bill = row?.paymentBill ?? row?.bill;
     if (!bill || row?.billing?.status !== 'unpaid' || row.billing.balanceCents == null || row.billing.balanceCents <= 0) return;
@@ -1452,6 +1536,34 @@ if (!supabase) {
     if (pageState.context?.kind !== 'customer') return;
     const bill = pageState.rows?.bills.find((row) => row.id === billId && row.customer_id === pageState.context.customerId);
     const customer = pageState.rows?.customers.find((row) => row.id === pageState.context.customerId);
+    if (!bill || !customer) return;
+    const summary = summarizeCustomerBill(bill, pageState.rows.receipts, pageState.rows.allocations);
+    const printWindow = window.open('', '_blank', 'popup,width=760,height=900');
+    if (!printWindow) {
+      window.alert(t('Allow the print window to open, then choose Print or Save as PDF.'));
+      return;
+    }
+    printWindow.document.open();
+    printWindow.document.write(renderPrintableBillHtml({
+      bill,
+      customer,
+      summary,
+      branding: { ...currentBranding(), logoUrl: currentBrandLogoUrl() },
+      projectUrl: supabase.supabaseUrl,
+      formatMoney,
+      t,
+      language: currentLanguage,
+    }));
+    printWindow.document.close();
+    printWindow.opener = null;
+    printWindow.focus();
+    window.setTimeout(() => printWindow.print(), 150);
+  }
+
+  function printAdminInvoice(billId) {
+    if (pageState.context?.kind !== 'admin') return;
+    const bill = pageState.rows?.bills.find((row) => row.id === billId);
+    const customer = pageState.rows?.customers.find((row) => row.id === bill?.customer_id);
     if (!bill || !customer) return;
     const summary = summarizeCustomerBill(bill, pageState.rows.receipts, pageState.rows.allocations);
     const printWindow = window.open('', '_blank', 'popup,width=760,height=900');
@@ -1604,6 +1716,8 @@ if (!supabase) {
   }
 
   function renderAdmin() {
+    cleanupPppoeDashboard();
+    cleanupPppoeDashboard = () => {};
     const renderGeneration = ++dashboardAnalyticsRenderGeneration;
     pageState.dashboardAnalyticsRenderGeneration = renderGeneration;
     const context = pageState.context;
@@ -1685,6 +1799,18 @@ if (!supabase) {
     const customerAreaOptions = getCustomerAreaOptions(customerListRows)
       .map((option) => `<option value="${escapeHtml(option.value)}">${escapeHtml(option.label)}</option>`).join('');
     const customerName = (id) => rows.customers.find((customer) => customer.id === id)?.name ?? t('Customer');
+    const packagePricingRows = buildPackagePricingRows(customers, rows.packages ?? []);
+    const billingEngineReady = rows.invoiceNumberAvailable === true && !rows.packagesError;
+    const billingEngineNotice = billingEngineReady ? ''
+      : `<p class="billing-engine-notice" role="note">${escapeHtml(t('Package pricing and monthly invoicing are unavailable until the billing-engine migration is applied. No database migration is run from this page.'))}</p>`;
+    const packageQuotaMetadataAvailable = rows.packageQuotaMetadataAvailable === true && !rows.packagesError;
+    const packageQuotaNotice = packageQuotaMetadataAvailable ? ''
+      : `<p class="billing-engine-notice" role="note">${escapeHtml(t('Quota package editing requires the dual-mode FUP quota migration. This app does not apply database migrations automatically.'))}</p>`;
+    const packagePricingMarkup = renderAdminPackageCards(packagePricingRows, formatMoney, t, {
+      disabled: !billingEngineReady,
+      quotaMetadataAvailable: packageQuotaMetadataAvailable,
+    });
+    const packageCreationMarkup = renderAdminPackageCreationForm(t, { disabled: !packageQuotaMetadataAvailable });
     const monthOptions = customers.map((customer) => `<option value="${escapeHtml(customer.id)}">#${customer.customer_number} · ${escapeHtml(customer.name)}</option>`).join('');
     const billOptions = bills.map((bill) => `<option value="${escapeHtml(bill.id)}">${escapeHtml(customerName(bill.customer_id))} · ${escapeHtml(bill.period.slice(0, 7))} · ${formatMoney(bill.amount_due_cents)}</option>`).join('');
     const inviteCustomers = customers.filter((customer) => !customer.archived);
@@ -1729,6 +1855,8 @@ if (!supabase) {
 
     portalPanel.innerHTML = `${shellHeader(t('Administrator portal'))}
       ${renderPortalNavigation('admin')}
+      <section id="admin-pppoe-sessions" class="panel data-panel pppoe-dashboard-panel" aria-labelledby="pppoe-sessions-title"></section>
+      <section id="admin-packages" class="panel data-panel admin-packages-panel" aria-labelledby="admin-packages-title"><div class="section-heading"><div><p class="eyebrow">${escapeHtml(t('Service packages'))}</p><h2 id="admin-packages-title" tabindex="-1">${escapeHtml(t('Packages / Plans'))}</h2></div><span class="muted">${packagePricingRows.length} ${escapeHtml(t('packages'))}</span></div><p class="muted">${escapeHtml(t('Create and edit monthly packages, choose unlimited or FUP-capped quota, and set a saved exhaustion policy. Package changes apply from the current billing month.'))}</p>${billingEngineNotice}${packageQuotaNotice}<div id="package-pricing-message" class="form-message" role="status" aria-live="polite">${escapeHtml(t(pageState.packagePricingMessage))}</div>${packageCreationMarkup}${packagePricingMarkup}</section>
       ${brandingSettingsHtml()}
       ${renderDashboardMetrics({ month: pageState.selectedMonth, today: dashboardToday, totals, previousTotals, trendSeries: dashboardTrendSeries, t })}
       <section class="panel month-panel" data-feature-key="admin-month-controls" data-feature-default-expanded="true"><div class="month-panel__row"><label for="dashboard-month">${escapeHtml(t('Dashboard month'))}<input type="month" id="dashboard-month" value="${escapeHtml(pageState.selectedMonth)}"></label><div class="dashboard-month-shortcuts" role="group" aria-label="${escapeHtml(t('Dashboard month shortcuts'))}"><button class="button secondary small" type="button" data-dashboard-month-target="previous">${escapeHtml(t('Previous month'))}</button><button class="button secondary small" type="button" data-dashboard-month-target="current">${escapeHtml(t('This month'))}</button><button class="button secondary small" type="button" data-dashboard-month-target="last">${escapeHtml(t('Last month'))}</button><button class="button secondary small" type="button" data-dashboard-month-target="next" ${pageState.selectedMonth >= localMonth() ? 'disabled' : ''}>${escapeHtml(t('Next month'))}</button></div></div><p class="muted">${escapeHtml(t('Cash totals follow receipt dates. Credit allocation is shown separately and is never counted as another payment.'))}</p></section>
@@ -1827,7 +1955,7 @@ if (!supabase) {
       </section>
       <section id="customer-list" class="panel data-panel customer-list-panel" aria-labelledby="customer-list-title">
         <div class="customer-list-heading"><div><p class="eyebrow">${escapeHtml(t('Customer directory'))}</p><h2 id="customer-list-title" tabindex="-1">${escapeHtml(t('Customers'))}</h2></div>
-          <div class="customer-summary" aria-label="${escapeHtml(t('Customer count, active count, and unpaid count'))}"><span><strong>${customerSummary.total}</strong><small>${escapeHtml(t('Total'))}</small></span><span><strong>${customerSummary.active}</strong><small>${escapeHtml(t('Active'))}</small></span><span><strong>${customerSummary.unpaid}</strong><small>${escapeHtml(t('Unpaid'))}</small></span></div>
+          <div class="customer-list-heading__actions"><div class="customer-summary" aria-label="${escapeHtml(t('Customer count, active count, and unpaid count'))}"><span><strong>${customerSummary.total}</strong><small>${escapeHtml(t('Total'))}</small></span><span><strong>${customerSummary.active}</strong><small>${escapeHtml(t('Active'))}</small></span><span><strong>${customerSummary.unpaid}</strong><small>${escapeHtml(t('Unpaid'))}</small></span></div><button class="button primary small" type="button" data-action="open-subscriber-import">${escapeHtml(t('Import from Router'))}</button></div>
         </div>
         <div class="customer-list-search"><label class="sr-only" for="customer-search">${escapeHtml(t('Search customers by name, phone, or Account number'))}</label><input id="customer-search" type="search" autocomplete="off" value="${escapeHtml(pageState.customerListSearch)}" placeholder="${escapeHtml(t('Search name, phone, or Account #'))}"><p class="muted">${escapeHtml(t('Customer portal username is separate from the customer number. Area choices use the saved service address.'))}</p></div>
         <div class="customer-list-filters" role="group" aria-label="${escapeHtml(t('Filter customers by payment status or area'))}">
@@ -1846,9 +1974,11 @@ if (!supabase) {
         <div id="customer-card-grid" class="customer-card-grid">${customerSummary.total ? renderCustomerCards(initialCustomerPage.items, formatMoney, t) : `<p class="customer-list-empty" role="status">${escapeHtml(t('No customer records yet.'))}</p>`}</div>
         ${renderCustomerListPagination(initialCustomerPage)}
         <dialog id="customer-profile-dialog" class="edit-dialog customer-profile-dialog" aria-labelledby="customer-profile-title"><div id="customer-profile-content"></div></dialog>
+        ${renderSubscriberImportDialog(pageState.subscriberImport, t)}
       </section>
       <div class="customer-fab-menu" id="customer-fab-menu"><div class="customer-fab-options" id="customer-fab-options" role="group" aria-label="${escapeHtml(t('Quick actions'))}" hidden><button type="button" data-dashboard-quick-action="customer">${escapeHtml(t('Add customer'))}</button><button type="button" data-dashboard-quick-action="bill">${escapeHtml(t('Create bill'))}</button><button type="button" data-dashboard-quick-action="receipt">${escapeHtml(t('Record receipt'))}</button><button type="button" data-dashboard-quick-action="search">${escapeHtml(t('Search customers'))}</button><button type="button" data-dashboard-quick-action="unpaid">${escapeHtml(t('View unpaid'))}</button><button type="button" data-dashboard-quick-action="overdue">${escapeHtml(t('View overdue'))}</button><button type="button" data-dashboard-quick-action="reports">${escapeHtml(t('Reports'))}</button></div><button class="customer-fab" type="button" data-action="toggle-dashboard-quick-actions" aria-controls="customer-fab-options" aria-expanded="false" aria-label="${escapeHtml(t('Quick actions'))}" title="${escapeHtml(t('Quick actions'))}"><span aria-hidden="true">+</span></button></div>
       <section id="admin-bills" class="panel data-panel admin-bills-panel" aria-labelledby="admin-bills-title"><div class="section-heading"><div><p class="eyebrow">${escapeHtml(t('Monthly snapshots'))}</p><h2 id="admin-bills-title" tabindex="-1">${escapeHtml(t('Bills'))}</h2></div><span class="muted">${bills.length} ${escapeHtml(t('records'))}</span></div>
+        <form id="monthly-invoice-form" class="invoice-generator-form"><div><p class="eyebrow">${escapeHtml(t('Monthly invoicing'))}</p><h3>${escapeHtml(t('Generate Monthly Invoices'))}</h3><p class="muted">${escapeHtml(t('Creates one fixed invoice snapshot for each active customer with a configured package rate. Existing customer/month invoices stay unchanged; customers without a rate are reported as unpriced.'))}</p></div><label for="invoice-generation-month">${escapeHtml(t('Billing month'))}<input id="invoice-generation-month" name="billing_month" type="month" value="${escapeHtml(pageState.invoiceGenerationMonth)}" required></label><label for="invoice-generation-issued-on">${escapeHtml(t('Issue date'))}<input id="invoice-generation-issued-on" name="issue_date" type="date" value="${escapeHtml(pageState.invoiceGenerationIssueDate)}" required></label><label for="invoice-generation-due-date">${escapeHtml(t('Exact Due Date'))}<input id="invoice-generation-due-date" name="due_date" type="date" value="${escapeHtml(pageState.invoiceGenerationDueDate)}" required></label><button class="button primary" type="submit" ${billingEngineReady && !pageState.invoiceGenerationBusy ? '' : 'disabled'}>${escapeHtml(pageState.invoiceGenerationBusy ? t('Generating…') : t('Generate Monthly Invoices'))}</button><p id="invoice-generation-message" class="form-message" role="status" aria-live="polite">${escapeHtml(t(pageState.invoiceGenerationMessage))}</p></form>
         <div class="bill-list-search"><label for="admin-bill-search">${escapeHtml(t('Search bills by customer name or Admin phone'))}</label><input id="admin-bill-search" type="search" autocomplete="off" value="${escapeHtml(pageState.billSearch)}" placeholder="${escapeHtml(t('Search customer name or phone'))}"><p class="muted">${escapeHtml(t('Phone lookup uses only the Admin-authorized private phone record.'))}</p></div>
         <div class="bill-list-filters" role="group" aria-label="${escapeHtml(t('Filter bills by payment status'))}">
           <button class="bill-filter-pill ${pageState.billStatus === 'all' ? 'is-active' : ''}" type="button" data-bill-status="all" aria-pressed="${pageState.billStatus === 'all'}">${escapeHtml(t('All'))} (${billCounts.all})</button>
@@ -1859,6 +1989,8 @@ if (!supabase) {
         <p id="admin-bill-count" class="bill-list-count" role="status" aria-live="${billDrilldown ? 'off' : 'polite'}">${formatUiMessage('Showing {shown} of {matching} matching bills; {total} total records.', currentLanguage, { shown: Math.min(filteredAdminBillRows.length, 100), matching: filteredAdminBillRows.length, total: scopedAdminBillRows.length })}</p>
         <div id="admin-bill-card-grid" class="bill-card-grid">${renderAdminBillCards(filteredAdminBillRows, formatMoney, t)}</div>
         <p class="muted">${escapeHtml(t('Summary cards above use the selected dashboard month: billed and pending follow bill periods, while collected follows actual receipt dates. Carry-forward credit reduces pending balances but is never counted as cash. WhatsApp opens a draft only; receipts can be printed only from existing receipt records.'))}</p>
+        <dialog id="invoice-view-dialog" class="edit-dialog invoice-view-dialog" aria-labelledby="invoice-view-title"><div id="invoice-view-content"></div></dialog>
+        <dialog id="invoice-payment-dialog" class="edit-dialog invoice-payment-dialog" aria-labelledby="invoice-payment-title"><div class="dialog-header"><div><p class="eyebrow">${escapeHtml(t('Cash ledger'))}</p><h2 id="invoice-payment-title">${escapeHtml(t('Receive Payment'))}</h2></div><button class="icon-button" type="button" data-action="close-invoice-payment" aria-label="${escapeHtml(t('Close'))}">×</button></div><p id="invoice-payment-description" class="muted"></p><form id="invoice-payment-form" class="stack"><input type="hidden" name="bill_id"><input type="hidden" name="customer_id"><label for="invoice-payment-amount">${escapeHtml(t('Amount received (PKR)'))}<input id="invoice-payment-amount" name="amount" inputmode="decimal" required readonly></label><label for="invoice-payment-date">${escapeHtml(t('Received on'))}<input id="invoice-payment-date" name="received_on" type="date" required></label><label for="invoice-payment-method">${escapeHtml(t('Method'))}<select id="invoice-payment-method" name="method" required><option value="" selected disabled>${escapeHtml(t('Select a method'))}</option><option value="Cash">${escapeHtml(t('Cash'))}</option><option value="Easypaisa">Easypaisa</option><option value="Bank transfer">${escapeHtml(t('Bank transfer'))}</option></select></label><p id="invoice-payment-message" class="form-message" role="status" aria-live="polite"></p><div class="form-actions"><button class="button primary" type="submit">${escapeHtml(t('Confirm Payment'))}</button><button class="button secondary" type="button" data-action="close-invoice-payment">${escapeHtml(t('Cancel'))}</button></div></form></dialog>
       </section>
       <section id="admin-receipts" class="panel data-panel" aria-labelledby="admin-receipts-title"><div class="section-heading"><div><p class="eyebrow">${escapeHtml(t('Dated cash entries'))}</p><h2 id="admin-receipts-title" tabindex="-1">${escapeHtml(t('Receipts'))}</h2></div><span class="muted">${receipts.length} ${escapeHtml(t('actual receipts'))}</span></div>
         <div class="admin-receipt-search"><label for="admin-receipt-search">${escapeHtml(t('Search receipts by customer name, date, method, or amount'))}</label><input id="admin-receipt-search" type="search" autocomplete="off" value="${escapeHtml(pageState.receiptSearch)}" placeholder="${escapeHtml(t('Search customer, date, method, or amount'))}"></div>
@@ -1915,6 +2047,16 @@ if (!supabase) {
     }));
     portalPanel.querySelector('#receipt-customer')?.addEventListener('change', (event) => populateReceiptBills(event.target.value));
     updateAdminReceiptResults();
+    const pppoeDashboardRoot = portalPanel.querySelector('#admin-pppoe-sessions');
+    cleanupPppoeDashboard = mountPppoeSessionsDashboard(pppoeDashboardRoot, {
+      organizationId: context.organizationId,
+      getAccessToken: async () => {
+        const { data, error } = await supabase.auth.getSession();
+        if (error) throw error;
+        return data?.session?.access_token ?? '';
+      },
+      t,
+    });
     bindNetworkDiagnostics(context);
     bindAdminReceiptActions(context);
     bindAdminForms(context);
@@ -2505,6 +2647,192 @@ if (!supabase) {
         window.alert(error.message || t('Receipt correction could not be saved.'));
       }
     });
+
+    if (context.kind !== 'admin') return;
+    const packageRoot = portalPanel.querySelector('#admin-packages');
+    packageRoot?.addEventListener('submit', async (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      const form = target?.closest('[data-package-form]');
+      const legacyPriceForm = target?.closest('[data-package-price-form]');
+      if (!form && !legacyPriceForm) return;
+      event.preventDefault();
+      const activeForm = form ?? legacyPriceForm;
+      const submitButton = activeForm.querySelector('button[type="submit"]');
+      const packageId = String(activeForm.dataset.packageId ?? '');
+      try {
+        const formData = new FormData(activeForm);
+        const monthlyFeeCents = amountToMinorUnits(formData.get('monthly_fee'));
+        if (monthlyFeeCents <= 0) throw new Error('Enter a monthly rate greater than zero.');
+        pageState.packagePricingBusyId = packageId;
+        if (submitButton) submitButton.disabled = true;
+        setMessage(portalPanel.querySelector('#package-pricing-message'), form ? 'Saving package…' : 'Saving package tariff…');
+        if (form) {
+          const quotaType = String(formData.get('quota_type') ?? 'unlimited');
+          const quotaLimitText = String(formData.get('quota_limit_gb') ?? '').trim();
+          const quotaLimitGb = quotaType === 'fup_capped' ? Number(quotaLimitText) : null;
+          if (quotaType === 'fup_capped' && (!Number.isSafeInteger(quotaLimitGb) || quotaLimitGb < 1 || quotaLimitGb > 1000000)) {
+            throw new Error('Enter a whole quota limit between 1 and 1,000,000 GB.');
+          }
+          const name = String(formData.get('package_name') ?? '').trim();
+          if (!name || name.length > 100) throw new Error('Package name must contain 1 to 100 characters.');
+          const result = await invokeRpc(supabase, 'save_service_package', {
+            p_organization_id: context.organizationId,
+            p_package_id: packageId || null,
+            p_name: name,
+            p_monthly_fee_cents: monthlyFeeCents,
+            p_quota_type: quotaType,
+            p_quota_limit_gb: quotaLimitGb,
+            p_action_on_exhaust: String(formData.get('action_on_exhaust') ?? 'notify'),
+          });
+          pageState.packagePricingMessage = `${t(packageId ? 'Package updated' : 'Package created')}. ${t('Effective from')} ${result?.effectiveOn ?? localMonth()}; ${result?.updatedCustomers ?? 0} ${t('linked customers updated')}.`;
+        } else {
+          const token = await currentAdminAccessToken();
+          const result = await updatePackageMonthlyFee({
+            organizationId: context.organizationId,
+            packageId,
+            monthlyFeeCents,
+            token,
+          });
+          pageState.packagePricingMessage = formatUiMessage('Rate saved from {date}. Updated {count} linked customer records.', currentLanguage, {
+            date: result.package?.effectiveOn ?? localMonth(),
+            count: result.package?.updatedCustomers ?? 0,
+          });
+        }
+        await refreshCurrentContext(pageState.packagePricingMessage);
+      } catch (error) {
+        pageState.packagePricingMessage = error.message || t('Package tariff could not be saved.');
+        setMessage(portalPanel.querySelector('#package-pricing-message'), pageState.packagePricingMessage, true);
+      } finally {
+        pageState.packagePricingBusyId = '';
+        if (submitButton?.isConnected) submitButton.disabled = false;
+      }
+    });
+    packageRoot?.addEventListener('change', (event) => {
+      const selector = event.target instanceof Element ? event.target.closest('[data-quota-type-select]') : null;
+      if (!selector) return;
+      const fields = selector.closest('[data-package-form]')?.querySelector('[data-quota-fields]');
+      const limit = fields?.querySelector('[name="quota_limit_gb"]');
+      const capped = selector.value === 'fup_capped';
+      if (fields) fields.hidden = !capped;
+      if (limit) limit.required = capped;
+    });
+    packageRoot?.addEventListener('click', (event) => {
+      const button = event.target instanceof Element ? event.target.closest('[data-package-preset]') : null;
+      if (!button) return;
+      const preset = DEFAULT_PACKAGE_PRESETS[Number(button.dataset.packagePreset)];
+      const form = packageRoot.querySelector('[data-package-create]');
+      if (!preset || !form) return;
+      form.elements.namedItem('package_name').value = preset.name;
+      form.elements.namedItem('monthly_fee').value = (preset.monthlyFeeCents / 100).toFixed(2);
+      const quotaType = form.elements.namedItem('quota_type');
+      quotaType.value = preset.quotaType;
+      form.elements.namedItem('quota_limit_gb').value = String(preset.quotaLimitGb);
+      form.elements.namedItem('action_on_exhaust').value = preset.actionOnExhaust;
+      quotaType.dispatchEvent(new Event('change', { bubbles: true }));
+      form.elements.namedItem('package_name').focus();
+    });
+
+    portalPanel.querySelector('#monthly-invoice-form')?.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const submitButton = form.querySelector('button[type="submit"]');
+      const formData = new FormData(form);
+      try {
+        const request = buildMonthlyInvoiceRequest({
+          billingMonth: formData.get('billing_month'),
+          issueDate: formData.get('issue_date'),
+          dueDate: formData.get('due_date'),
+        });
+        pageState.invoiceGenerationMonth = request.billingMonth;
+        pageState.invoiceGenerationIssueDate = request.issueDate;
+        pageState.invoiceGenerationDueDate = request.dueDate;
+        pageState.invoiceGenerationBusy = true;
+        if (submitButton) submitButton.disabled = true;
+        setMessage(portalPanel.querySelector('#invoice-generation-message'), 'Generating monthly invoices…');
+        const token = await currentAdminAccessToken();
+        const result = await generateMonthlyInvoices({
+          organizationId: context.organizationId,
+          ...request,
+          token,
+        });
+        pageState.invoiceGenerationMessage = formatUiMessage('Generated {generated}; already existed {existing}; skipped without a price {unpriced}.', currentLanguage, {
+          generated: result.generated ?? 0,
+          existing: result.existing ?? 0,
+          unpriced: result.unpriced ?? 0,
+        });
+        pageState.invoiceGenerationBusy = false;
+        await refreshCurrentContext(pageState.invoiceGenerationMessage);
+      } catch (error) {
+        pageState.invoiceGenerationBusy = false;
+        pageState.invoiceGenerationMessage = error.message || t('Monthly invoices could not be generated.');
+        setMessage(portalPanel.querySelector('#invoice-generation-message'), pageState.invoiceGenerationMessage, true);
+        if (submitButton?.isConnected) submitButton.disabled = false;
+      }
+    });
+
+    portalPanel.querySelectorAll('[data-action="close-invoice-payment"]').forEach((button) => button.addEventListener('click', () => {
+      portalPanel.querySelector('#invoice-payment-dialog')?.close();
+    }));
+    portalPanel.querySelector('#invoice-payment-form')?.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const formData = new FormData(form);
+      const billId = String(formData.get('bill_id') ?? '');
+      let attempt = getPaymentAttempt(context, billId);
+      try {
+        const payload = {
+          p_organization_id: context.organizationId,
+          p_customer_id: String(formData.get('customer_id')),
+          p_bill_id: billId,
+          p_received_on: String(formData.get('received_on')),
+          p_amount_cents: amountToMinorUnits(formData.get('amount')),
+          p_method: String(formData.get('method') ?? '').trim(),
+        };
+        if (!attempt) attempt = savePaymentAttempt(context, billId, crypto.randomUUID());
+        const submitButton = form.querySelector('button[type="submit"]');
+        submitButton.disabled = true;
+        setMessage(portalPanel.querySelector('#invoice-payment-message'), 'Recording payment…');
+        await invokeRpc(supabase, 'record_cash_receipt', { ...payload, p_receipt_id: attempt.id });
+        portalPanel.querySelector('#invoice-payment-dialog')?.close();
+        await refreshCurrentContext('Payment recorded. Invoice status is calculated from saved receipts.');
+        clearPaymentAttempt(attempt);
+      } catch (error) {
+        setMessage(portalPanel.querySelector('#invoice-payment-message'), error.message
+          ? `{error} Retry with the same date, amount, and method; the request ID is retained to prevent duplicate receipts.`
+          : 'Payment could not be recorded. Retry with the same details; the request ID is retained to prevent duplicate receipts.', true,
+        error.message ? { error: error.message } : {});
+        const submitButton = form.querySelector('button[type="submit"]');
+        if (submitButton?.isConnected) submitButton.disabled = false;
+      }
+    });
+
+    const invoiceDialog = portalPanel.querySelector('#invoice-view-dialog');
+    invoiceDialog?.addEventListener('click', async (event) => {
+      const action = event.target instanceof Element ? event.target.closest('[data-action]') : null;
+      if (!action) return;
+      if (action.dataset.action === 'close-invoice-view') {
+        invoiceDialog.close();
+      } else if (action.dataset.action === 'print-invoice') {
+        printAdminInvoice(action.dataset.id);
+      } else if (action.dataset.action === 'copy-invoice-text') {
+        const field = invoiceDialog.querySelector('#invoice-copy-text');
+        const message = invoiceDialog.querySelector('#invoice-view-message');
+        if (!field) return;
+        try {
+          if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(field.value);
+          else {
+            field.focus();
+            field.select();
+            if (!document.execCommand('copy')) throw new Error('Copy is unavailable in this browser. Select and copy the text below.');
+          }
+          setMessage(message, 'Invoice text copied. Paste it into WhatsApp or SMS to send it.');
+        } catch (error) {
+          field.focus();
+          field.select();
+          setMessage(message, error.message || 'Select and copy the invoice text below.');
+        }
+      }
+    });
   }
 
   function bindAdminReceiptActions(context) {
@@ -2586,10 +2914,95 @@ if (!supabase) {
       if (action.dataset.action === 'collect-bill') {
         const billRow = currentAdminBillRows().find((row) => row.bill.id === action.dataset.id);
         openReceiptFormForBill(billRow);
+      } else if (action.dataset.action === 'receive-payment') {
+        const billRow = currentAdminBillRows().find((row) => row.bill.id === action.dataset.id);
+        openPaymentDialogForBill(billRow);
+      } else if (action.dataset.action === 'view-invoice') {
+        openInvoicePreview(action.dataset.id);
       } else if (action.dataset.action === 'print-receipt') {
         printExistingReceipt(action.dataset.id);
       }
     });
+  }
+
+  function updateSubscriberImportDialog() {
+    const content = portalPanel.querySelector('#subscriber-import-content');
+    if (content) content.innerHTML = renderSubscriberImportContent({ ...pageState.subscriberImport, t });
+  }
+
+  async function currentAdminAccessToken() {
+    const { data, error } = await supabase.auth.getSession();
+    if (error) throw error;
+    const token = data?.session?.access_token;
+    if (!token) throw new Error('Sign in again to manage package pricing and invoices.');
+    return token;
+  }
+
+  async function openSubscriberImportPreview() {
+    pageState.subscriberImport = { subscribers: [], selectedUsernames: [], loading: true, busy: false, error: '' };
+    const dialog = portalPanel.querySelector('#subscriber-import-dialog');
+    updateSubscriberImportDialog();
+    if (dialog && !dialog.open) dialog.showModal();
+    try {
+      const token = await currentAdminAccessToken();
+      const result = await discoverRouterSubscribers({ organizationId: pageState.context.organizationId, token });
+      pageState.subscriberImport.subscribers = Array.isArray(result.subscribers) ? result.subscribers : [];
+      pageState.subscriberImport.mockMode = result.source === 'mock';
+      pageState.subscriberImport.selectedUsernames = pageState.subscriberImport.subscribers
+        .filter((row) => row.status === 'New').map((row) => row.username);
+    } catch (error) {
+      pageState.subscriberImport.error = error?.message || 'Router subscribers could not be discovered.';
+    } finally {
+      pageState.subscriberImport.loading = false;
+      updateSubscriberImportDialog();
+      portalPanel.querySelector('#subscriber-import-dialog [data-action="close-subscriber-import"]')?.focus();
+    }
+  }
+
+  async function submitSubscriberImport() {
+    const state = pageState.subscriberImport;
+    const usernames = [...state.selectedUsernames];
+    if (!usernames.length || state.busy) return;
+    state.busy = true;
+    state.error = '';
+    updateSubscriberImportDialog();
+    try {
+      const token = await currentAdminAccessToken();
+      const result = await importRouterSubscribers({
+        organizationId: pageState.context.organizationId,
+        token,
+        usernames,
+      });
+      if (result.source === 'mock') {
+        if (Number(result.imported) > 0) {
+          const imported = new Set(result.importedUsernames ?? []);
+          state.subscribers = state.subscribers.map((row) => imported.has(row.username)
+            ? { ...row, status: 'Already Imported' } : row);
+          state.selectedUsernames = [];
+          showAppToast(t('Demo import simulated; no Supabase records were changed.'));
+        } else {
+          state.error = t('No new subscribers were imported; existing records were skipped.');
+        }
+        return;
+      }
+      if (Number(result.imported) > 0) {
+        const dialog = portalPanel.querySelector('#subscriber-import-dialog');
+        if (dialog?.open) dialog.close();
+        pageState.subscriberImport = { subscribers: [], selectedUsernames: [], loading: false, busy: false, error: '' };
+        await refreshCurrentContext('Subscribers imported successfully!');
+        showAppToast('Subscribers imported successfully!');
+        return;
+      }
+      state.subscribers = state.subscribers.map((row) => usernames.includes(row.username)
+        ? { ...row, status: 'Already Imported' } : row);
+      state.selectedUsernames = [];
+      state.error = 'No new subscribers were imported; existing records were skipped.';
+    } catch (error) {
+      state.error = error?.message || 'Selected subscribers could not be imported.';
+    } finally {
+      state.busy = false;
+      updateSubscriberImportDialog();
+    }
   }
 
   function bindCustomerListActions(context) {
@@ -2602,6 +3015,15 @@ if (!supabase) {
       updateCustomerListResults();
     });
     listRoot?.addEventListener('change', (event) => {
+      const subscriberCheckbox = event.target.closest?.('[data-import-subscriber]');
+      if (subscriberCheckbox) {
+        const selected = new Set(pageState.subscriberImport.selectedUsernames);
+        if (subscriberCheckbox.checked) selected.add(subscriberCheckbox.dataset.importSubscriber);
+        else selected.delete(subscriberCheckbox.dataset.importSubscriber);
+        setSelectedSubscriberUsernames(pageState.subscriberImport, [...selected]);
+        updateSubscriberImportDialog();
+        return;
+      }
       if (event.target.id === 'customer-area-filter') {
         pageState.customerListArea = event.target.value;
         pageState.customerListStatus = 'all';
@@ -2615,6 +3037,25 @@ if (!supabase) {
     listRoot?.addEventListener('click', (event) => {
       const target = event.target instanceof Element ? event.target : null;
       if (!target) return;
+      const importAction = target.closest('[data-action]');
+      if (importAction?.dataset.action === 'open-subscriber-import') {
+        void openSubscriberImportPreview();
+        return;
+      }
+      if (importAction?.dataset.action === 'close-subscriber-import') {
+        portalPanel.querySelector('#subscriber-import-dialog')?.close();
+        return;
+      }
+      if (importAction?.dataset.action === 'select-all-new-subscribers') {
+        pageState.subscriberImport.selectedUsernames = pageState.subscriberImport.subscribers
+          .filter((row) => row.status === 'New').map((row) => row.username);
+        updateSubscriberImportDialog();
+        return;
+      }
+      if (importAction?.dataset.action === 'import-selected-subscribers') {
+        void submitSubscriberImport();
+        return;
+      }
       const filterButton = target.closest('[data-billing-filter]');
       if (filterButton) {
         pageState.customerListStatus = filterButton.dataset.billingFilter;
@@ -2751,6 +3192,11 @@ if (!supabase) {
     }
     const customerBills = rows.bills.filter((bill) => bill.customer_id === customer.id)
       .sort((a, b) => String(b.period).localeCompare(String(a.period)));
+    const currentBillingMonth = localMonth();
+    const currentMonthBill = customerBills.find((bill) => String(bill.period ?? '').slice(0, 7) === currentBillingMonth);
+    const currentMonthBillStatus = currentMonthBill
+      ? summarizeCustomerBill(currentMonthBill, rows.receipts, rows.allocations).status
+      : 'not-issued';
     const customerReceipts = rows.receipts.filter((receipt) => receipt.customer_id === customer.id)
       .sort((a, b) => String(b.received_on).localeCompare(String(a.received_on)));
     const totalCash = customerReceipts.reduce((sum, receipt) => sum + Number(receipt.amount_cents || 0), 0);
@@ -2759,6 +3205,22 @@ if (!supabase) {
     const monthOptions = billingMonths.map((month) => `<option value="${escapeHtml(month)}" ${month === pageState.customerBillingMonth ? 'selected' : ''}>${escapeHtml(formatBillingMonth(month, 'en-PK', t))}</option>`).join('');
     const incidents = rows.incidents.filter((incident) => incident.customer_id === customer.id)
       .sort((a, b) => String(b.reported_at).localeCompare(String(a.reported_at)));
+    const monthlyUsage = rows.customerMonthlyBandwidthUsage?.[0] ?? null;
+    let currentMonthUsageBytes = null;
+    if (monthlyUsage && /^\d+$/.test(String(monthlyUsage.bytes_in ?? ''))
+      && /^\d+$/.test(String(monthlyUsage.bytes_out ?? ''))) {
+      currentMonthUsageBytes = (BigInt(monthlyUsage.bytes_in) + BigInt(monthlyUsage.bytes_out)).toString();
+    }
+    let monthlyUsageSource = 'routeros-poller';
+    let quotaPackage = rows.customerQuotaPackage;
+    if (currentMonthUsageBytes === null && import.meta.env.DEV) {
+      const demoUsage = buildDemoCustomerMonthlyUsage(customer);
+      if (demoUsage) {
+        currentMonthUsageBytes = demoUsage.bytes.toString();
+        monthlyUsageSource = demoUsage.source;
+        quotaPackage ??= demoUsage.quotaPackage;
+      }
+    }
     portalPanel.innerHTML = `${shellHeader(t('Customer portal'))}
       ${renderPortalNavigation('customer')}
       ${customerProviderCardHtml()}
@@ -2767,7 +3229,20 @@ if (!supabase) {
         <div class="profile-card__details"><div class="profile-field"><span>${escapeHtml(t('Plan'))}</span><strong>${escapeHtml(customer.plan_name || t('Plan not set'))}</strong></div><div class="profile-field"><span>${escapeHtml(t('Monthly fee'))}</span><strong>${formatMoney(customer.monthly_fee_cents)}</strong></div><div class="profile-field profile-field--wide"><span>${escapeHtml(t('Service address'))}</span><strong>${escapeHtml(customer.service_address || t('Service address not recorded'))}</strong></div></div>
         <div class="profile-card__status"><span class="status-pill">${escapeHtml(customer.archived ? t('Archived') : ({ active: t('Active'), offline: t('Offline'), 'not-set': t('Not set') }[customer.service_status] ?? customer.service_status ?? t('Not set')))}</span><p>${escapeHtml(t('Service status'))}</p></div>
       </section>
-      ${renderCustomerUsageDashboard({ customer, usageRows: rows.customerBandwidthUsage ?? [], error: Boolean(rows.customerBandwidthUsageError), expiryDate: null, t, locale: currentLanguage === 'ur-Latn' ? 'ur-Latn-PK' : 'en-PK' })}
+      ${renderCustomerUsageDashboard({
+        customer,
+        usageRows: rows.customerBandwidthUsage ?? [],
+        error: Boolean(rows.customerBandwidthUsageError),
+        expiryDate: null,
+        currentMonthUsageBytes,
+        monthlyUsageSource,
+        currentMonthBillStatus,
+        currentMonthLabel: formatBillingMonth(currentBillingMonth, 'en-PK', t),
+        monthlyFeeLabel: formatMoney(customer.monthly_fee_cents),
+        quotaPackage,
+        t,
+        locale: currentLanguage === 'ur-Latn' ? 'ur-Latn-PK' : 'en-PK',
+      })}
       <section class="metric-grid customer-metrics"><article class="metric"><span>${escapeHtml(t('Total receipts'))}</span><strong>${formatMoney(totalCash)}</strong><small>${customerReceipts.length} ${escapeHtml(t('actual payments'))}</small></article><article class="metric"><span>${escapeHtml(t('Billing history'))}</span><strong>${customerBills.length}</strong><small>${escapeHtml(t('Monthly snapshots'))}</small></article></section>
       <section id="customer-billing" class="panel data-panel customer-billing-panel" aria-labelledby="customer-billing-title"><div class="section-heading"><div><p class="eyebrow">${escapeHtml(t('Your billing history'))}</p><h2 id="customer-billing-title">${escapeHtml(t('Bills and receipts'))}</h2></div></div>
         <div id="customer-billing-filters" class="customer-billing-filters" aria-describedby="customer-billing-filter-help">
@@ -2808,6 +3283,7 @@ if (!supabase) {
       portalPanel.querySelector('#customer-receipt-through').value = '';
       renderCustomerBillingResults();
     });
+    startCustomerLiveTraffic();
   }
 
   async function refreshCurrentContext(announcement = 'Portal data updated.') {
@@ -2852,18 +3328,28 @@ if (!supabase) {
     submitButton.disabled = true;
     setMessage(customerLoginMessage, 'Signing in…');
     try {
+      if (isStaffUsername(username)) {
+        const { error: usernameLoginError } = await signInWithUsernamePassword(supabase.auth, username, password);
+        if (usernameLoginError) setMessage(customerLoginMessage, 'Username or password is incorrect or unavailable.', true);
+        return;
+      }
       const { data, error } = await supabase.functions.invoke('customer-login', {
         body: { username, password },
       });
-      if (error || !data?.session?.access_token || !data?.session?.refresh_token) {
-        setMessage(customerLoginMessage, 'Username or password is incorrect or unavailable.', true);
+      if (!error && data?.session?.access_token && data?.session?.refresh_token) {
+        const { error: sessionError } = await supabase.auth.setSession(data.session);
+        if (sessionError) {
+          await supabase.auth.signOut();
+          setMessage(customerLoginMessage, 'Username or password is incorrect or unavailable.', true);
+        }
         return;
       }
-      const { error: sessionError } = await supabase.auth.setSession(data.session);
-      if (sessionError) {
-        await supabase.auth.signOut();
-        setMessage(customerLoginMessage, 'Username or password is incorrect or unavailable.', true);
+      if (isCustomerLoginFallbackError(error)) {
+        const { error: usernameLoginError } = await signInWithUsernamePassword(supabase.auth, username, password);
+        if (usernameLoginError) setMessage(customerLoginMessage, 'Username or password is incorrect or unavailable.', true);
+        return;
       }
+      setMessage(customerLoginMessage, 'Username or password is incorrect or unavailable.', true);
     } catch {
       setMessage(customerLoginMessage, 'Username or password is incorrect or unavailable.', true);
     } finally {
@@ -2872,143 +3358,7 @@ if (!supabase) {
     }
   });
 
-  emailPasswordLoginForm?.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const submitButton = emailPasswordLoginForm.querySelector('button[type="submit"]');
-    const email = String(new FormData(emailPasswordLoginForm).get('email') ?? '').trim();
-    const passwordInput = emailPasswordLoginForm.elements.password;
-    const password = String(passwordInput.value ?? '');
-    submitButton.disabled = true;
-    setMessage(emailPasswordLoginMessage, 'Signing in…');
-    try {
-      const { error } = await signInWithEmailPassword(supabase.auth, email, password);
-      if (error) setMessage(emailPasswordLoginMessage, 'Email or password is incorrect or unavailable.', true);
-    } catch {
-      setMessage(emailPasswordLoginMessage, 'Email or password is incorrect or unavailable.', true);
-    } finally {
-      passwordInput.value = '';
-      submitButton.disabled = false;
-    }
-  });
-
-  requestPasswordRecoveryButton?.addEventListener('click', async () => {
-    const emailInput = emailPasswordLoginForm.elements.email;
-    if (!emailInput.checkValidity()) {
-      emailInput.reportValidity();
-      return;
-    }
-    requestPasswordRecoveryButton.disabled = true;
-    setMessage(emailPasswordLoginMessage, 'Sending a recovery email…');
-    try {
-      const email = String(emailInput.value ?? '').trim();
-      const redirectTo = window.location.origin + window.location.pathname;
-      const { error } = await requestPasswordRecovery(supabase.auth, email, redirectTo);
-      if (error) {
-        setMessage(emailPasswordLoginMessage, 'Recovery email could not be requested. Try again later.', true);
-      } else {
-        setMessage(emailPasswordLoginMessage, 'If this email belongs to an invited account, a recovery email has been requested. Email delivery is not confirmed by this page.');
-      }
-    } catch {
-      setMessage(emailPasswordLoginMessage, 'Recovery email could not be requested. Try again later.', true);
-    } finally {
-      requestPasswordRecoveryButton.disabled = false;
-    }
-  });
-
-  passwordRecoveryForm?.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const submitButton = passwordRecoveryForm.querySelector('button[type="submit"]');
-    const newPasswordInput = passwordRecoveryForm.elements.new_password;
-    const confirmPasswordInput = passwordRecoveryForm.elements.confirm_password;
-    let newPassword = String(newPasswordInput.value ?? '');
-    if (newPassword !== String(confirmPasswordInput.value ?? '')) {
-      setMessage(passwordRecoveryMessage, 'The new passwords do not match.', true);
-      return;
-    }
-    const passwordBytes = new TextEncoder().encode(newPassword).byteLength;
-    if (passwordBytes < 12 || passwordBytes > 72) {
-      setMessage(passwordRecoveryMessage, 'Choose a password between 12 and 72 UTF-8 bytes.', true);
-      return;
-    }
-    const successSound = prepareSuccessSound(window);
-    submitButton.disabled = true;
-    setMessage(passwordRecoveryMessage, 'Updating password…');
-    let updateResult;
-    try {
-      updateResult = await setRecoveredPassword(supabase.auth, newPassword);
-    } catch {
-      updateResult = { error: true };
-    } finally {
-      newPasswordInput.value = '';
-      confirmPasswordInput.value = '';
-      newPassword = '';
-    }
-    if (updateResult?.error || !updateResult?.data?.user?.id) {
-      successSound.cancel();
-      setMessage(passwordRecoveryMessage, 'Password could not be updated. Check the recovery link and try again.', true);
-      submitButton.disabled = false;
-      return;
-    }
-
-    try {
-      recoveryMode = false;
-      try { window.history.replaceState(null, document.title, window.location.pathname); } catch { /* Password save already succeeded. */ }
-      showAppToast('Your password was updated successfully.');
-      successSound.play();
-      try {
-        const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-        if (sessionError) throw sessionError;
-        if (sessionData?.session) await handleSession(sessionData.session);
-        else showLogin('Your password was updated. Sign in with your email and new password.');
-      } catch {
-        showLogin('Your password was updated. Sign in with your email and new password.');
-      }
-    } catch {
-      showLogin('Your password was updated. Sign in with your email and new password.');
-    } finally {
-      submitButton.disabled = false;
-    }
-  });
-
-  cancelPasswordRecoveryButton?.addEventListener('click', async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) {
-      setMessage(passwordRecoveryMessage, 'Could not exit password recovery. Try again.', true);
-      return;
-    }
-    showLogin('Password recovery was canceled.');
-  });
-
-  loginForm?.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const submitButton = loginForm.querySelector('button[type="submit"]');
-    submitButton.disabled = true;
-    setMessage(loginMessage, 'Sending a secure sign-in link…');
-    try {
-      const email = String(new FormData(loginForm).get('email') ?? '').trim();
-      const { error } = await supabase.auth.signInWithOtp({
-        email,
-        options: {
-          emailRedirectTo: window.location.origin + window.location.pathname,
-          shouldCreateUser: false,
-        },
-      });
-      if (error) throw error;
-      setMessage(loginMessage, 'If this address has an invited account, a sign-in link has been requested. Email delivery is not confirmed by this page.');
-    } catch (error) {
-      setMessage(loginMessage, error.message || 'Sign-in link could not be sent.', true);
-    } finally {
-      submitButton.disabled = false;
-    }
-  });
-
-  supabase.auth.onAuthStateChange((event, session) => {
-    if (event === 'PASSWORD_RECOVERY') {
-      recoveryMode = true;
-      showPasswordRecovery();
-      return;
-    }
-    if (recoveryMode) return;
+  supabase.auth.onAuthStateChange((_event, session) => {
     queueMicrotask(() => { void handleSession(session); });
   });
   const { data: sessionData } = await supabase.auth.getSession();
