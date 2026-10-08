@@ -9,6 +9,7 @@
     "start": "node src/server/start.js",
     "start:api": "node src/server/api-only.js",
     "preview": "vite preview --host 0.0.0.0",
+    "router:sync": "node scripts/local-router-sync.js",
     "test": "node --test",
     "test:db": "bash scripts/test-db.sh",
     "db:migrate": "node scripts/migrate.js",

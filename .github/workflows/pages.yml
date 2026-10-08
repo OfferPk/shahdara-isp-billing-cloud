@@ -23,7 +23,8 @@ jobs:
     env:
       VITE_SUPABASE_URL: https://qkdsuvmlutkatcqoewkh.supabase.co
       VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
-      VITE_PPPOE_API_BASE_URL: ${{ vars.VITE_PPPOE_API_BASE_URL }}
+      VITE_ROUTER_DRIVER: mock
+      ROUTER_DRIVER: mock
     steps:
       - name: Check out cloud portal
         uses: actions/checkout@v4

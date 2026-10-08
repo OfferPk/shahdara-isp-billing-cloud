@@ -200,7 +200,7 @@ if (!supabase) {
     customerReceiptFrom: '',
     customerReceiptThrough: '',
     dashboardDrilldown: null,
-    subscriberImport: { subscribers: [], selectedUsernames: [], loading: false, busy: false, error: '' },
+    subscriberImport: { subscribers: [], selectedUsernames: [], loading: false, busy: false, error: '', mockMode: false },
   };
   let customerLiveTrafficTimer = null;
   let customerLiveTrafficStartTimer = null;
@@ -2949,6 +2949,7 @@ if (!supabase) {
       const token = await currentAdminAccessToken();
       const result = await discoverRouterSubscribers({ organizationId: pageState.context.organizationId, token });
       pageState.subscriberImport.subscribers = Array.isArray(result.subscribers) ? result.subscribers : [];
+      pageState.subscriberImport.mockMode = result.source === 'mock';
       pageState.subscriberImport.selectedUsernames = pageState.subscriberImport.subscribers
         .filter((row) => row.status === 'New').map((row) => row.username);
     } catch (error) {
@@ -2974,6 +2975,18 @@ if (!supabase) {
         token,
         usernames,
       });
+      if (result.source === 'mock') {
+        if (Number(result.imported) > 0) {
+          const imported = new Set(result.importedUsernames ?? []);
+          state.subscribers = state.subscribers.map((row) => imported.has(row.username)
+            ? { ...row, status: 'Already Imported' } : row);
+          state.selectedUsernames = [];
+          showAppToast(t('Demo import simulated; no Supabase records were changed.'));
+        } else {
+          state.error = t('No new subscribers were imported; existing records were skipped.');
+        }
+        return;
+      }
       if (Number(result.imported) > 0) {
         const dialog = portalPanel.querySelector('#subscriber-import-dialog');
         if (dialog?.open) dialog.close();

@@ -22,6 +22,7 @@ export function renderSubscriberImportContent({
   loading = false,
   busy = false,
   error = '',
+  mockMode = false,
   t = identity,
 } = {}) {
   const selected = new Set(selectedUsernames);
@@ -57,6 +58,7 @@ export function renderSubscriberImportContent({
     </div>
     <p class="subscriber-import__stat" role="status" aria-live="polite">${escapeHtml(countLabel)}</p>
     <p class="muted">${escapeHtml(t('Review the discovered users. Existing PPPoE usernames are skipped; router passwords are never imported.'))}</p>
+    ${mockMode ? `<p class="muted">${escapeHtml(t('Mock preview: these are synthetic users; simulated imports stay in this browser and are not sent to Supabase.'))}</p>` : ''}
     <div class="subscriber-import__toolbar">
       <button class="button secondary small" type="button" data-action="select-all-new-subscribers" ${loading || busy || newCount === 0 ? 'disabled' : ''}>${escapeHtml(t('Select All New'))}</button>
       <span class="muted">${escapeHtml(`${selectedCount} ${t('selected')}`)}</span>

@@ -1,0 +1,38 @@
+{
+  "secrets": [
+    {
+      "name": "fixture-alice",
+      "profile": "15M",
+      "remote-address": "10.20.30.41",
+      "comment": "Alice Fixture - 03001234567 - Shahdara - Block 2",
+      "password": "synthetic-only-do-not-import"
+    },
+    {
+      "name": "fixture-no-comment",
+      "profile": "10M",
+      "remote-address": "",
+      "comment": "",
+      "password": "synthetic-only-do-not-import"
+    },
+    {
+      "name": "fixture-alice",
+      "profile": "duplicate",
+      "remote-address": "10.20.30.99",
+      "comment": "duplicate fixture row"
+    },
+    {
+      "name": "",
+      "profile": "invalid",
+      "remote-address": "10.20.30.100",
+      "comment": "missing username"
+    }
+  ],
+  "active": [
+    {
+      "name": "fixture-active",
+      "profile": "8M",
+      "address": "10.20.30.42",
+      "comment": "Active Fixture - 03001234568 - Lahore Road"
+    }
+  ]
+}

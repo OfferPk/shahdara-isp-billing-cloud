@@ -1,6 +1,11 @@
 import { MockRouterAdapter } from './pppoe-mock-adapter.js';
 
 const browserMockAdapter = new MockRouterAdapter();
+const mockImportedUsernames = new Set();
+
+function isForcedMockMode(routerDriver = import.meta.env?.VITE_ROUTER_DRIVER) {
+  return String(routerDriver ?? '').trim().toLowerCase() === 'mock';
+}
 
 export function resolvePppoeApiBase({
   config = globalThis.window?.__CONFIG__,
@@ -56,8 +61,17 @@ export async function discoverRouterSubscribers({
   token,
   fetchImpl = globalThis.fetch,
   apiBaseUrl = resolvePppoeApiBase(),
+  routerDriver = import.meta.env?.VITE_ROUTER_DRIVER,
 } = {}) {
   if (!token) throw new Error('Sign in again to import router subscribers.');
+  if (isForcedMockMode(routerDriver)) {
+    const subscribers = await browserMockAdapter.discoverSubscribers();
+    const rows = subscribers.map((subscriber) => ({
+      ...subscriber,
+      status: mockImportedUsernames.has(subscriber.username) ? 'Already Imported' : 'New',
+    }));
+    return { discoveredCount: rows.length, subscribers: rows, source: 'mock' };
+  }
   if (typeof fetchImpl !== 'function') throw new Error('This browser does not support API requests.');
   const base = String(apiBaseUrl ?? '').trim().replace(/\/+$/, '');
   const suffix = `?organizationId=${encodeURIComponent(organizationId ?? '')}`;
@@ -70,8 +84,25 @@ export async function importRouterSubscribers({
   usernames,
   fetchImpl = globalThis.fetch,
   apiBaseUrl = resolvePppoeApiBase(),
+  routerDriver = import.meta.env?.VITE_ROUTER_DRIVER,
 } = {}) {
   if (!token) throw new Error('Sign in again to import router subscribers.');
+  if (isForcedMockMode(routerDriver)) {
+    const available = new Set((await browserMockAdapter.discoverSubscribers()).map((subscriber) => subscriber.username));
+    const requested = [...new Set((Array.isArray(usernames) ? usernames : []).map((username) => String(username ?? '').trim()).filter(Boolean))];
+    const importedUsernames = [];
+    for (const username of requested) {
+      if (!available.has(username) || mockImportedUsernames.has(username)) continue;
+      mockImportedUsernames.add(username);
+      importedUsernames.push(username);
+    }
+    return {
+      imported: importedUsernames.length,
+      skipped: requested.length - importedUsernames.length,
+      importedUsernames,
+      source: 'mock',
+    };
+  }
   if (typeof fetchImpl !== 'function') throw new Error('This browser does not support API requests.');
   const base = String(apiBaseUrl ?? '').trim().replace(/\/+$/, '');
   const suffix = `?organizationId=${encodeURIComponent(organizationId ?? '')}`;
@@ -128,9 +159,14 @@ export async function fetchPppoeTelemetry({
   hostname = globalThis.window?.location?.hostname ?? '',
   mockAdapter = browserMockAdapter,
   staticPages = isGithubPagesStaticHost({ apiBaseUrl, hostname }),
+  routerDriver = import.meta.env?.VITE_ROUTER_DRIVER,
 } = {}) {
   if (!token) throw new Error('Sign in again to view live router data.');
   if (typeof fetchImpl !== 'function') throw new Error('This browser does not support API requests.');
+
+  if (isForcedMockMode(routerDriver)) {
+    return { ...(await readMockTelemetry(mockAdapter)), source: 'mock', fallbackReason: 'forced-mock' };
+  }
 
   if (staticPages) {
     return { ...(await readMockTelemetry(mockAdapter)), source: 'mock', fallbackReason: 'static-host' };
