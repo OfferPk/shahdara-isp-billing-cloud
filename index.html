@@ -58,20 +58,25 @@
         <section class="panel auth-panel" id="auth-panel" hidden>
           <p class="eyebrow" data-i18n="Private sign-in">Private sign-in</p>
           <h1 data-i18n="Sign in to your account">Sign in to your account</h1>
-          <p data-i18n="Customers sign in with their PPPoE username and a separately provisioned portal password. Shahdara staff sign in with their assigned username and password. Customer portal passwords are read-only here; self-service sign-up is disabled.">Customers sign in with their PPPoE username and a separately provisioned portal password. Shahdara staff sign in with their assigned username and password. Customer portal passwords are read-only here; self-service sign-up is disabled.</p>
-          <div id="login-options">
-            <section class="auth-method-panel" data-feature-toggle data-feature-key="auth-customer-username">
-            <h2 data-i18n="Username and password sign-in">Username and password sign-in</h2>
+          <p data-i18n="Choose a sign-in option. Customers use a separately issued portal password; staff use their assigned account credentials. Customer portal passwords are read-only here; self-service sign-up is disabled.">Choose a sign-in option. Customers use a separately issued portal password; staff use their assigned account credentials. Customer portal passwords are read-only here; self-service sign-up is disabled.</p>
+          <div class="login-mode-tabs" id="login-mode-tabs" role="tablist" aria-label="Choose how to sign in" data-i18n-aria-label="Choose how to sign in">
+            <button class="login-mode-tab is-active" id="login-tab-customer" type="button" role="tab" aria-controls="login-options" aria-selected="true" tabindex="0" data-login-mode="customer" data-i18n="👤 Customer Login">👤 Customer Login</button>
+            <button class="login-mode-tab" id="login-tab-admin" type="button" role="tab" aria-controls="login-options" aria-selected="false" tabindex="-1" data-login-mode="admin" data-i18n="🛡️ Admin / Staff Login">🛡️ Admin / Staff Login</button>
+          </div>
+          <p id="login-mode-description" class="muted" data-i18n="Use your PPPoE username and separately issued customer portal password.">Use your PPPoE username and separately issued customer portal password.</p>
+          <div id="login-options" role="tabpanel" aria-labelledby="login-tab-customer">
+            <section class="auth-method-panel">
+            <h2 id="login-form-title" data-i18n="Sign in to Customer Self-Care">Sign in to Customer Self-Care</h2>
             <form id="customer-login-form" class="stack">
               <label for="customer-login-username" data-i18n="Username">Username</label>
-              <input id="customer-login-username" name="username" type="text" autocomplete="username" inputmode="text" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="next" required maxlength="64" />
+              <input id="customer-login-username" name="username" type="text" autocomplete="username" aria-describedby="login-mode-description" inputmode="text" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="next" required maxlength="64" />
               <p class="muted" id="staging-customer-login-help" hidden data-i18n="Internal staging accounts use a separately assigned portal password; their PPPoE password is not changed by portal sign-in.">Internal staging accounts use a separately assigned portal password; their PPPoE password is not changed by portal sign-in.</p>
               <label for="customer-login-password" data-i18n="Password">Password</label>
               <div class="password-input-control">
                 <input id="customer-login-password" name="password" type="password" autocomplete="current-password" enterkeyhint="go" required maxlength="512" />
                 <button class="password-visibility-toggle" type="button" data-password-visibility="customer-login-password" data-i18n="Show" data-i18n-aria-label="Show password" aria-label="Show password" aria-pressed="false">Show</button>
               </div>
-              <button class="button primary" type="submit" data-i18n="Sign in">Sign in</button>
+              <button class="button primary" type="submit" data-i18n="Sign in to Customer Self-Care">Sign in to Customer Self-Care</button>
             </form>
             <p class="form-message" id="customer-login-message" role="status"></p>
             </section>

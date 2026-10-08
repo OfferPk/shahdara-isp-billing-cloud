@@ -77,8 +77,9 @@ test('customer-account linking is not writable by authenticated clients', () => 
 test('portal sign-in uses username/password aliases and has no customer password mutation path', async () => {
   const main = await readFile(resolve(root, 'src/main.js'), 'utf8');
   const authFlows = await readFile(resolve(root, 'src/auth-flows.js'), 'utf8');
-  assert.match(main, /functions\.invoke\('customer-login'/);
-  assert.match(main, /signInWithUsernamePassword\(supabase\.auth, username, password\)/);
+  assert.match(main, /authenticatePortalLogin\(\{/);
+  assert.match(authFlows, /functions\.invoke\('customer-login'/);
+  assert.match(authFlows, /if \(mode === 'admin'\) return signInWithUsernamePassword\(auth, username, password\)/);
   assert.doesNotMatch(main, /signInWithOtp|signInWithEmailPassword/);
   assert.match(main, /onAuthStateChange/);
   assert.match(main, /getSession\(\)/);

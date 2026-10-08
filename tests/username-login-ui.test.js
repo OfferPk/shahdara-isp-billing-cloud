@@ -4,14 +4,20 @@ import { readFile } from 'node:fs/promises';
 
 const read = (path) => readFile(new URL(path, import.meta.url), 'utf8');
 
-test('portal login presents exactly Username and Password, with no email field or validation', async () => {
+test('portal login offers customer and Admin/Staff tabs with one username/password form', async () => {
   const html = await read('../index.html');
   const authPanel = html.match(/<section class="panel auth-panel" id="auth-panel"[\s\S]*?<section class="panel portal-panel"/)?.[0] ?? '';
   const loginForm = authPanel.match(/<form id="customer-login-form"[\s\S]*?<\/form>/)?.[0] ?? '';
+  const loginTabs = [...authPanel.matchAll(/<button\b[^>]*role="tab"[^>]*data-login-mode="([^"]+)"[^>]*>/g)];
   const inputs = [...loginForm.matchAll(/<input\b[^>]*>/g)].map(([input]) => input);
 
   assert.ok(authPanel, 'auth panel exists');
-  assert.ok(loginForm, 'the unified username/password form exists');
+  assert.ok(loginForm, 'the unified username/password login form exists');
+  assert.deepEqual(loginTabs.map(([, mode]) => mode), ['customer', 'admin']);
+  assert.match(loginTabs[0][0], /👤 Customer Login/);
+  assert.match(loginTabs[1][0], /🛡️ Admin \/ Staff Login/);
+  assert.match(authPanel, /role="tabpanel" aria-labelledby="login-tab-customer"/);
+  assert.match(authPanel, /id="login-mode-description"/);
   assert.equal((authPanel.match(/<form\b/g) ?? []).length, 1);
   assert.equal(inputs.length, 2);
   assert.match(inputs[0], /name="username"[^>]*type="text"/);
@@ -22,13 +28,16 @@ test('portal login presents exactly Username and Password, with no email field o
   assert.doesNotMatch(loginForm, /required[^>]*email|email[^>]*required/i);
 });
 
-test('username auth maps staff to an internal alias while PPPoE customers use the server broker', async () => {
+test('admin anchor opens its tab and each selected login mode has a separate Auth route', async () => {
   const [main, authFlows] = await Promise.all([read('../src/main.js'), read('../src/auth-flows.js')]);
 
-  assert.match(main, /functions\.invoke\('customer-login'/);
-  assert.match(main, /isCustomerLoginFallbackError\(error\)/);
-  assert.match(main, /signInWithUsernamePassword\(supabase\.auth, username, password\)/);
-  assert.match(main, /if \(isStaffUsername\(username\)\)[\s\S]*?signInWithUsernamePassword\(supabase\.auth, username, password\)[\s\S]*?return;[\s\S]*?functions\.invoke\('customer-login'/);
+  assert.match(main, /loginModeFromHash\(window\.location\.hash\)/);
+  assert.match(main, /loginModeToHash\(nextMode\)/);
+  assert.match(main, /authenticatePortalLogin\(\{/);
+  assert.match(authFlows, /if \(mode === 'admin'\) return signInWithUsernamePassword\(auth, username, password\)/);
+  assert.match(authFlows, /functions\.invoke\('customer-login'/);
+  assert.match(authFlows, /if \(isStaffUsername\(username\)\)/);
+  assert.match(authFlows, /auth\.setSession\(data\.session\)/);
   assert.match(authFlows, /\$\{normalizedUsername\}@shahdara\.local/);
   assert.match(authFlows, /auth\.signInWithPassword\(\{ email, password \}\)/);
   assert.doesNotMatch(main, /signInWithOtp|signInWithEmailPassword/);

@@ -282,11 +282,11 @@ test('Admin PPPoE controls are schema-gated and explicitly mapping-only', async 
 });
 
 
-test('username login feature panel has default-collapsed controls without unmounting state or stopping work', async () => {
+test('dual login tabs remain explicit while unrelated feature panels keep their accessible folding behavior', async () => {
   const featureToggles = await readFile(new URL('../src/feature-toggles.js', import.meta.url), 'utf8');
-  for (const key of ['auth-customer-username']) {
-    assert.match(index, new RegExp(`data-feature-key="${key}"`));
-  }
+  assert.match(index, /id="login-mode-tabs"[^>]*role="tablist"/);
+  assert.match(index, /data-login-mode="customer"/);
+  assert.match(index, /data-login-mode="admin"/);
   assert.doesNotMatch(index, /auth-email-password|auth-email-link|auth-password-recovery/);
   assert.match(main, /initializeFeatureToggles\(document,\s*\{[\s\S]*?observe: true/);
   assert.doesNotMatch(main, /from ['"]\.\/dashboard-analytics\.js['"]/);
