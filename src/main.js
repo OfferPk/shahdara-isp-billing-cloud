@@ -2,7 +2,7 @@ import { createPortalClient, isStagingProjectUrl } from './supabase-client.js';
 import { authenticatePortalLogin, loginModeFromHash, loginModeToHash } from './auth-flows.js';
 import { togglePasswordVisibility } from './password-visibility.js';
 import { validatePakistanPhone } from './customer-input.js';
-import { createCustomer, invokeRpc, loadOrganizationBranding, loadPortalRows, loadPortalSessionContexts, manageServiceIncident, saveCustomerPppoeUsername, saveCustomerPortalTestAccount } from './portal-data.js';
+import { createCustomer, invokeRpc, loadOrganizationBranding, loadPortalRows, loadPortalSessionContexts, manageServiceIncident, saveCustomerPppoeUsername, saveCustomerPortalTestAccount, saveCustomerWhatsappPhone } from './portal-data.js';
 import { getBillingCycleQuickDate, isValidBillingMonth, localDateString, localMonthString } from './bill-dates.js';
 import { amountToMinorUnits, calculateDashboard, formatMoney } from './ledger.js';
 import { CASHFLOW_CATEGORIES, filterCashflowExpenses, summarizeCashflow } from './cashflow.js';
@@ -2097,6 +2097,7 @@ if (!supabase) {
 
     wirePortalBase();
     portalPanel.insertAdjacentHTML('beforeend', `<dialog id="bill-edit-dialog" class="edit-dialog" aria-labelledby="bill-edit-title"><form id="bill-edit-form" class="stack" method="dialog"><div class="section-heading"><div><p class="eyebrow">${escapeHtml(t('Explicit correction'))}</p><h2 id="bill-edit-title">${escapeHtml(t('Correct bill'))}</h2></div><button class="icon-button" type="button" data-action="close-bill-dialog" aria-label="${escapeHtml(t('Close'))}">×</button></div><input type="hidden" name="bill_id"><label for="bill-edit-amount">${escapeHtml(t('Bill amount (PKR)'))}<input id="bill-edit-amount" name="amount" inputmode="decimal" placeholder="${escapeHtml(t('Leave blank if not priced'))}"></label><label for="bill-edit-issued-on">${escapeHtml(t('Issue Date'))}<input id="bill-edit-issued-on" name="issued_on" type="date"></label><label for="bill-edit-due-date">${escapeHtml(t('Exact Due Date'))}<input id="bill-edit-due-date" name="due_date" type="date"></label><p class="muted">${escapeHtml(t('Dates stay blank when they were not explicitly recorded. Saving updates this bill only.'))}</p><div class="form-actions"><button class="button secondary" type="button" data-action="close-bill-dialog">${escapeHtml(t('Cancel'))}</button><button class="button primary" type="submit">${escapeHtml(t('Save bill correction'))}</button></div></form></dialog>`);
+    portalPanel.insertAdjacentHTML('beforeend', `<dialog id="customer-phone-dialog" class="edit-dialog" aria-labelledby="customer-phone-title"><form id="customer-phone-form" class="stack"><div class="section-heading"><div><p class="eyebrow">${escapeHtml(t('Customer contact'))}</p><h2 id="customer-phone-title">${escapeHtml(t('Edit WhatsApp phone'))}</h2></div><button class="icon-button" type="button" data-action="close-customer-phone-dialog" aria-label="${escapeHtml(t('Close'))}">×</button></div><input type="hidden" name="customer_id"><label for="customer-phone-input">${escapeHtml(t('WhatsApp phone number'))}<input id="customer-phone-input" name="phone" type="tel" inputmode="tel" autocomplete="tel" maxlength="40"></label><p class="muted">${escapeHtml(t('Use 03XXXXXXXXX or +923XXXXXXXXX. Leave blank to remove the saved number.'))}</p><p id="customer-phone-message" class="form-message" role="status" aria-live="polite"></p><div class="form-actions"><button class="button secondary" type="button" data-action="close-customer-phone-dialog">${escapeHtml(t('Cancel'))}</button><button class="button primary" type="submit">${escapeHtml(t('Save phone'))}</button></div></form></dialog>`);
     portalPanel.querySelector('#dashboard-month')?.addEventListener('change', (event) => {
       pageState.selectedMonth = event.target.value || localMonth();
       if (pageState.dashboardDrilldown) {
@@ -2959,6 +2960,36 @@ if (!supabase) {
   function bindAdminBillActions(context) {
     if (context.kind !== 'admin') return;
     const billRoot = portalPanel.querySelector('#admin-bills');
+    const customerPhoneDialog = portalPanel.querySelector('#customer-phone-dialog');
+    const customerPhoneForm = portalPanel.querySelector('#customer-phone-form');
+    portalPanel.querySelectorAll('[data-action="close-customer-phone-dialog"]').forEach((button) => {
+      button.addEventListener('click', () => customerPhoneDialog?.close());
+    });
+    customerPhoneForm?.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const submitButton = form.querySelector('button[type="submit"]');
+      const message = form.querySelector('#customer-phone-message');
+      const formData = new FormData(form);
+      try {
+        if (submitButton) submitButton.disabled = true;
+        setMessage(message, 'Saving customer phone…');
+        await saveCustomerWhatsappPhone(supabase, {
+          organizationId: context.organizationId,
+          customerId: String(formData.get('customer_id') ?? ''),
+          phone: String(formData.get('phone') ?? ''),
+        });
+        customerPhoneDialog?.close();
+        await refreshCurrentContext('Customer phone saved.');
+      } catch (error) {
+        const errorMessage = error?.code === '42501'
+          ? 'Only same-organization Owners and Admins can edit customer phone numbers.'
+          : error?.message || 'Customer phone could not be saved.';
+        setMessage(message, errorMessage, true);
+      } finally {
+        if (submitButton?.isConnected) submitButton.disabled = false;
+      }
+    });
     billRoot?.addEventListener('input', (event) => {
       if (event.target.id !== 'admin-bill-search') return;
       pageState.billSearch = event.target.value;
@@ -2990,6 +3021,16 @@ if (!supabase) {
         openInvoicePreview(action.dataset.id);
       } else if (action.dataset.action === 'print-receipt') {
         printExistingReceipt(action.dataset.id);
+      } else if (action.dataset.action === 'edit-customer-phone') {
+        const customerId = String(action.dataset.customerId ?? '');
+        const customer = pageState.rows.customers.find((row) => row.id === customerId);
+        if (!customer || !customerPhoneForm || !customerPhoneDialog) return;
+        const details = pageState.rows.privateCustomerDetails.find((row) => row.customer_id === customerId);
+        customerPhoneForm.elements.customer_id.value = customerId;
+        customerPhoneForm.elements.phone.value = details?.phone ?? '';
+        setMessage(customerPhoneForm.querySelector('#customer-phone-message'), '', false);
+        customerPhoneDialog.showModal();
+        customerPhoneForm.elements.phone.focus();
       }
     });
   }

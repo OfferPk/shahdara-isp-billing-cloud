@@ -376,6 +376,22 @@ export async function saveCustomerPortalTestAccount(supabase, { organizationId, 
   return data;
 }
 
+export async function saveCustomerWhatsappPhone(supabase, { organizationId, customerId, phone }) {
+  if (!organizationId || !customerId) throw new Error('An organization and customer are required.');
+  const normalizedPhone = String(phone ?? '').trim().replace(/[\s()-]/g, '');
+  if (normalizedPhone && !/^(03\d{9}|\+923\d{9})$/.test(normalizedPhone)) {
+    throw new Error('Phone must be 03XXXXXXXXX or +923XXXXXXXXX');
+  }
+  const { data, error } = await supabase.rpc('set_customer_private_phone', {
+    p_organization_id: organizationId,
+    p_customer_id: customerId,
+    p_phone: normalizedPhone,
+  });
+  if (error) throw error;
+  if (data !== normalizedPhone) throw new Error('Customer phone could not be confirmed.');
+  return data;
+}
+
 export async function createCustomer(supabase, customer) {
   return invokeRpc(supabase, 'create_customer', {
     p_organization_id: customer.organizationId,

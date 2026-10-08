@@ -154,22 +154,56 @@ function whatsappDigits(phone) {
   return '';
 }
 
-function interpolate(template, values) {
-  return String(template).replace(/\{([a-zA-Z][a-zA-Z0-9_]*)\}/g, (_match, name) => String(values[name] ?? ''));
+function formatShareAmount(cents) {
+  const amount = Number(cents);
+  return new Intl.NumberFormat('en-PK', { maximumFractionDigits: 2 })
+    .format((Number.isFinite(amount) ? amount : 0) / 100);
 }
 
-export function buildWhatsappReminderHref(row, formatMoney, t = (value) => value) {
-  if (row?.status !== 'unpaid' || row.balanceCents == null || row.balanceCents <= 0) return '';
+export function buildWhatsappBillShareHref(row, t = (value) => value) {
+  const isPaid = row?.status === 'paid' && Number(row.balanceCents) === 0;
+  const isUnpaid = row?.status === 'unpaid' && Number(row.balanceCents) > 0;
+  if (!isPaid && !isUnpaid) return '';
+
+  const customer = String(row.pppoeUsername || row.customerName || t('Customer')).trim();
+  const accountNumber = row.customerNumber === null || row.customerNumber === undefined
+    ? t('Not recorded')
+    : String(row.customerNumber);
+  const period = String(row.period || t('Period not recorded'));
+  let message;
+
+  if (isPaid) {
+    const amountDue = Math.max(0, Number(row.amountDueCents) || 0);
+    const amountApplied = Math.max(0, Number(row.appliedCents) || 0);
+    const amountPaid = Math.min(amountDue, amountApplied);
+    const methods = new Set((row.receipts ?? []).map((receipt) => String(receipt.method ?? '').trim()).filter(Boolean));
+    if (Number(row.creditAppliedCents) > 0) methods.add(t('Carry-forward credit'));
+    const latestReceipt = [...(row.receipts ?? [])]
+      .sort((left, right) => String(right.received_on ?? '').localeCompare(String(left.received_on ?? '')))[0];
+    message = [
+      '*Shahdara Fiber Net - Payment Receipt*',
+      `Customer: ${customer} (Account #${accountNumber})`,
+      `Bill Month: ${period}`,
+      `Amount Paid: Rs ${formatShareAmount(amountPaid)}`,
+      `Method: ${[...methods].join(', ') || t('Method not recorded')}`,
+      `Date: ${latestReceipt?.received_on || t('Date not recorded')}`,
+      'Status: PAID (Clear)',
+      'Shukriya!',
+    ].join('\n');
+  } else {
+    message = [
+      '*Shahdara Fiber Net - Bill Reminder*',
+      `Customer: ${customer} (Account #${accountNumber})`,
+      `Bill Month: ${period}`,
+      `Outstanding: Rs ${formatShareAmount(row.balanceCents)}`,
+      `Due Date: ${row.dueDate || t('Due date not recorded')}`,
+      'Payment Methods: EasyPaisa / Cash',
+      'If you have already paid, please ignore this message and contact us for confirmation. Shukriya!',
+    ].join('\n');
+  }
+
   const number = whatsappDigits(row.phone);
-  if (!number) return '';
-  const dateText = row.dueDate ? ` ${t('Due date:')} ${row.dueDate}.` : '';
-  const message = interpolate(t('Assalam-o-Alaikum {name}. Shahdara Fiber Net ki {period} ki bill ke hawale se yaad-dihani: outstanding balance {balance} hai.{dueDate} Agar aap payment kar chuke hain to meherbani karke is paigham ko nazar-andaz karein aur humein tasdeeq ke liye rabta karein. Shukriya.'), {
-    name: row.customerName,
-    period: row.period || t('recorded period'),
-    balance: formatMoney(row.balanceCents),
-    dueDate: dateText,
-  });
-  return `https://wa.me/${number}?text=${encodeURIComponent(message)}`;
+  return `https://api.whatsapp.com/send?${number ? `phone=${number}&` : ''}text=${encodeURIComponent(message)}`;
 }
 
 export function renderAdminBillCards(rows, formatMoney, t = (value) => value) {
@@ -180,15 +214,17 @@ export function renderAdminBillCards(rows, formatMoney, t = (value) => value) {
     const period = escapeHtml(row.period || t('Period not recorded'));
     const badge = row.isOverdue ? `${t('Overdue by')} ${row.overdueDays} ${t('days')}` : row.status === 'paid' ? t('Paid') : row.status === 'unpaid' ? t('Unpaid') : t('Not priced');
     const badgeClass = row.isOverdue ? 'status-pill--overdue' : row.status === 'paid' ? 'status-pill--paid' : row.status === 'unpaid' ? 'status-pill--unpaid' : 'status-pill--not-priced';
-    const reminderHref = buildWhatsappReminderHref(row, formatMoney, t);
+    const shareHref = buildWhatsappBillShareHref(row, t);
+    const shareLabel = row.status === 'paid' ? 'Share WhatsApp Receipt' : 'Send WhatsApp Bill';
     const packageName = escapeHtml(row.packageName || t('Package not recorded'));
     const phone = row.phone ? escapeHtml(row.phone) : escapeHtml(t('Not recorded'));
+    const customerId = escapeHtml(row.bill.customer_id ?? '');
     const collect = row.status === 'unpaid' && row.balanceCents > 0
       ? `<button class="bill-action bill-action--collect" type="button" data-action="collect-bill" data-id="${billId}" aria-label="${escapeHtml(t('Collect for'))} ${customerName}, ${period}; ${escapeHtml(t('opens the receipt form without recording payment'))}">${escapeHtml(t('Collect'))}</button>`
       : `<button class="bill-action bill-action--collect" type="button" disabled title="${escapeHtml(t(row.status === 'not-priced' ? 'Record a bill price before pre-filling an outstanding amount.' : 'No outstanding balance is recorded.'))}">${escapeHtml(t('Collect'))}</button>`;
-    const reminder = reminderHref
-      ? `<a class="bill-action bill-action--whatsapp" href="${escapeHtml(reminderHref)}" target="_blank" rel="noopener noreferrer" aria-label="${escapeHtml(t('Open a prefilled WhatsApp reminder for'))} ${customerName}">${escapeHtml(t('WhatsApp reminder'))}</a>`
-      : `<button class="bill-action" type="button" disabled title="${escapeHtml(t('A valid Admin phone and an outstanding priced bill are required.'))}">${escapeHtml(t('WhatsApp reminder'))}</button>`;
+    const whatsappShare = shareHref
+      ? `<a class="bill-action bill-action--whatsapp" href="${escapeHtml(shareHref)}" target="_blank" rel="noopener noreferrer" aria-label="${escapeHtml(t('Open a prefilled WhatsApp message for'))} ${customerName}">${escapeHtml(t(shareLabel))}</a>`
+      : `<button class="bill-action" type="button" disabled title="${escapeHtml(t('Set a price before sharing a WhatsApp bill.'))}">${escapeHtml(t(shareLabel))}</button>`;
     const correct = `<button class="bill-action" type="button" data-action="edit-bill" data-id="${billId}" aria-label="${escapeHtml(t('Correct bill for'))} ${customerName}, ${period}">${escapeHtml(t('Correct bill'))}</button>`;
     const receivePayment = row.status === 'unpaid' && row.balanceCents > 0
       ? `<button class="bill-action bill-action--paid" type="button" data-action="receive-payment" data-id="${billId}" aria-label="${escapeHtml(t('Receive payment for'))} ${customerName}, ${period}">${escapeHtml(t('Receive Payment'))}</button>`
@@ -207,8 +243,8 @@ export function renderAdminBillCards(rows, formatMoney, t = (value) => value) {
       : `<p class="bill-card__no-receipts">${escapeHtml(t('No actual receipt is recorded against this bill.'))}</p>`;
     return `<article class="bill-card">
       <div class="bill-card__top"><div><p class="bill-card__period">${escapeHtml(t('Invoice No.'))} · ${escapeHtml(row.invoiceNumber)}</p><p class="bill-card__period">${escapeHtml(t('Billing Month'))} · ${period}</p><h3>${customerName}</h3>${row.customerNumber !== null ? `<p class="bill-card__account">${escapeHtml(t('Account'))} #${escapeHtml(row.customerNumber)}</p>` : ''}</div><span class="status-pill ${badgeClass}">${escapeHtml(badge)}</span></div>
-      <dl class="bill-card__facts"><div><dt>${escapeHtml(t('PPPoE Username'))}</dt><dd>${escapeHtml(row.pppoeUsername || t('Not recorded'))}</dd></div><div><dt>${escapeHtml(t('Issue Date'))}</dt><dd>${escapeHtml(row.issuedOn || t('Issue date not recorded'))}</dd></div><div><dt>${escapeHtml(t('Due Date'))}</dt><dd>${escapeHtml(row.dueDate || t('Due date not recorded'))}</dd></div><div><dt>${escapeHtml(t('Bill amount'))}</dt><dd>${escapeHtml(formatMoney(row.amountDueCents))}</dd></div><div><dt>${escapeHtml(t('Outstanding'))}</dt><dd>${escapeHtml(formatMoney(row.balanceCents))}</dd></div><div><dt>${escapeHtml(t('Package'))}</dt><dd>${packageName}</dd></div><div><dt>${escapeHtml(t('Admin phone'))}</dt><dd>${phone}</dd></div><div><dt>${escapeHtml(t('Actual receipts linked'))}</dt><dd>${escapeHtml(formatMoney(row.cashReceiptCents))}</dd></div><div><dt>${escapeHtml(t('Carry-forward credit'))}</dt><dd>${escapeHtml(formatMoney(row.creditAppliedCents))}</dd></div></dl>
-      <div class="bill-card__actions" role="group" aria-label="${escapeHtml(t('Bill actions for'))} ${customerName}">${viewInvoice}${receivePayment}${collect}${reminder}${correct}</div>
+      <dl class="bill-card__facts"><div><dt>${escapeHtml(t('PPPoE Username'))}</dt><dd>${escapeHtml(row.pppoeUsername || t('Not recorded'))}</dd></div><div><dt>${escapeHtml(t('Issue Date'))}</dt><dd>${escapeHtml(row.issuedOn || t('Issue date not recorded'))}</dd></div><div><dt>${escapeHtml(t('Due Date'))}</dt><dd>${escapeHtml(row.dueDate || t('Due date not recorded'))}</dd></div><div><dt>${escapeHtml(t('Bill amount'))}</dt><dd>${escapeHtml(formatMoney(row.amountDueCents))}</dd></div><div><dt>${escapeHtml(t('Outstanding'))}</dt><dd>${escapeHtml(formatMoney(row.balanceCents))}</dd></div><div><dt>${escapeHtml(t('Package'))}</dt><dd>${packageName}</dd></div><div><dt>${escapeHtml(t('Admin phone'))}</dt><dd class="bill-card__phone">${phone}<button class="bill-phone-edit" type="button" data-action="edit-customer-phone" data-customer-id="${customerId}" aria-label="${escapeHtml(t('Edit WhatsApp phone for'))} ${customerName}"><span aria-hidden="true">✎</span></button></dd></div><div><dt>${escapeHtml(t('Actual receipts linked'))}</dt><dd>${escapeHtml(formatMoney(row.cashReceiptCents))}</dd></div><div><dt>${escapeHtml(t('Carry-forward credit'))}</dt><dd>${escapeHtml(formatMoney(row.creditAppliedCents))}</dd></div></dl>
+      <div class="bill-card__actions" role="group" aria-label="${escapeHtml(t('Bill actions for'))} ${customerName}">${viewInvoice}${receivePayment}${collect}${whatsappShare}${correct}</div>
       <div class="bill-card__receipts"><h4>${escapeHtml(t('Actual receipt records'))}</h4>${receipts}</div>
     </article>`;
   }).join('');
