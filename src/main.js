@@ -1,5 +1,6 @@
 import { createPortalClient, isStagingProjectUrl } from './supabase-client.js';
 import { authenticatePortalLogin, loginModeFromHash, loginModeToHash } from './auth-flows.js';
+import { CUSTOMER_SUPPORT_PHONE, CUSTOMER_SUPPORT_WHATSAPP_URL, customerContextFromDashboard, customerPortalRowsFromDashboard, fetchCustomerPortalDashboard, revokeCustomerPortalSession } from './customer-bff-client.js';
 import { togglePasswordVisibility } from './password-visibility.js';
 import { validatePakistanPhone } from './customer-input.js';
 import { createCustomer, invokeRpc, loadOrganizationBranding, loadPortalRows, loadPortalSessionContexts, manageServiceIncident, saveCustomerPppoeUsername, saveCustomerPortalTestAccount, saveCustomerWhatsappPhone } from './portal-data.js';
@@ -45,7 +46,7 @@ import {
 import { applyDocumentLanguage, formatUiMessage, getStoredLanguage, loadLanguageResources, normalizeLanguage, setLanguagePreference, translateUi } from './language.js';
 import { BRANDING_BUCKET, buildBrandLogoPath, getOrganizationBranding, getPublicBrandLogoUrl, isSafeBrandLogoPath, safeSupportPhoneHref, validateBrandLogoFile } from './organization-branding.js';
 import { renderPrintableBillHtml } from './customer-documents.js';
-import { buildDemoCustomerMonthlyUsage, renderCustomerUsageDashboard, renderCustomerUsageSkeleton } from './customer-usage.js';
+import { renderCustomerUsageDashboard, renderCustomerUsageSkeleton } from './customer-usage.js';
 import { appendLiveTrafficSample, drawLiveTrafficGraph, formatLiveTrafficRate, LIVE_TRAFFIC_POLL_INTERVAL_MS, normalizeLiveTrafficSample } from './live-traffic.js';
 import { initializeFeatureToggles, refreshFeatureToggleLabels, ALL_FEATURE_SELECTOR } from './feature-toggles.js';
 import { initializeTheme } from './theme.js';
@@ -54,7 +55,7 @@ import { renderDashboardAnalyticsSkeleton } from './dashboard-analytics-loading.
 import { renderPortalLoadError, safePortalErrorDetails } from './portal-load-error.js';
 import { mountPppoeSessionsDashboard } from './admin-pppoe-sessions.js';
 import { renderSubscriberImportContent, renderSubscriberImportDialog, setSelectedSubscriberUsernames } from './admin-subscriber-import.js';
-import { discoverRouterSubscribers, fetchCustomerLiveTraffic, importRouterSubscribers } from './pppoe-api-client.js';
+import { discoverRouterSubscribers, fetchCustomerLiveTraffic, importRouterSubscribers, resolvePppoeApiBase } from './pppoe-api-client.js';
 import { buildInvoiceShareText, buildMonthlyInvoiceRequest } from './billing-engine.js';
 import { DEFAULT_PACKAGE_PRESETS, renderAdminPackageCards, renderAdminPackageCreationForm, buildPackagePricingRows } from './admin-packages.js';
 import { generateMonthlyInvoices, updatePackageMonthlyFee } from './billing-rpc-client.js';
@@ -231,6 +232,7 @@ if (!supabase) {
 } else {
   const pageState = {
     user: null,
+    customerPortalToken: null,
     contexts: [],
     context: null,
     rows: null,
@@ -298,9 +300,9 @@ if (!supabase) {
     customerLiveTrafficInFlight = true;
     let nextDelay = LIVE_TRAFFIC_POLL_INTERVAL_MS;
     try {
-      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-      if (sessionError || !sessionData?.session?.access_token) throw new Error('Sign-in session unavailable.');
-      const sample = normalizeLiveTrafficSample(await fetchCustomerLiveTraffic({ token: sessionData.session.access_token }));
+      const portalToken = pageState.customerPortalToken;
+      if (!portalToken) throw new Error('Customer portal session unavailable.');
+      const sample = normalizeLiveTrafficSample(await fetchCustomerLiveTraffic({ token: portalToken }));
       if (!sample) throw new Error('Traffic sample unavailable.');
       if (generation !== customerLiveTrafficGeneration || !portalPanel.contains(canvas)) return;
       customerLiveTrafficSamples = appendLiveTrafficSample(customerLiveTrafficSamples, sample);
@@ -332,6 +334,11 @@ if (!supabase) {
   function startCustomerLiveTraffic() {
     stopCustomerLiveTraffic();
     if (pageState.context?.kind !== 'customer' || !portalPanel.querySelector('#customer-live-traffic-graph')) return;
+    if (!resolvePppoeApiBase()) {
+      const status = portalPanel.querySelector('#customer-live-traffic-status');
+      if (status) status.textContent = t('Telemetry Pending');
+      return;
+    }
     const generation = customerLiveTrafficGeneration;
     customerLiveTrafficStartTimer = window.setTimeout(() => {
       if (generation !== customerLiveTrafficGeneration) return;
@@ -695,7 +702,7 @@ if (!supabase) {
     pageState.context = context;
     showPortalLoading(context.kind === 'customer');
     try {
-      pageState.rows = await loadPortalRows(supabase, context);
+      pageState.rows = await loadContextRows(context);
       applyDashboardDrilldown(parseDashboardDrilldownHash(window.location.hash));
       renderPortal();
       if (pageState.dashboardDrilldown) focusDashboardDrilldown(pageState.dashboardDrilldown);
@@ -715,6 +722,9 @@ if (!supabase) {
 
   async function handleSession(session) {
     if (!session) {
+      const portalToken = pageState.customerPortalToken;
+      pageState.customerPortalToken = null;
+      if (portalToken) void revokeCustomerPortalSession(supabase.functions, portalToken).catch(() => {});
       cleanupPppoeDashboard();
       cleanupPppoeDashboard = () => {};
       stopCustomerLiveTraffic();
@@ -726,6 +736,7 @@ if (!supabase) {
       showLogin();
       return;
     }
+    pageState.customerPortalToken = null;
     if (pageState.loadingUserId === session.user.id) return;
     if (pageState.user?.id === session.user.id && pageState.contexts.length) return;
     if (pageState.user?.id !== session.user.id) {
@@ -737,11 +748,7 @@ if (!supabase) {
     pageState.user = session.user;
     showPortalLoading();
     try {
-      const { contexts, passwordState } = await loadPortalSessionContexts(supabase, session.user);
-      if (passwordState && !['none', 'active'].includes(passwordState)) {
-        showCustomerPasswordGate(passwordState);
-        return;
-      }
+      const { contexts } = await loadPortalSessionContexts(supabase, session.user);
       pageState.contexts = contexts;
       if (!pageState.contexts.length) {
         portalPanel.innerHTML = `<div class="panel" role="status"><p class="eyebrow">${escapeHtml(t('No portal access'))}</p><h2>${escapeHtml(t('Account access is not available'))}</h2><p>${escapeHtml(t('Ask the ISP administrator to verify this account or issue an invitation.'))}</p><button class="button secondary" data-action="sign-out">${escapeHtml(t('Sign out'))}</button></div>`;
@@ -766,6 +773,21 @@ if (!supabase) {
 
   function bindSharedActions() {
     portalPanel.querySelector('[data-action="sign-out"]')?.addEventListener('click', async () => {
+      if (pageState.context?.kind === 'customer') {
+        const portalToken = pageState.customerPortalToken;
+        pageState.customerPortalToken = null;
+        pageState.contexts = [];
+        pageState.context = null;
+        pageState.rows = null;
+        stopCustomerLiveTraffic();
+        try {
+          await revokeCustomerPortalSession(supabase.functions, portalToken);
+          showLogin('You have signed out.');
+        } catch {
+          showLogin('You have signed out on this device. Server revocation could not be confirmed.', true);
+        }
+        return;
+      }
       await supabase.auth.signOut();
       showLogin('You have signed out.');
     });
@@ -793,6 +815,39 @@ if (!supabase) {
       : 'This customer portal account is not active. Ask a Shahdara administrator to review or activate portal access.';
     portalPanel.innerHTML = `<section class="panel" aria-labelledby="customer-access-gate-title"><p class="eyebrow">${escapeHtml(t('Customer portal access'))}</p><h1 id="customer-access-gate-title">${escapeHtml(t(heading))}</h1><p>${escapeHtml(t(description))}</p><button class="button secondary" data-action="sign-out">${escapeHtml(t('Sign out'))}</button></section>`;
     bindSharedActions();
+  }
+
+  async function loadContextRows(context) {
+    if (context.kind !== 'customer') return loadPortalRows(supabase, context);
+    if (!pageState.customerPortalToken) throw new Error('Customer portal session is invalid or expired.');
+    const dashboard = await fetchCustomerPortalDashboard(supabase.functions, pageState.customerPortalToken);
+    return customerPortalRowsFromDashboard(dashboard, { expectedContext: context });
+  }
+
+  async function openCustomerPortal(portalToken) {
+    pageState.customerPortalToken = portalToken;
+    pageState.user = null;
+    pageState.contexts = [];
+    pageState.context = null;
+    pageState.rows = null;
+    showPortalLoading(true);
+    try {
+      const dashboard = await fetchCustomerPortalDashboard(supabase.functions, portalToken);
+      const context = customerContextFromDashboard(dashboard);
+      pageState.contexts = [context];
+      pageState.context = context;
+      pageState.rows = customerPortalRowsFromDashboard(dashboard, { expectedContext: context });
+      applyDashboardDrilldown(null);
+      renderPortal();
+      portalPanel.querySelector('h1')?.focus();
+      announceApp('Customer portal loaded.');
+      return true;
+    } catch {
+      try { await revokeCustomerPortalSession(supabase.functions, portalToken); } catch { /* Clear locally even if revocation cannot be reached. */ }
+      pageState.customerPortalToken = null;
+      showLogin('Customer portal is temporarily unavailable. Try again later.', true);
+      return false;
+    }
   }
 
   function allocationTotals(rows, billId) {
@@ -924,15 +979,20 @@ if (!supabase) {
   function customerProviderCardHtml() {
     const branding = currentBranding();
     const logoUrl = currentBrandLogoUrl();
-    const phoneHref = safeSupportPhoneHref(branding.supportPhone);
-    const supportPhone = branding.supportPhone
-      ? phoneHref ? `<a href="${escapeHtml(phoneHref)}">${escapeHtml(branding.supportPhone)}</a>` : escapeHtml(branding.supportPhone)
+    const supportPhoneValue = pageState.context?.kind === 'customer' ? CUSTOMER_SUPPORT_PHONE : branding.supportPhone;
+    const phoneHref = safeSupportPhoneHref(supportPhoneValue);
+    const supportPhone = supportPhoneValue
+      ? phoneHref ? `<a href="${escapeHtml(phoneHref)}">${escapeHtml(supportPhoneValue)}</a>` : escapeHtml(supportPhoneValue)
       : escapeHtml(t('Not recorded'));
     const companyAddress = branding.address ? escapeHtml(branding.address) : escapeHtml(t('Not recorded'));
+    const customerWhatsAppAction = pageState.context?.kind === 'customer'
+      ? `<div class="provider-card__actions"><a class="button primary" href="${escapeHtml(CUSTOMER_SUPPORT_WHATSAPP_URL)}" target="_blank" rel="noopener noreferrer">${escapeHtml(t('WhatsApp helpline'))}</a></div>`
+      : '';
     return `<section class="provider-card panel" aria-labelledby="provider-card-title">
       ${logoUrl ? `<img class="provider-card__logo" src="${escapeHtml(logoUrl)}" alt="">` : ''}
       <div class="provider-card__identity"><p class="eyebrow">${escapeHtml(t('Your service provider'))}</p><h2 id="provider-card-title">${escapeHtml(branding.displayName)}</h2></div>
       <div class="provider-card__contact"><p><span>${escapeHtml(t('Support phone'))}</span>${supportPhone}</p><p><span>${escapeHtml(t('Company address'))}</span><strong>${companyAddress}</strong></p></div>
+      ${customerWhatsAppAction}
     </section>`;
   }
 
@@ -3323,20 +3383,23 @@ if (!supabase) {
     }
     let monthlyUsageSource = 'routeros-poller';
     let quotaPackage = rows.customerQuotaPackage;
-    if (currentMonthUsageBytes === null && import.meta.env.DEV) {
-      const demoUsage = buildDemoCustomerMonthlyUsage(customer);
-      if (demoUsage) {
-        currentMonthUsageBytes = demoUsage.bytes.toString();
-        monthlyUsageSource = demoUsage.source;
-        quotaPackage ??= demoUsage.quotaPackage;
-      }
-    }
+    const dueDateIso = String(currentMonthBill?.due_date ?? '').slice(0, 10);
+    const dueDateObject = /^\d{4}-\d{2}-\d{2}$/.test(dueDateIso)
+      ? new Date(`${dueDateIso}T00:00:00.000Z`) : null;
+    const currentMonthBillDueLabel = dueDateObject && Number.isFinite(dueDateObject.getTime())
+      ? new Intl.DateTimeFormat('en-PK', { day: 'numeric', month: 'short', timeZone: 'UTC' }).format(dueDateObject)
+      : t('Not recorded');
+    const amountDueCents = currentMonthBill?.amount_due_cents;
+    const currentMonthBillAmountLabel = amountDueCents !== null && amountDueCents !== undefined
+      && /^\d+$/.test(String(amountDueCents))
+      ? formatMoney(amountDueCents)
+      : t('Not recorded');
     portalPanel.innerHTML = `${shellHeader(t('Customer portal'))}
       ${renderPortalNavigation('customer')}
       ${customerProviderCardHtml()}
       <section id="customer-account" class="profile-card panel" aria-label="${escapeHtml(t('Customer profile'))}">
         <div class="profile-card__identity"><p class="eyebrow">${escapeHtml(t('Your account'))}</p><h2>${escapeHtml(customer.name)}</h2><p class="profile-card__number">${escapeHtml(t('Customer'))} #${escapeHtml(customer.customer_number)}</p></div>
-        <div class="profile-card__details"><div class="profile-field"><span>${escapeHtml(t('Plan'))}</span><strong>${escapeHtml(customer.plan_name || t('Plan not set'))}</strong></div><div class="profile-field"><span>${escapeHtml(t('Monthly fee'))}</span><strong>${formatMoney(customer.monthly_fee_cents)}</strong></div><div class="profile-field profile-field--wide"><span>${escapeHtml(t('Service address'))}</span><strong>${escapeHtml(customer.service_address || t('Service address not recorded'))}</strong></div></div>
+        <div class="profile-card__details"><div class="profile-field"><span>${escapeHtml(t('Plan'))}</span><strong>${escapeHtml(customer.plan_name || t('Plan not set'))}</strong></div><div class="profile-field"><span>${escapeHtml(t('Monthly fee'))}</span><strong>${formatMoney(customer.monthly_fee_cents)}</strong></div></div>
         <div class="profile-card__status"><span class="status-pill">${escapeHtml(customer.archived ? t('Archived') : ({ active: t('Active'), offline: t('Offline'), 'not-set': t('Not set') }[customer.service_status] ?? customer.service_status ?? t('Not set')))}</span><p>${escapeHtml(t('Service status'))}</p></div>
       </section>
       ${renderCustomerUsageDashboard({
@@ -3349,6 +3412,8 @@ if (!supabase) {
         currentMonthBillStatus,
         currentMonthLabel: formatBillingMonth(currentBillingMonth, 'en-PK', t),
         monthlyFeeLabel: formatMoney(customer.monthly_fee_cents),
+        currentMonthBillAmountLabel,
+        currentMonthBillDueLabel,
         quotaPackage,
         t,
         locale: currentLanguage === 'ur-Latn' ? 'ur-Latn-PK' : 'en-PK',
@@ -3400,7 +3465,7 @@ if (!supabase) {
     if (!pageState.context) return;
     showPortalLoading(pageState.context.kind === 'customer');
     try {
-      pageState.rows = await loadPortalRows(supabase, pageState.context);
+      pageState.rows = await loadContextRows(pageState.context);
       renderPortal();
       portalPanel.querySelector('h1')?.focus();
       announceApp(announcement);
@@ -3438,14 +3503,16 @@ if (!supabase) {
     for (const tab of loginModeTabs) tab.disabled = true;
     setMessage(customerLoginMessage, 'Signing in…');
     try {
-      const { error } = await authenticatePortalLogin({
+      const { data, error } = await authenticatePortalLogin({
         auth: supabase.auth,
         functions: supabase.functions,
         mode: selectedLoginMode,
         username,
         password,
       });
+      passwordInput.value = '';
       if (error) setMessage(customerLoginMessage, 'Username or password is incorrect or unavailable.', true);
+      else if (selectedLoginMode === 'customer') await openCustomerPortal(data.portal_token);
     } catch {
       setMessage(customerLoginMessage, 'Username or password is incorrect or unavailable.', true);
     } finally {

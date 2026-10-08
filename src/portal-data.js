@@ -112,56 +112,12 @@ async function loadAdminContexts(supabase, user) {
 
 export async function loadContexts(supabase, user, membershipRows = null) {
   const memberships = membershipRows ?? await readOrganizationMemberships(supabase, user);
-  if (memberships.length) return loadAdminContextsFromMemberships(supabase, memberships);
-
-  const { data: accounts, error: accountError } = await supabase
-    .rpc('my_customer_portal_contexts');
-  if (accountError) throw accountError;
-  const linkedAccounts = accounts ?? [];
-  if (!linkedAccounts.length) return [];
-  const customerIdsByOrganization = new Map();
-  for (const account of linkedAccounts) {
-    if (!account.organization_id || !account.customer_id) continue;
-    if (!customerIdsByOrganization.has(account.organization_id)) customerIdsByOrganization.set(account.organization_id, new Set());
-    customerIdsByOrganization.get(account.organization_id).add(account.customer_id);
-  }
-  if (!customerIdsByOrganization.size) return [];
-  const customerRows = await Promise.all([...customerIdsByOrganization].map(async ([organizationId, customerIds]) => {
-    const { data: customers, error: customerError } = await supabase
-      .from('customers')
-      .select('organization_id, id, name')
-      .eq('organization_id', organizationId)
-      .in('id', [...customerIds]);
-    if (customerError) throw customerError;
-    return customers ?? [];
-  }));
-  const customerByAccount = new Map(customerRows.flat().map((customer) => [
-    JSON.stringify([customer.organization_id, customer.id]), customer,
-  ]));
-  return linkedAccounts.flatMap((account) => {
-    const customer = customerByAccount.get(JSON.stringify([account.organization_id, account.customer_id]));
-    return customer ? [{
-      kind: 'customer',
-      organizationId: account.organization_id,
-      customerId: account.customer_id,
-      customerName: customer.name,
-    }] : [];
-  });
+  return loadAdminContextsFromMemberships(supabase, memberships);
 }
 
 export async function loadPortalSessionContexts(supabase, user) {
-  const { memberships, contexts: adminContexts } = await loadAdminContexts(supabase, user);
-  // Organization membership is sufficient for Admin access; this RPC is customer-only.
-  if (adminContexts.length) return { contexts: adminContexts, passwordState: null };
-
-  const { data: passwordStates, error: passwordStateError } = await supabase.rpc('my_customer_portal_password_state');
-  if (passwordStateError) throw passwordStateError;
-  const passwordState = passwordStates?.[0]?.state ?? 'none';
-  if (!['none', 'active'].includes(passwordState)) return { contexts: [], passwordState };
-  return {
-    contexts: await loadContexts(supabase, user, memberships),
-    passwordState,
-  };
+  const { contexts } = await loadAdminContexts(supabase, user);
+  return { contexts, passwordState: null };
 }
 
 export async function loadOrganizationBranding(supabase, organizationId) {
@@ -242,6 +198,9 @@ async function loadCustomerQuotaPackage(supabase, context) {
 }
 
 export async function loadPortalRows(supabase, context) {
+  if (context?.kind !== 'admin') {
+    throw new Error('Customer portal data must be read through the opaque-session BFF.');
+  }
   const byOrganization = (query) => query.eq('organization_id', context.organizationId);
   const customerOnly = (query) => byOrganization(query).eq('customer_id', context.customerId);
   const customerTableOnly = (query) => byOrganization(query).eq('id', context.customerId);

@@ -1,50 +1,39 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { createPppoeApiHandler, pppoeApiRoutes, pppoeApiInternals } from '../src/server/pppoe-api.js';
 
 const organizationId = '10000000-0000-4000-8000-000000000001';
 const customerId = 'customer-safe-id-1';
+const userId = '40000000-0000-4000-8000-000000000004';
+const token = 'a'.repeat(64);
 const env = {
-  VITE_SUPABASE_URL: 'https://example.supabase.co',
-  VITE_SUPABASE_PUBLISHABLE_KEY: 'public-anon-key',
+  SUPABASE_URL: 'https://example.supabase.co',
+  SUPABASE_SERVICE_ROLE_KEY: 'server-only-key',
+  ROUTER_DRIVER: 'mikrotik',
 };
 
-function makeClientFactory({
-  authenticated = true,
-  states = [{ state: 'active' }],
-  contexts = [{ organization_id: organizationId, customer_id: customerId }],
-  customer = { id: customerId, organization_id: organizationId, pppoe_username: 'subscriber_01' },
-} = {}) {
+function makeClientFactory({ resolution = {
+  status: 'ok', user_id: userId, organization_id: organizationId,
+  customer_id: customerId, pppoe_username: 'subscriber_01',
+}, error = null } = {}) {
   const calls = [];
-  const factory = () => ({
-    auth: {
-      async getUser(token) {
-        calls.push({ kind: 'getUser', token });
-        return authenticated ? { data: { user: { id: 'auth-user-1' } }, error: null } : { data: { user: null }, error: new Error('invalid') };
+  const factory = (url, key, options) => {
+    calls.push({ kind: 'client', url, key, options });
+    return {
+      async rpc(name, args) {
+        calls.push({ kind: 'rpc', name, args });
+        if (name === 'resolve_customer_portal_bff_traffic') return { data: resolution, error };
+        return { data: null, error: new Error('unexpected RPC') };
       },
-    },
-    async rpc(name) {
-      calls.push({ kind: 'rpc', name });
-      if (name === 'my_customer_portal_password_state') return { data: states, error: null };
-      if (name === 'my_customer_portal_contexts') return { data: contexts, error: null };
-      return { data: null, error: new Error('unexpected RPC') };
-    },
-    from(table) {
-      calls.push({ kind: 'from', table });
-      const query = {
-        select(columns) { calls.push({ kind: 'select', columns }); return query; },
-        eq(column, value) { calls.push({ kind: 'eq', column, value }); return query; },
-        async maybeSingle() { calls.push({ kind: 'maybeSingle' }); return { data: customer, error: null }; },
-      };
-      return query;
-    },
-  });
+    };
+  };
   factory.calls = calls;
   return factory;
 }
 
-function makeRequest(path = pppoeApiRoutes.customerLiveTraffic, token = 'customer-token') {
-  const headers = token ? { authorization: `Bearer ${token}` } : {};
+function makeRequest(path = pppoeApiRoutes.customerLiveTraffic, bearerToken = token) {
+  const headers = bearerToken ? { authorization: `Bearer ${bearerToken}` } : {};
   return new Request(`http://localhost${path}`, { headers });
 }
 
@@ -59,7 +48,7 @@ function makeAdapter() {
   };
 }
 
-test('customer telemetry resolves only the signed-in user’s exact customer in the same organization', async () => {
+test('customer telemetry resolves only the opaque token to the linked PPPoE username through the server-side resolver', async () => {
   const clientFactory = makeClientFactory();
   const adapter = makeAdapter();
   const handler = createPppoeApiHandler({ env, createClient: clientFactory, adapter, now: () => 10_000 });
@@ -72,34 +61,75 @@ test('customer telemetry resolves only the signed-in user’s exact customer in 
     source: 'routeros',
   });
   assert.deepEqual(adapter.calls, ['subscriber_01']);
-  assert.ok(clientFactory.calls.some((call) => call.kind === 'getUser' && call.token === 'customer-token'));
-  assert.ok(clientFactory.calls.some((call) => call.kind === 'eq' && call.column === 'organization_id' && call.value === organizationId));
-  assert.ok(clientFactory.calls.some((call) => call.kind === 'eq' && call.column === 'id' && call.value === customerId));
-  assert.ok(clientFactory.calls.some((call) => call.kind === 'rpc' && call.name === 'my_customer_portal_contexts'));
+  const client = clientFactory.calls.find((call) => call.kind === 'client');
+  assert.equal(client.key, env.SUPABASE_SERVICE_ROLE_KEY);
+  assert.equal(client.options.global, undefined);
+  const resolver = clientFactory.calls.find((call) => call.kind === 'rpc');
+  assert.equal(resolver.name, 'resolve_customer_portal_bff_traffic');
+  assert.equal(resolver.args.p_token_hash, createHash('sha256').update(token).digest('hex'));
+  assert.notEqual(resolver.args.p_token_hash, token);
+  assert.equal(clientFactory.calls.some((call) => call.kind === 'getUser' || call.kind === 'from'), false);
   assert.equal(response.headers.get('cache-control'), 'no-store, max-age=0');
 });
 
-test('route rejects missing auth, arbitrary customer IDs, ambiguous contexts, and inactive credentials before router access', async () => {
+test('customer live route rejects absent/malformed sessions and any client-selected customer ID before router access', async () => {
   const adapter = makeAdapter();
   const factory = makeClientFactory();
   const handler = createPppoeApiHandler({ env, createClient: factory, adapter, now: () => 10_000 });
   assert.equal((await handler(makeRequest(pppoeApiRoutes.customerLiveTraffic, ''))).status, 401);
+  assert.equal((await handler(makeRequest(pppoeApiRoutes.customerLiveTraffic, 'not-a-token'))).status, 401);
   assert.equal((await handler(makeRequest(`${pppoeApiRoutes.customerLiveTraffic}?customerId=other`))).status, 400);
-  assert.equal((await createPppoeApiHandler({ env, createClient: makeClientFactory({ contexts: [] }), adapter, now: () => 10_000 })(makeRequest())).status, 403);
-  assert.equal((await createPppoeApiHandler({ env, createClient: makeClientFactory({ states: [{ state: 'change_required' }] }), adapter, now: () => 10_000 })(makeRequest())).status, 403);
+  assert.deepEqual(adapter.calls, []);
+  assert.equal(factory.calls.length, 0);
+});
+
+test('customer live route never returns simulated rates when the backend is configured for a mock driver', async () => {
+  const adapter = makeAdapter();
+  const handler = createPppoeApiHandler({
+    env: { ...env, ROUTER_DRIVER: 'mock' },
+    createClient: makeClientFactory(), adapter, now: () => 10_000,
+  });
+  const response = await handler(makeRequest());
+  assert.equal(response.status, 503);
+  assert.deepEqual(await response.json(), { error: 'Live RouterOS telemetry is not configured.' });
   assert.deepEqual(adapter.calls, []);
 });
 
-test('customer query is constrained by both context organization and customer ID', async () => {
-  const otherOrganization = '20000000-0000-4000-8000-000000000002';
+test('expired or revoked BFF sessions and resolver errors fail closed before router access', async () => {
   const adapter = makeAdapter();
-  const handler = createPppoeApiHandler({
+  const expired = createPppoeApiHandler({
     env,
-    createClient: makeClientFactory({ customer: { id: customerId, organization_id: otherOrganization, pppoe_username: 'wrong-customer' } }),
+    createClient: makeClientFactory({ resolution: { status: 'unauthorized' } }),
     adapter,
     now: () => 10_000,
   });
-  assert.equal((await handler(makeRequest())).status, 403);
+  assert.equal((await expired(makeRequest())).status, 401);
+  const databaseError = createPppoeApiHandler({
+    env,
+    createClient: makeClientFactory({ resolution: null, error: new Error('database') }),
+    adapter,
+    now: () => 10_000,
+  });
+  assert.equal((await databaseError(makeRequest())).status, 503);
+  const missingServiceKey = createPppoeApiHandler({
+    env: { SUPABASE_URL: env.SUPABASE_URL }, createClient: makeClientFactory(), adapter, now: () => 10_000,
+  });
+  assert.equal((await missingServiceKey(makeRequest())).status, 503);
+  assert.deepEqual(adapter.calls, []);
+});
+
+test('a token bound to an account without PPPoE username cannot trigger router access', async () => {
+  const adapter = makeAdapter();
+  const handler = createPppoeApiHandler({
+    env,
+    createClient: makeClientFactory({ resolution: {
+      status: 'ok', user_id: userId, organization_id: organizationId,
+      customer_id: customerId, pppoe_username: '',
+    } }),
+    adapter,
+    now: () => 10_000,
+  });
+  assert.equal((await handler(makeRequest())).status, 404);
   assert.deepEqual(adapter.calls, []);
 });
 

@@ -90,260 +90,30 @@ test('only owner and admin memberships receive administrator portal contexts', a
   assert.ok(contexts.every(({ role }) => ['owner', 'admin'].includes(role)));
 });
 
-test('customer contexts come only from the authenticated safe account-link RPC', async () => {
-  const client = mockClient({
-    organization_memberships: { data: [], error: null },
-    customers: { data: [{ organization_id: 'synthetic-org', id: 'synthetic-customer', name: 'Synthetic Customer' }], error: null },
-  }, { data: [{ organization_id: 'synthetic-org', customer_id: 'synthetic-customer' }], error: null });
-  const contexts = await loadContexts(client, { id: 'synthetic-customer-user' });
-
-  assert.deepEqual(contexts, [{
-    kind: 'customer', organizationId: 'synthetic-org', customerId: 'synthetic-customer', customerName: 'Synthetic Customer',
-  }]);
-  assert.deepEqual(client.calls[1], { rpc: 'my_customer_portal_contexts', args: undefined });
-  assert.deepEqual(client.calls[2].filters, [
-    ['eq', 'organization_id', 'synthetic-org'],
-    ['in', 'id', ['synthetic-customer']],
-  ]);
-  assert.equal(client.calls.filter((call) => call.table === 'customers').length, 1);
-});
-
-test('customer password state is checked before customer contexts are requested', async () => {
-  const client = mockClient({
-    organization_memberships: { data: [], error: null },
-    customers: { data: [{ organization_id: 'synthetic-org', id: 'synthetic-customer', name: 'Synthetic Customer' }], error: null },
-  }, (name) => {
-    if (name === 'my_customer_portal_password_state') return { data: [{ state: 'active' }], error: null };
-    if (name === 'my_customer_portal_contexts') return { data: [{ organization_id: 'synthetic-org', customer_id: 'synthetic-customer' }], error: null };
-    return { data: null, error: null };
-  });
-
+test('customer Auth users never receive contexts from legacy password-state or account-link RPCs', async () => {
+  const client = mockClient({ organization_memberships: { data: [], error: null } });
   const result = await loadPortalSessionContexts(client, { id: 'synthetic-customer-user' });
-
-  assert.equal(result.passwordState, 'active');
-  assert.equal(result.contexts[0].kind, 'customer');
-  assert.deepEqual(client.calls.filter((call) => call.rpc).map((call) => call.rpc), [
-    'my_customer_portal_password_state',
-    'my_customer_portal_contexts',
-  ]);
+  assert.deepEqual(result, { contexts: [], passwordState: null });
+  assert.deepEqual(client.calls.map((call) => call.table ?? call.rpc), ['organization_memberships']);
+  assert.equal(client.calls.some((call) => call.rpc === 'my_customer_portal_contexts'), false);
+  assert.equal(client.calls.some((call) => call.rpc === 'my_customer_portal_password_state'), false);
 });
 
-test('restricted customer password state blocks before customer contexts are requested', async () => {
-  const client = mockClient({
-    organization_memberships: { data: [], error: null },
-  }, (name) => name === 'my_customer_portal_password_state'
-    ? { data: [{ state: 'change_required' }], error: null }
-    : { data: null, error: null });
-
-  const result = await loadPortalSessionContexts(client, { id: 'synthetic-customer-user' });
-
-  assert.deepEqual(result, { contexts: [], passwordState: 'change_required' });
-  assert.deepEqual(client.calls.filter((call) => call.rpc).map((call) => call.rpc), ['my_customer_portal_password_state']);
-});
-
-test('customer password-state RPC errors fail closed before customer contexts are requested', async () => {
-  const missingRpcError = { code: 'PGRST202', message: 'function not found' };
-  const client = mockClient({
-    organization_memberships: { data: [], error: null },
-  }, { data: null, error: missingRpcError });
-
-  await assert.rejects(loadPortalSessionContexts(client, { id: 'synthetic-customer-user' }), (error) => error === missingRpcError);
-  assert.deepEqual(client.calls.filter((call) => call.rpc).map((call) => call.rpc), ['my_customer_portal_password_state']);
-});
-
-test('customer contexts batch only exact linked IDs per organization, including same-ID cross-organization links', async () => {
-  const client = mockClient({
-    organization_memberships: { data: [], error: null },
-    customers: (query) => {
-      const organizationId = query.filters.find((filter) => filter[1] === 'organization_id')?.[2];
-      const customerIds = query.filters.find((filter) => filter[1] === 'id')?.[2] ?? [];
-      const rows = [
-        { organization_id: 'synthetic-org-a', id: 'shared-id', name: 'Synthetic A' },
-        { organization_id: 'synthetic-org-a', id: 'second-id', name: 'Synthetic A2' },
-        { organization_id: 'synthetic-org-b', id: 'shared-id', name: 'Synthetic B' },
-      ];
-      return { data: rows.filter((row) => row.organization_id === organizationId && customerIds.includes(row.id)), error: null };
-    },
-  }, { data: [
-    { organization_id: 'synthetic-org-a', customer_id: 'shared-id' },
-    { organization_id: 'synthetic-org-a', customer_id: 'second-id' },
-    { organization_id: 'synthetic-org-b', customer_id: 'shared-id' },
-  ], error: null });
-  const contexts = await loadContexts(client, { id: 'synthetic-customer-user' });
-
-  assert.deepEqual(contexts, [
-    { kind: 'customer', organizationId: 'synthetic-org-a', customerId: 'shared-id', customerName: 'Synthetic A' },
-    { kind: 'customer', organizationId: 'synthetic-org-a', customerId: 'second-id', customerName: 'Synthetic A2' },
-    { kind: 'customer', organizationId: 'synthetic-org-b', customerId: 'shared-id', customerName: 'Synthetic B' },
-  ]);
-  const customerQueries = client.calls.filter((call) => call.table === 'customers');
-  assert.equal(customerQueries.length, 2, 'three linked accounts use one exact-ID query per organization, not one query per account');
-  assert.ok(customerQueries.every((query) => query.selects[0] === 'organization_id, id, name'));
-  assert.deepEqual(customerQueries.map((query) => query.filters), [
-    [['eq', 'organization_id', 'synthetic-org-a'], ['in', 'id', ['shared-id', 'second-id']]],
-    [['eq', 'organization_id', 'synthetic-org-b'], ['in', 'id', ['shared-id']]],
-  ]);
-});
-
-test('portal row reads scope customer data and preserve safe paging', async () => {
-  const client = mockClient({
-    customers: { data: [{ id: 'synthetic-customer' }], error: null },
-    bills: { data: [], error: null },
-    receipts: { data: [], error: null },
-    receipt_allocations: { data: [], error: null },
-    incidents: { data: [], error: null },
-  });
-  const rows = await loadPortalRows(client, {
+test('customer row reads fail closed before querying Supabase and must use the opaque-session BFF', async () => {
+  const client = mockClient();
+  await assert.rejects(loadPortalRows(client, {
     kind: 'customer', organizationId: 'synthetic-org', customerId: 'synthetic-customer',
-  });
-
-  assert.deepEqual(Object.keys(rows), ['customers', 'pppoeMappingAvailable', 'bills', 'receipts', 'allocations', 'incidents', 'privateCustomerDetails', 'privateIncidentDetails', 'cashflowExpenses', 'customerServiceCosts', 'branding', 'customerBandwidthUsage', 'customerBandwidthUsageError', 'customerMonthlyBandwidthUsage', 'customerMonthlyBandwidthUsageError', 'customerQuotaPackage', 'customerQuotaPackageError']);
-  assert.equal(rows.pppoeMappingAvailable, true);
-  assert.equal(rows.branding, null);
-  assert.deepEqual(rows.privateCustomerDetails, []);
-  assert.equal(client.calls.some((query) => query.table === 'customer_private_details'), false);
-  assert.deepEqual(rows.privateIncidentDetails, []);
-  assert.equal(client.calls.some((query) => query.table === 'incident_private_details'), false);
-  assert.deepEqual(rows.cashflowExpenses, []);
-  assert.deepEqual(rows.customerServiceCosts, []);
-  assert.equal(client.calls.some((query) => ['cashflow_expenses', 'customer_service_cost_history'].includes(query.table)), false,
-    'customer context never issues an Admin financial query');
-  for (const query of client.calls) {
-    if (query.rpc) continue;
-    if (query.table === 'customer_bandwidth_usage') {
-      assert.deepEqual(query.filters, [], 'RLS, not a client-supplied identity filter, controls usage rows');
-      assert.deepEqual(query.ranges, [[0, 999]]);
-      continue;
-    }
-    if (query.table === 'customer_bandwidth_monthly_usage') {
-      assert.deepEqual(query.selects, ['usage_month, bytes_in, bytes_out, last_synced_at']);
-      assert.equal(query.filters[0][1], 'usage_month');
-      assert.equal(query.filters.length, 1, 'only the selected month is client-filtered; RLS controls customer identity');
-      assert.match(query.filters[0][2], /^\d{4}-\d{2}-01$/);
-      assert.equal(query.single, true);
-      continue;
-    }
-    assert.ok(query.filters.some((filter) => filter[0] === 'eq' && filter[1] === 'organization_id' && filter[2] === 'synthetic-org'));
-    if (query.table !== 'organization_branding') assert.deepEqual(query.ranges, [[0, 999]]);
-  }
-  const brandingQuery = client.calls.find((query) => query.table === 'organization_branding');
-  assert.deepEqual(brandingQuery.selects, ['organization_id, display_name, logo_path, support_phone, address']);
-  assert.deepEqual(brandingQuery.ranges, []);
-  assert.ok(brandingQuery.single);
-  assert.ok(client.calls.find((query) => query.table === 'bills').filters.some((filter) => filter[1] === 'customer_id' && filter[2] === 'synthetic-customer'));
-  assert.deepEqual(client.calls.find((call) => call.rpc === 'my_customer_package_quota'), {
-    rpc: 'my_customer_package_quota',
-    args: { p_organization_id: 'synthetic-org', p_customer_id: 'synthetic-customer' },
-  });
+  }), /opaque-session BFF/);
+  assert.equal(client.calls.length, 0);
 });
 
-test('customer profile query selects only approved public profile fields', async () => {
-  const client = mockClient({
-    customers: { data: [{ id: 'synthetic-customer' }], error: null },
-    bills: { data: [], error: null },
-    receipts: { data: [], error: null },
-    receipt_allocations: { data: [], error: null },
-    incidents: { data: [], error: null },
-  });
-  await loadPortalRows(client, {
-    kind: 'customer', organizationId: 'synthetic-org', customerId: 'synthetic-customer',
-  });
-
-  const profileQuery = client.calls.find((query) => query.table === 'customers');
-  assert.deepEqual(profileQuery.selects, ['id, customer_number, name, plan_name, service_address, service_status, monthly_fee_cents, archived, pppoe_username']);
-  assert.doesNotMatch(profileQuery.selects.join(' '), /phone|staff_notes|created_by|recorded_by|email/i);
-  assert.ok(profileQuery.filters.some((filter) => filter[1] === 'id' && filter[2] === 'synthetic-customer'));
-});
-
-test('customer bandwidth usage selects only safe fields and relies on RLS without customer-supplied filters', async () => {
-  const fixture = {
-    username: 'synthetic-pppoe', total_quota_bytes: '9000', bytes_in: '3000', bytes_out: '1000',
-    is_online: true, last_synced_at: '2026-10-03T10:00:00Z',
-  };
-  const monthlyFixture = {
-    usage_month: '2026-10-01', bytes_in: '64500000000', bytes_out: '0', last_synced_at: '2026-10-08T02:00:00Z',
-  };
-  const client = mockClient({
-    customers: { data: [{ id: 'synthetic-customer', pppoe_username: 'synthetic-pppoe' }], error: null },
-    customer_bandwidth_usage: { data: [fixture], error: null },
-    customer_bandwidth_monthly_usage: { data: [monthlyFixture], error: null },
-    bills: { data: [], error: null }, receipts: { data: [], error: null },
-    receipt_allocations: { data: [], error: null }, incidents: { data: [], error: null },
-  });
-  const rows = await loadPortalRows(client, {
-    kind: 'customer', organizationId: 'synthetic-org', customerId: 'synthetic-customer',
-  });
-  const query = client.calls.find((entry) => entry.table === 'customer_bandwidth_usage');
-
-  assert.deepEqual(query.selects, ['username, total_quota_bytes, bytes_in, bytes_out, is_online, last_synced_at']);
-  assert.deepEqual(query.filters, [], 'the client does not send a username, customer ID, or organization ID to the usage query');
-  assert.deepEqual(rows.customerBandwidthUsage, [fixture]);
-  assert.equal(rows.customerBandwidthUsageError, null);
-  assert.deepEqual(rows.customerMonthlyBandwidthUsage, [monthlyFixture]);
-  assert.equal(rows.customerMonthlyBandwidthUsageError, null);
-  assert.doesNotMatch(query.selects.join(' '), /last_ip|service_role|secret/i);
-
-  const failedClient = mockClient({
-    customers: { data: [{ id: 'synthetic-customer', pppoe_username: 'synthetic-pppoe' }], error: null },
-    customer_bandwidth_usage: { data: null, error: new Error('synthetic RLS/table denial') },
-    bills: { data: [], error: null }, receipts: { data: [], error: null },
-    receipt_allocations: { data: [], error: null }, incidents: { data: [], error: null },
-  });
-  const failedRows = await loadPortalRows(failedClient, {
-    kind: 'customer', organizationId: 'synthetic-org', customerId: 'synthetic-customer',
-  });
-  assert.deepEqual(failedRows.customerBandwidthUsage, []);
-  assert.match(failedRows.customerBandwidthUsageError.message, /synthetic RLS\/table denial/);
-  assert.equal(failedRows.customers.length, 1, 'a usage-only query error does not hide the rest of the customer portal');
-});
-
-test('customer quota package is read only through the customer-scoped quota RPC', async () => {
-  const quotaPackage = { package_id: 'synthetic-package', package_name: '5 Mbps / 150 GB', quota_type: 'fup_capped', quota_limit_gb: 150, action_on_exhaust: 'notify' };
-  const client = mockClient({
-    customers: { data: [{ id: 'synthetic-customer' }], error: null },
-    bills: { data: [], error: null }, receipts: { data: [], error: null },
-    receipt_allocations: { data: [], error: null }, incidents: { data: [], error: null },
-  }, { data: [quotaPackage], error: null });
-  const rows = await loadPortalRows(client, {
-    kind: 'customer', organizationId: 'synthetic-org', customerId: 'synthetic-customer',
-  });
-  assert.deepEqual(rows.customerQuotaPackage, quotaPackage);
-  assert.equal(rows.customerQuotaPackageError, null);
-  assert.deepEqual(client.calls.find((call) => call.rpc === 'my_customer_package_quota').args, {
-    p_organization_id: 'synthetic-org', p_customer_id: 'synthetic-customer',
-  });
-  assert.equal(client.calls.some((query) => query.table === 'service_packages'), false,
-    'customer clients never read the admin-only package table directly');
-});
-
-test('customer billing and incident reads are limited to approved fields and the linked account', async () => {
-  const client = mockClient({
-    customers: { data: [], error: null },
-    bills: { data: [], error: null },
-    receipts: { data: [], error: null },
-    receipt_allocations: { data: [], error: null },
-    incidents: { data: [], error: null },
-  });
-  await loadPortalRows(client, {
-    kind: 'customer', organizationId: 'synthetic-org', customerId: 'synthetic-customer',
-  });
-  const expectedColumns = {
-    bills: 'id, invoice_number, customer_id, period, amount_due_cents, plan_snapshot',
-    receipts: 'id, customer_id, origin_bill_id, received_on, amount_cents, method',
-    receipt_allocations: 'receipt_id, bill_id, customer_id, amount_cents, allocation_kind',
-    incidents: 'id, customer_id, customer_visible_summary, status, reported_at, offline_at, restored_at',
-  };
-
-  for (const [table, columns] of Object.entries(expectedColumns)) {
-    const query = client.calls.find((entry) => entry.table === table);
-    assert.deepEqual(query.selects, [columns], `${table} selected columns`);
-    assert.ok(query.filters.some(([kind, field, value]) => kind === 'eq' && field === 'organization_id' && value === 'synthetic-org'));
-    assert.ok(query.filters.some(([kind, field, value]) => kind === 'eq' && field === 'customer_id' && value === 'synthetic-customer'));
-    assert.doesNotMatch(query.selects.join(' '), /phone|staff_notes|created_by|recorded_by|creator|email/i);
-  }
-  assert.equal(client.calls.some((query) => query.table === 'incident_private_details'), false);
-  assert.equal(client.calls.some((query) => query.table === 'cashflow_expenses'), false);
-  assert.equal(client.calls.some((query) => query.table === 'customer_service_cost_history'), false);
+test('admin portal row reads remain organization-scoped and preserve bounded paging', async () => {
+  const client = mockClient({ customers: { data: [{ id: 'synthetic-customer' }], error: null } });
+  const rows = await loadPortalRows(client, { kind: 'admin', organizationId: 'synthetic-org' });
+  assert.equal(rows.customers.length, 1);
+  const customerQuery = client.calls.find((call) => call.table === 'customers');
+  assert.ok(customerQuery.filters.some((filter) => filter[1] === 'organization_id' && filter[2] === 'synthetic-org'));
+  assert.deepEqual(customerQuery.ranges, [[0, 999]]);
 });
 
 test('Admin phone and service-start query selects only the private profile fields and is scoped to the Admin organization', async () => {
@@ -387,16 +157,14 @@ test('Admin package catalog falls back safely when the dual-mode quota migration
   assert.equal(client.calls.filter((query) => query.table === 'service_packages').length, 2);
 });
 
-test('Admin customer query selects the test marker but customer query never requests it', async () => {
+test('Admin customer query retains its marker while customer reads remain BFF-only', async () => {
   const admin = mockClient({ customers: { data: [{ id: 'synthetic-customer', portal_test_account: true }], error: null } });
   await loadPortalRows(admin, { kind: 'admin', organizationId: 'synthetic-org' });
   const adminQuery = admin.calls.find((query) => query.table === 'customers');
-  assert.match(adminQuery.selects[0], /pppoe_username, portal_test_account$/);
-
-  const customer = mockClient({ customers: { data: [{ id: 'synthetic-customer', pppoe_username: 'synthetic-pppoe' }], error: null } });
-  await loadPortalRows(customer, { kind: 'customer', organizationId: 'synthetic-org', customerId: 'synthetic-customer' });
-  const customerQuery = customer.calls.find((query) => query.table === 'customers');
-  assert.doesNotMatch(customerQuery.selects[0], /portal_test_account/);
+  assert.match(adminQuery.selects[0], /portal_test_account/);
+  const customer = mockClient();
+  await assert.rejects(loadPortalRows(customer, { kind: 'customer', organizationId: 'synthetic-org', customerId: 'synthetic-customer' }), /opaque-session BFF/);
+  assert.equal(customer.calls.length, 0);
 });
 
 test('Admin query falls back safely when the staging marker migration is not yet applied', async () => {
