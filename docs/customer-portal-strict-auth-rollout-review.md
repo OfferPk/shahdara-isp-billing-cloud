@@ -37,7 +37,7 @@ The owner has accepted the residual limitation: if a customer obtains both the p
 
 ## Local validation and rollback boundary
 
-- The inert SQL draft was reviewed against production schema metadata previously; parse and static checks must pass again before any apply.
+- The inert SQL draft was reviewed against production schema metadata previously and parses locally; after approval, recheck it against the then-current production schema immediately before any apply.
 - Focused local test group: **79 passed, 0 failed** (BFF login/data/logout, no-reset provisioner contract, dashboard/quota UI, admin/customer data boundary, and secure live-traffic route).
 - Local validation completed: full repository tests **534/534 pass**; Pages build succeeds; the SQL draft parses as 57 top-level statements with no customer/billing-table DML; compiled bundle scan found no server-only key names or synthetic alias domain; `git diff --check` is clean. Build warning: the main JS chunk is 506.57 kB raw (135.51 kB gzip), slightly above Vite’s 500 kB advisory threshold.
 - If a later approved deployment fails, disable customer login at the Edge Function and stop the affected rollout. Do not reinstate direct customer Auth fallback, reset/delete Auth users, drop the private schema, or alter billing. Revoke/lock BFF sessions and keep audit state for owner review.
