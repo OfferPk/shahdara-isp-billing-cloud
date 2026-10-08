@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import {
   buildAdminBillRows,
-  buildWhatsappReminderHref,
+  buildWhatsappBillShareHref,
   countAdminBillFilters,
   filterCollectionBillRows,
   filterAdminBillRows,
@@ -11,13 +11,14 @@ import {
   renderPrintableReceiptHtml,
 } from '../src/admin-bills.js';
 import { calculateDashboard, formatMoney } from '../src/ledger.js';
+import { saveCustomerWhatsappPhone } from '../src/portal-data.js';
 
 function syntheticRows() {
   return buildAdminBillRows({
     today: '2026-04-10',
     customers: [
       { id: 'customer-overdue', name: 'Amina & Sons', customer_number: 4, plan_name: '50 Mbps', pppoe_username: 'amina-50m' },
-      { id: 'customer-paid', name: 'Bilal Fiber', customer_number: 5, plan_name: '30 Mbps' },
+      { id: 'customer-paid', name: 'Bilal Fiber', customer_number: 5, plan_name: '30 Mbps', pppoe_username: 'bilal-30m' },
       { id: 'customer-no-date', name: 'No Date Account', customer_number: 6, plan_name: '' },
       { id: 'customer-unpriced', name: 'Unpriced Account', customer_number: 7, plan_name: 'Starter' },
     ],
@@ -186,19 +187,38 @@ test('selected-month unpaid worklist matches Pending and includes positive price
   assert.deepEqual(filterCollectionBillRows(rows, { scope: 'unpaid', period: '2026-13' }), []);
 });
 
-test('WhatsApp creates only a user-opened prefilled Roman Urdu draft for a priced unpaid bill', () => {
+test('WhatsApp bill sharing stays active without a saved phone and includes due date and payment methods', () => {
   const rows = syntheticRows();
   const overdue = rows.find((row) => row.bill.id === 'bill-overdue');
-  const href = buildWhatsappReminderHref(overdue, formatMoney);
-  assert.match(href, /^https:\/\/wa\.me\/923001234567\?text=/);
-  const draft = decodeURIComponent(href.split('?text=')[1]);
-  assert.match(draft, /Assalam-o-Alaikum Amina & Sons/);
-  assert.match(draft, /outstanding balance/);
-  assert.match(draft, /Due date: 2026-01-15/);
-  const noDateDraft = decodeURIComponent(buildWhatsappReminderHref(rows.find((row) => row.bill.id === 'bill-no-date'), formatMoney).split('?text=')[1]);
-  assert.doesNotMatch(noDateDraft, /Due date:/);
-  assert.equal(buildWhatsappReminderHref(rows.find((row) => row.bill.id === 'bill-paid'), formatMoney), '');
-  assert.equal(buildWhatsappReminderHref(rows.find((row) => row.bill.id === 'bill-unpriced'), formatMoney), '');
+  const href = buildWhatsappBillShareHref(overdue);
+  assert.match(href, /^https:\/\/api\.whatsapp\.com\/send\?phone=923001234567&text=/);
+  const draft = decodeURIComponent(href.split('&text=')[1]);
+  assert.match(draft, /\*Shahdara Fiber Net - Bill Reminder\*/);
+  assert.match(draft, /Customer: amina-50m \(Account #4\)/);
+  assert.match(draft, /Outstanding: Rs 70/);
+  assert.match(draft, /Due Date: 2026-01-15/);
+  assert.match(draft, /Payment Methods: EasyPaisa \/ Cash/);
+  const noDateDraft = decodeURIComponent(buildWhatsappBillShareHref(rows.find((row) => row.bill.id === 'bill-no-date')).split('&text=')[1]);
+  assert.match(noDateDraft, /Due Date: Due date not recorded/);
+  const noPhoneHref = buildWhatsappBillShareHref({ ...overdue, phone: '' });
+  assert.match(noPhoneHref, /^https:\/\/api\.whatsapp\.com\/send\?text=/);
+  assert.doesNotMatch(noPhoneHref, /phone=/);
+  assert.equal(buildWhatsappBillShareHref(rows.find((row) => row.bill.id === 'bill-unpriced')), '');
+});
+
+test('paid bill sharing creates the requested receipt with actual payment details and works without a phone', () => {
+  const paid = syntheticRows().find((row) => row.bill.id === 'bill-paid');
+  const href = buildWhatsappBillShareHref({ ...paid, phone: '' });
+  assert.match(href, /^https:\/\/api\.whatsapp\.com\/send\?text=/);
+  const draft = decodeURIComponent(href.slice(href.indexOf('text=') + 5));
+  assert.match(draft, /\*Shahdara Fiber Net - Payment Receipt\*/);
+  assert.match(draft, /Customer: bilal-30m \(Account #5\)/);
+  assert.match(draft, /Bill Month: 2026-02/);
+  assert.match(draft, /Amount Paid: Rs 60/);
+  assert.match(draft, /Method: Bank transfer/);
+  assert.match(draft, /Date: 2026-02-08/);
+  assert.match(draft, /Status: PAID \(Clear\)/);
+  assert.match(draft, /Shukriya!/);
 });
 
 test('bill cards expose Collect only as a prefill, and PDF actions only for actual receipts', () => {
@@ -219,7 +239,14 @@ test('bill cards expose Collect only as a prefill, and PDF actions only for actu
   assert.match(markup, /Print \/ Save PDF/);
   assert.match(markup, /data-action="print-receipt" data-id="receipt-overdue"/);
   assert.match(markup, /target="_blank" rel="noopener noreferrer"/);
+  assert.match(markup, /class="bill-action bill-action--whatsapp" href="https:\/\/api\.whatsapp\.com\/send\?phone=/);
+  assert.match(markup, />Send WhatsApp Bill<\/a>/);
+  assert.match(markup, />Share WhatsApp Receipt<\/a>/);
+  assert.match(markup, /data-action="edit-customer-phone" data-customer-id="customer-overdue" aria-label="Edit WhatsApp phone for Amina &amp; Sons"/);
   assert.match(markup, /No actual receipt is recorded against this bill/);
+  const noPhoneMarkup = renderAdminBillCards([{ ...rows.find((row) => row.bill.id === 'bill-overdue'), phone: '' }], formatMoney);
+  assert.match(noPhoneMarkup, /href="https:\/\/api\.whatsapp\.com\/send\?text=/);
+  assert.doesNotMatch(noPhoneMarkup, /WhatsApp bill.{0,100}disabled/i);
   const noDateMarkup = renderAdminBillCards([rows.find((row) => row.bill.id === 'bill-no-date')], formatMoney);
   assert.match(noDateMarkup, /Issue date not recorded/);
   assert.match(noDateMarkup, /Due date not recorded/);
@@ -227,6 +254,31 @@ test('bill cards expose Collect only as a prefill, and PDF actions only for actu
   assert.match(renderAdminBillCards([rows.find((row) => row.bill.id === 'bill-unpriced')], formatMoney), /class="bill-action bill-action--collect" type="button" disabled/);
   assert.doesNotMatch(renderAdminBillCards([rows.find((row) => row.bill.id === 'bill-no-date')], formatMoney), /data-action="print-receipt"/);
   assert.doesNotMatch(markup, /<script|<img/);
+});
+
+test('customer phone saving normalizes Pakistan mobile formats, permits clearing, and rejects invalid numbers before the RPC', async () => {
+  const calls = [];
+  const supabase = {
+    async rpc(name, args) {
+      calls.push({ name, args });
+      return { data: args.p_phone, error: null };
+    },
+  };
+  assert.equal(await saveCustomerWhatsappPhone(supabase, {
+    organizationId: 'org-1', customerId: 'customer-1', phone: '+92 (311) 123-4567',
+  }), '+923111234567');
+  assert.deepEqual(calls[0], {
+    name: 'set_customer_private_phone',
+    args: { p_organization_id: 'org-1', p_customer_id: 'customer-1', p_phone: '+923111234567' },
+  });
+  assert.equal(await saveCustomerWhatsappPhone(supabase, {
+    organizationId: 'org-1', customerId: 'customer-1', phone: '',
+  }), '');
+  assert.equal(calls.length, 2);
+  await assert.rejects(saveCustomerWhatsappPhone(supabase, {
+    organizationId: 'org-1', customerId: 'customer-1', phone: '12345',
+  }), /Phone must be/);
+  assert.equal(calls.length, 2, 'invalid numbers never reach the database');
 });
 
 test('printable receipt is built from an existing receipt and never masquerades as a bill balance', () => {

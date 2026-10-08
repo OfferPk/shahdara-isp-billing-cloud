@@ -134,7 +134,7 @@ test('translated Admin bills and printable receipts keep names, packages, IDs, d
   assert.match(markup, /2026-10-10/);
   assert.match(markup, /receipt-88/);
   assert.match(markup, /Wasooli karein:/);
-  assert.match(markup, /WhatsApp par yaad-dihani/);
+  assert.match(markup, /WhatsApp bill bhejein/);
   assert.match(markup, /Cash/);
   assert.match(markup, /Credit alag apply hui|Aglay bill mein muntaqil credit/);
   assert.match(markup, /aria-label="Bill ke actions:/);
@@ -160,7 +160,7 @@ test('translated Admin bills and printable receipts keep names, packages, IDs, d
   assert.doesNotMatch(printed, /<script|<img/);
 });
 
-test('Roman Urdu reminder drafts translate only fixed copy and preserve customer and billing values', () => {
+test('Roman Urdu WhatsApp bill action preserves the requested English message and billing data', () => {
   const [bill] = buildAdminBillRows({
     today: '2026-10-02',
     customers: [{ id: 'customer-21', customer_number: 21, name: 'Amina Network' }],
@@ -170,14 +170,15 @@ test('Roman Urdu reminder drafts translate only fixed copy and preserve customer
     allocations: [],
   });
   const card = renderAdminBillCards([bill], formatMoney, romanUrdu);
-  const billHref = card.match(/href="(https:\/\/wa\.me\/[^\"]+)"/)?.[1];
-  assert.ok(billHref, 'an eligible priced unpaid bill keeps its user-opened reminder link');
+  const billHref = card.match(/href="(https:\/\/api\.whatsapp\.com\/send\?[^\"]+)"/)?.[1]?.replaceAll('&amp;', '&');
+  assert.ok(billHref, 'an eligible priced unpaid bill keeps its user-opened WhatsApp link');
   const billDraft = new URL(billHref).searchParams.get('text');
+  assert.match(card, /WhatsApp bill bhejein/);
   assert.match(billDraft, /Amina Network/);
   assert.match(billDraft, /2026-09/);
-  assert.match(billDraft, /Aakhri tareekh: 2026-09-15/);
-  assert.match(billDraft, /baqaya raqam/);
-  assert.doesNotMatch(billDraft, /outstanding balance/);
+  assert.match(billDraft, /Due Date: 2026-09-15/);
+  assert.match(billDraft, /Payment Methods: EasyPaisa \/ Cash/);
+  assert.doesNotMatch(billDraft, /outstanding balance|baqaya raqam/);
 
   const customer = {
     customer: { id: 'customer-21', customer_number: 21, name: 'Amina Network', plan_name: 'Fiber Plus' },

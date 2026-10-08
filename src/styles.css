@@ -398,6 +398,10 @@ td { color: #25433b; }
 .bill-card__facts > div { display: grid; min-width: 0; gap: 4px; padding: 9px 10px; border: 1px solid #e4ece7; border-radius: 11px; background: rgba(255,255,255,.84); }
 .bill-card__facts dt { color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; }
 .bill-card__facts dd { margin: 0; color: var(--ink); font-size: 12px; font-weight: 700; line-height: 1.4; overflow-wrap: anywhere; }
+.bill-card__phone { display: flex; align-items: center; gap: 6px; }
+.bill-phone-edit { display: inline-grid; width: 30px; height: 30px; flex: none; place-items: center; border: 1px solid #cfe0d6; border-radius: 50%; color: #16734f; background: #f4faf6; font-size: 16px; line-height: 1; }
+.bill-phone-edit:hover { border-color: #9bc9ae; background: #eaf5ee; }
+.bill-phone-edit:focus-visible { outline: 3px solid #102e27; outline-offset: 2px; box-shadow: 0 0 0 5px #fff; }
 .status-pill--paid { color: #235c47; background: #e9f4ed; }
 .status-pill--unpaid { color: #8f3f35; background: #fff0ed; }
 .status-pill--overdue { color: #fff; background: #a63f39; }
@@ -406,6 +410,8 @@ td { color: #25433b; }
 .bill-action:hover:not(:disabled), .bill-receipt-print:hover { border-color: #9bc9ae; background: #eaf5ee; }
 .bill-action--collect { color: #fff; border-color: #16734f; background: #16734f; }
 .bill-action--collect:hover:not(:disabled) { background: #0f5a43; }
+.bill-action--whatsapp { color: #fff; border-color: #168047; background: #168047; }
+.bill-action--whatsapp:hover:not(:disabled) { border-color: #116536; background: #116536; }
 .bill-action:disabled { cursor: not-allowed; opacity: .5; }
 .bill-card__receipts { margin: 0 14px 14px; padding-top: 12px; border-top: 1px solid #e4ece7; }
 .bill-card__receipts h4 { margin: 0 0 8px; color: #435e56; font-size: 11px; letter-spacing: .04em; text-transform: uppercase; }
