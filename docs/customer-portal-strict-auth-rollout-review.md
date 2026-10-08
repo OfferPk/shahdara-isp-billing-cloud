@@ -1,6 +1,6 @@
 # Customer portal BFF rollout — owner review
 
-**Status:** local implementation and focused tests are ready for review. This document is **not** authorization to change production. No production migration was applied, no customer Auth users were created or reset, no bill/receipt/plan rows were changed, and nothing was deployed.
+**Status:** tested implementation is in review-only [PR #77](https://github.com/OfferPk/shahdara-isp-billing-cloud/pull/77), still open and **not merged**. This document is **not** authorization to change production. No production migration was applied, no customer Auth users were created or reset, no bill/receipt/plan rows were changed, and nothing was deployed.
 
 ## Verified production facts
 
