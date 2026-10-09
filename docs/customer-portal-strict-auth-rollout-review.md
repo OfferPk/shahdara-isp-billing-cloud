@@ -19,6 +19,8 @@ The canonical migrations are [`20261009083823_customer_portal_bff_auth.sql`](../
 
 The original private BFF tables remain RLS-enabled and empty. The candidate-reader RPC is owned by `postgres`, uses `SECURITY DEFINER` with an empty `search_path`, returns only `customer_id`, `organization_id`, and `pppoe_username` for non-archived PPPoE identities in the approved organization, and grants `EXECUTE` only to `service_role`. The `service_role` still has no direct `SELECT` privilege on `public.customers`; no broad table grant was made. The original BFF auth/session/dashboard RPCs and this provisioning reader are unavailable to `anon` and `authenticated`.
 
+The BFF migration source now explicitly drops and recreates the legacy `resolve_customer_portal_login(text)` function before changing its input argument name from `p_login_id` to `p_login_username`; PostgreSQL rejects that rename through `CREATE OR REPLACE`. This is a clean-install/replay compatibility correction only. It was not reapplied to production, where the approved BFF resolver is already installed.
+
 The schema stores private PPPoE-to-Auth account mappings and opaque portal-token hashes; the browser will never receive Supabase Auth access/refresh tokens or synthetic aliases. Login is verified server-side, the temporary Auth session is revoked before a separate eight-hour read-only BFF token is issued, and logout/account locking revoke BFF sessions. The RPC dashboard projection is read-only and customer-scoped.
 
 ## Remaining production rollout
@@ -32,7 +34,7 @@ The schema stores private PPPoE-to-Auth account mappings and opaque portal-token
 ## Validation and rollback
 
 - After the provisioning reader was integrated, the full local suite passed: **534 tests, 0 failures**. The prior production-configured Pages build succeeded. A local bundle check confirmed the approved project URL and public anon key were present and the server-only service-role key was absent.
-- The applied candidate-reader migration and its SQL function body parse locally; security checks confirm the expected owner, `SECURITY DEFINER`, empty `search_path`, service-role-only execute, and absence of a `public.customers` table grant.
+- The applied candidate-reader migration and its SQL function body parse locally; security checks confirm the expected owner, `SECURITY DEFINER`, empty `search_path`, service-role-only execute, and absence of a `public.customers` table grant. The local disposable PostgreSQL 16/pgTAP replay passed all three suites after the resolver drop/recreate correction; no production migration was reapplied.
 - Vite reports the existing main JavaScript chunk is 506.57 kB raw (135.51 kB gzip), slightly above its advisory 500 kB threshold; this is a warning, not a build failure.
 - If a later approved step fails, disable customer login and stop the affected rollout. Do not reinstate direct customer Auth fallback, reset/delete Auth users, drop the private schema, or alter billing. Keep the audit state for owner review and revoke/lock BFF sessions as needed.
 

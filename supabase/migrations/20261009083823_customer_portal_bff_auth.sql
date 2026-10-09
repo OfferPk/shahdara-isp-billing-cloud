@@ -376,7 +376,8 @@ revoke all on function public.lock_customer_portal_bff_account(uuid, text)
 grant execute on function public.lock_customer_portal_bff_account(uuid, text)
   to service_role;
 
-create or replace function public.resolve_customer_portal_login(p_login_username text)
+drop function if exists public.resolve_customer_portal_login(text);
+create function public.resolve_customer_portal_login(p_login_username text)
 returns jsonb
 language plpgsql
 security definer
