@@ -317,7 +317,7 @@ function renderCustomerFupQuota({ quotaPackage, currentMonthUsageBytes = null, m
   return `<section class="usage-fup" aria-labelledby="customer-fup-title"><div class="usage-fup__heading"><div><p class="eyebrow">${escapeHtml(t('Fair usage policy'))}</p><h3 id="customer-fup-title">${escapeHtml(t('FUP quota'))}</h3></div><span>${escapeHtml(String(quotaLimitGb))} GB ${escapeHtml(t('total'))}</span></div><p class="usage-fup__summary">${escapeHtml(usageLine)}</p><div class="usage-progress usage-progress--${quotaTone}" role="progressbar" aria-label="${escapeHtml(t('Monthly FUP quota consumed'))}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${visualPercent}" aria-valuetext="${escapeHtml(formatPercent(consumedPercent, locale))}% ${escapeHtml(t('consumed'))}; ${escapeHtml(formatPercent(remainingPercent, locale))}% ${escapeHtml(t('remaining'))}"><span style="width:${visualPercent}%"></span></div>${advisory}<p class="usage-note">${escapeHtml(t('Quota usage is based on the configured monthly traffic source.'))}</p>${demoNote}</section>`;
 }
 
-function renderCustomerTrafficSummary({ customer, currentMonthUsageBytes = null, monthlyUsageSource = 'routeros-poller', currentMonthBillStatus = 'unavailable', currentMonthLabel = '', monthlyFeeLabel = '', t, locale }) {
+function renderCustomerTrafficSummary({ customer, currentMonthUsageBytes = null, monthlyUsageSource = 'routeros-poller', currentMonthBillStatus = 'unavailable', currentMonthLabel = '', monthlyFeeLabel = '', currentMonthBillAmountLabel = '', currentMonthBillDueLabel = '', t, locale }) {
   const parsedMonthBytes = currentMonthUsageBytes === null || currentMonthUsageBytes === undefined
     ? null
     : parseNonNegativeBytes(currentMonthUsageBytes);
@@ -332,10 +332,11 @@ function renderCustomerTrafficSummary({ customer, currentMonthUsageBytes = null,
     'not-issued': 'No bill issued',
   };
   const billStatusLabel = t(billStatusKeys[currentMonthBillStatus] ?? 'Status unavailable');
+  const billStatusClass = ['paid', 'partial', 'unpaid'].includes(currentMonthBillStatus) ? currentMonthBillStatus : 'unknown';
   const billingMonth = currentMonthLabel || t('Current month');
   const liveTrafficPanel = customer?.pppoe_username
     ? `<section class="live-traffic" aria-labelledby="customer-live-traffic-title">
-        <div class="live-traffic__heading"><div><p class="eyebrow">${escapeHtml(t('Customer live traffic'))}</p><h3 id="customer-live-traffic-title">${escapeHtml(t('Real-time internet speed'))}</h3></div><span id="customer-live-traffic-status" class="live-traffic__status" role="status" aria-live="polite" aria-atomic="true">${escapeHtml(t('Waiting for live samples'))}</span></div>
+        <div class="live-traffic__heading"><div><p class="eyebrow">${escapeHtml(t('Customer live traffic'))}</p><h3 id="customer-live-traffic-title">${escapeHtml(t('Real-time internet speed'))}</h3></div><span id="customer-live-traffic-status" class="live-traffic__status" role="status" aria-live="polite" aria-atomic="true">${escapeHtml(t('Telemetry Pending'))}</span></div>
         <div class="live-traffic__rates"><article><span>${escapeHtml(t('Download'))}</span><strong id="customer-live-download">—</strong></article><article><span>${escapeHtml(t('Upload'))}</span><strong id="customer-live-upload">—</strong></article></div>
         <canvas id="customer-live-traffic-graph" width="720" height="220" role="img" aria-label="${escapeHtml(t('Live download and upload speed graph'))}">${escapeHtml(t('Live speed graph requires a browser with Canvas support.'))}</canvas>
         <p class="usage-note">${escapeHtml(t('The signed-in PPPoE interface is sampled every 2 seconds when server limits allow it. On the router interface, TX is customer download and RX is customer upload.'))}</p>
@@ -344,12 +345,12 @@ function renderCustomerTrafficSummary({ customer, currentMonthUsageBytes = null,
 
   return `<div class="usage-month-summary" aria-label="${escapeHtml(t('Current month usage and bill status'))}">
     <article class="usage-metric usage-metric--total"><span>${escapeHtml(t('Current month consumed'))} · ${escapeHtml(billingMonth)}</span><strong id="customer-current-month-consumed">${escapeHtml(monthUsage)}</strong><small>${escapeHtml(parsedMonthBytes === null ? t('No trusted calendar-month traffic source is configured; cumulative counters are not a monthly total.') : monthlyUsageSource === 'demo' ? t('Demo sample traffic · not live RouterOS.') : t('Month-to-date data from the configured usage source.'))}</small></article>
-    <article class="usage-metric"><span>${escapeHtml(t('Current month bill status'))} · ${escapeHtml(billingMonth)}</span><strong id="customer-current-month-bill-status">${escapeHtml(billStatusLabel)}</strong></article>
+    <article class="usage-metric"><span>${escapeHtml(t('Current month bill'))} · ${escapeHtml(billingMonth)}</span><strong id="customer-current-month-bill-status"><span class="status-pill status-pill--${billStatusClass}">${escapeHtml(billStatusLabel)}</span></strong><small>${escapeHtml(t('Bill amount'))}: ${escapeHtml(currentMonthBillAmountLabel || t('Not recorded'))} · ${escapeHtml(t('Due'))}: ${escapeHtml(currentMonthBillDueLabel || t('Not recorded'))}</small></article>
     <article class="usage-metric"><span>${escapeHtml(t('Fixed monthly bill'))}</span><strong id="customer-fixed-monthly-bill">${escapeHtml(monthlyFeeLabel || t('Not recorded'))}</strong></article>
   </div>${liveTrafficPanel}`;
 }
 
-export function renderCustomerUsageDashboard({ customer, usageRows = [], error = false, expiryDate = null, now = new Date(), t = (value) => value, locale = 'en-PK', currentMonthUsageBytes = null, monthlyUsageSource = 'routeros-poller', currentMonthBillStatus = 'unavailable', currentMonthLabel = '', monthlyFeeLabel = '', quotaPackage = null } = {}) {
+export function renderCustomerUsageDashboard({ customer, usageRows = [], error = false, expiryDate = null, now = new Date(), t = (value) => value, locale = 'en-PK', currentMonthUsageBytes = null, monthlyUsageSource = 'routeros-poller', currentMonthBillStatus = 'unavailable', currentMonthLabel = '', monthlyFeeLabel = '', currentMonthBillAmountLabel = '', currentMonthBillDueLabel = '', quotaPackage = null } = {}) {
   let content;
   if (error) {
     content = renderUsageState(t('Usage data could not be loaded. Other account sections are still available.'), 'usage-state--error');
@@ -368,7 +369,7 @@ export function renderCustomerUsageDashboard({ customer, usageRows = [], error =
     <div class="section-heading"><div><p class="eyebrow">${escapeHtml(t('Customer usage'))}</p><h2 id="customer-usage-title">${escapeHtml(t('Usage dashboard'))}</h2></div></div>
     ${content}
     ${renderCustomerFupQuota({ quotaPackage, currentMonthUsageBytes, monthlyUsageSource, t, locale })}
-    ${renderCustomerTrafficSummary({ customer, currentMonthUsageBytes, monthlyUsageSource, currentMonthBillStatus, currentMonthLabel, monthlyFeeLabel, t, locale })}
+    ${renderCustomerTrafficSummary({ customer, currentMonthUsageBytes, monthlyUsageSource, currentMonthBillStatus, currentMonthLabel, monthlyFeeLabel, currentMonthBillAmountLabel, currentMonthBillDueLabel, t, locale })}
     ${renderServiceExpiryNotice({ expiryDate, now, t, locale })}
   </section>`;
 }

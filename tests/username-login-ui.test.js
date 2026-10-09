@@ -28,7 +28,7 @@ test('portal login offers customer and Admin/Staff tabs with one username/passwo
   assert.doesNotMatch(loginForm, /required[^>]*email|email[^>]*required/i);
 });
 
-test('admin anchor opens its tab and each selected login mode has a separate Auth route', async () => {
+test('admin tab uses Auth while customer tab receives an opaque BFF session', async () => {
   const [main, authFlows] = await Promise.all([read('../src/main.js'), read('../src/auth-flows.js')]);
 
   assert.match(main, /loginModeFromHash\(window\.location\.hash\)/);
@@ -37,7 +37,8 @@ test('admin anchor opens its tab and each selected login mode has a separate Aut
   assert.match(authFlows, /if \(mode === 'admin'\) return signInWithUsernamePassword\(auth, username, password\)/);
   assert.match(authFlows, /functions\.invoke\('customer-login'/);
   assert.match(authFlows, /if \(isStaffUsername\(username\)\)/);
-  assert.match(authFlows, /auth\.setSession\(data\.session\)/);
+  assert.match(authFlows, /data\?\.portal_token/);
+  assert.doesNotMatch(authFlows, /auth\.setSession\(data\.session\)/);
   assert.match(authFlows, /\$\{normalizedUsername\}@shahdara\.local/);
   assert.match(authFlows, /auth\.signInWithPassword\(\{ email, password \}\)/);
   assert.doesNotMatch(main, /signInWithOtp|signInWithEmailPassword/);

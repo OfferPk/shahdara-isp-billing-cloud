@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { parseSubscriberComment } from '../admin-subscriber-import.js';
 import { createRouterAdapter } from './router-adapters.js';
 
@@ -110,54 +111,41 @@ async function authorizeCustomerTraffic(request, { env, createClient }) {
   const authorization = request.headers.get('authorization') ?? '';
   const match = /^Bearer\s+(.+)$/i.exec(authorization);
   if (!match?.[1]?.trim()) return { status: 401, error: 'Sign in to view customer traffic.' };
-  const { url, key } = supabaseConfig(env);
-  if (!url || !key || typeof createClient !== 'function') {
+  const portalToken = match[1].trim();
+  if (!/^[0-9a-f]{64}$/.test(portalToken)) return { status: 401, error: 'Customer portal session is invalid or expired.' };
+  const { url } = supabaseConfig(env);
+  const serviceKey = String(env.SUPABASE_SERVICE_ROLE_KEY ?? '').trim();
+  if (!url || !serviceKey || typeof createClient !== 'function') {
     return { status: 503, error: 'Customer traffic authorization is not configured.' };
   }
 
   try {
-    const bearerToken = match[1].trim();
-    const client = createClient(url, key, {
-      global: { headers: { Authorization: `Bearer ${bearerToken}` } },
-      auth: { autoRefreshToken: false, persistSession: false },
+    const tokenHash = createHash('sha256').update(portalToken).digest('hex');
+    const client = createClient(url, serviceKey, {
+      auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
     });
-    const { data: userResult, error: userError } = await client.auth.getUser(bearerToken);
-    if (userError || !userResult?.user?.id) return { status: 401, error: 'The sign-in session is invalid or expired.' };
-
-    const { data: passwordStates, error: passwordStateError } = await client.rpc('my_customer_portal_password_state');
-    if (passwordStateError) return { status: 503, error: 'Customer portal access could not be verified.' };
-    const passwordState = passwordStates?.[0]?.state ?? 'none';
-    if (!['none', 'active'].includes(passwordState)) return { status: 403, error: 'Active customer portal access is required.' };
-
-    const { data: contexts, error: contextsError } = await client.rpc('my_customer_portal_contexts');
-    if (contextsError) return { status: 503, error: 'Customer portal access could not be verified.' };
-    if (!Array.isArray(contexts) || contexts.length !== 1) {
-      return { status: 403, error: 'A single linked customer account is required.' };
-    }
-    const context = contexts[0];
-    const organizationId = String(context?.organization_id ?? '');
-    const customerId = String(context?.customer_id ?? '');
+    const { data: resolution, error: resolutionError } = await client.rpc('resolve_customer_portal_bff_traffic', {
+      p_token_hash: tokenHash,
+    });
+    if (resolutionError) return { status: 503, error: 'Customer portal access could not be verified.' };
+    if (resolution?.status !== 'ok') return { status: 401, error: 'Customer portal session is invalid or expired.' };
+    const organizationId = String(resolution.organization_id ?? '');
+    const customerId = String(resolution.customer_id ?? '');
     if (!UUID_PATTERN.test(organizationId) || !customerId || customerId.length > 255) {
       return { status: 403, error: 'The linked customer account could not be verified.' };
     }
-
-    const { data: customer, error: customerError } = await client
-      .from('customers')
-      .select('id,organization_id,pppoe_username')
-      .eq('organization_id', organizationId)
-      .eq('id', customerId)
-      .maybeSingle();
-    if (customerError) return { status: 503, error: 'The linked customer profile could not be verified.' };
-    if (!customer
-        || String(customer.id) !== customerId
-        || String(customer.organization_id).toLowerCase() !== organizationId.toLowerCase()) {
-      return { status: 403, error: 'The linked customer profile could not be verified.' };
+    if (!UUID_PATTERN.test(String(resolution.user_id ?? ''))) {
+      return { status: 403, error: 'The linked customer account could not be verified.' };
     }
-    const pppoeUsername = typeof customer.pppoe_username === 'string' ? customer.pppoe_username : '';
+    const pppoeUsername = typeof resolution.pppoe_username === 'string' ? resolution.pppoe_username : '';
     if (!pppoeUsername || pppoeUsername.trim() !== pppoeUsername) {
       return { status: 404, error: 'Live traffic is not linked to this customer account.' };
     }
-    return { client, user: userResult.user, customer: { id: customerId, organizationId, pppoeUsername } };
+    return {
+      client,
+      user: { id: resolution.user_id },
+      customer: { id: customerId, organizationId, pppoeUsername },
+    };
   } catch {
     return { status: 503, error: 'Customer portal access could not be verified.' };
   }
@@ -346,6 +334,9 @@ export function createPppoeApiHandler({
     if (request.method !== allowedMethod) return jsonResponse(405, { error: 'Method not allowed.' }, origin, true);
 
     if (pathname === CUSTOMER_LIVE_TRAFFIC_PATH) {
+      if (String(env.ROUTER_DRIVER ?? '').trim().toLowerCase() !== 'mikrotik') {
+        return jsonResponse(503, { error: 'Live RouterOS telemetry is not configured.' }, origin, true);
+      }
       if (requestUrl.search) return jsonResponse(400, { error: 'This route does not accept customer or organization identifiers.' }, origin, true);
       const ingress = customerTrafficIngressLimiter.acquire('all');
       if (!ingress.allowed) {

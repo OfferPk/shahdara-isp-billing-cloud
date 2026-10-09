@@ -5,7 +5,7 @@ import { MikroTikRouterAdapter, routerAdapterInternals } from '../src/server/rou
 test('RouterOS live traffic is a single strictly scoped PPPoE monitor-traffic request', async () => {
   const calls = [];
   const adapter = new MikroTikRouterAdapter({
-    env: { ROUTER_HOST: '192.0.2.10', ROUTER_USER: 'readonly', ROUTER_PASSWORD: 'synthetic-secret' },
+    env: { ROUTER_HOST: '192.0.2.10', ROUTER_USER: 'readonly', ROUTER_PASSWORD: 'synthetic-secret', ROUTER_PRIVATE_VPN: 'true' },
     now: () => new Date('2026-10-08T00:00:00.000Z'),
     request: async (_config, command, properties) => {
       calls.push({ command, properties });
@@ -27,7 +27,7 @@ test('RouterOS live traffic is a single strictly scoped PPPoE monitor-traffic re
 
 test('monitor-traffic rejects invalid usernames and any non-once or arbitrary interface properties', async () => {
   const adapter = new MikroTikRouterAdapter({
-    env: { ROUTER_HOST: '192.0.2.10', ROUTER_USER: 'readonly', ROUTER_PASSWORD: 'synthetic-secret' },
+    env: { ROUTER_HOST: '192.0.2.10', ROUTER_USER: 'readonly', ROUTER_PASSWORD: 'synthetic-secret', ROUTER_PRIVATE_VPN: 'true' },
     request: async () => { assert.fail('invalid PPPoE username must not contact router'); },
   });
   await assert.rejects(adapter.getLiveTrafficForUsername('bad/interface'), /valid linked PPPoE username/);
@@ -36,4 +36,30 @@ test('monitor-traffic rejects invalid usernames and any non-once or arbitrary in
   assert.equal(routerAdapterInternals.isAllowedRouterRequest('/interface/monitor-traffic', ['=interface=<pppoe-a>', '=once=', '=duration=2']), false);
   assert.equal(routerAdapterInternals.isAllowedRouterRequest('/interface/monitor-traffic', ['=interface=<pppoe-a>/..', '=once=']), false);
   assert.equal(routerAdapterInternals.isAllowedRouterRequest('/interface/monitor-traffic', ['=interface=<pppoe-a>', '=numbers=all']), false);
+});
+
+test('live traffic refuses plain API connections without TLS or explicit private VPN', async () => {
+  let requested = false;
+  const adapter = new MikroTikRouterAdapter({
+    env: { ROUTER_HOST: '192.0.2.10', ROUTER_USER: 'readonly', ROUTER_PASSWORD: 'synthetic-secret' },
+    request: async () => { requested = true; throw new Error('must not connect'); },
+  });
+  await assert.rejects(adapter.getLiveTrafficForUsername('subscriber_01'), /certificate-validated API-SSL or an explicitly configured private VPN/);
+  assert.equal(requested, false);
+});
+
+test('TLS API-SSL mode is passed to the server adapter and selects the configured secure port', async () => {
+  let receivedConfig;
+  const adapter = new MikroTikRouterAdapter({
+    env: { ROUTER_HOST: 'router.example.test', ROUTER_PORT: '8729', ROUTER_USER: 'readonly', ROUTER_PASSWORD: 'synthetic-secret', ROUTER_TLS: 'true' },
+    now: () => new Date('2026-10-08T00:00:00.000Z'),
+    request: async (config) => {
+      receivedConfig = config;
+      return { rows: [{ name: '<pppoe-subscriber_01>', 'tx-bits-per-second': '1Mbps', 'rx-bits-per-second': '100kbps' }] };
+    },
+  });
+  await adapter.getLiveTrafficForUsername('subscriber_01');
+  assert.equal(receivedConfig.tlsEnabled, true);
+  assert.equal(receivedConfig.privateVpnEnabled, false);
+  assert.equal(receivedConfig.port, 8729);
 });

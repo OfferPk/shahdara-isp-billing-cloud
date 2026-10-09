@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import net from 'node:net';
+import tls from 'node:tls';
 import { performance } from 'node:perf_hooks';
 import { MockRouterAdapter } from '../pppoe-mock-adapter.js';
 export { MockRouterAdapter };
@@ -132,13 +133,22 @@ function routerTrapError(sentence) {
 }
 
 class RouterOsConnection {
-  constructor({ host, port, username, password, timeoutMs }) {
+  constructor({ host, port, username, password, timeoutMs, tlsEnabled = false, tlsCa = '' }) {
     this.host = host;
     this.port = port;
     this.username = username;
     this.password = password;
     this.timeoutMs = timeoutMs;
-    this.socket = net.createConnection({ host, port });
+    this.tlsEnabled = tlsEnabled;
+    this.socket = tlsEnabled
+      ? tls.connect({
+        host,
+        port,
+        rejectUnauthorized: true,
+        ...(net.isIP(host) ? {} : { servername: host }),
+        ...(tlsCa ? { ca: tlsCa } : {}),
+      })
+      : net.createConnection({ host, port });
     this.pending = [];
     this.waiters = [];
     this.packet = Buffer.alloc(0);
@@ -159,10 +169,10 @@ class RouterOsConnection {
       const onConnect = () => { cleanup(); resolve(); };
       const onError = (error) => { cleanup(); reject(error); };
       const cleanup = () => {
-        this.socket.off('connect', onConnect);
+        this.socket.off(this.tlsEnabled ? 'secureConnect' : 'connect', onConnect);
         this.socket.off('error', onError);
       };
-      this.socket.once('connect', onConnect);
+      this.socket.once(this.tlsEnabled ? 'secureConnect' : 'connect', onConnect);
       this.socket.once('error', onError);
     });
     await this.login();
@@ -290,6 +300,9 @@ function routerConfig(env) {
     port: Number.parseInt(env.ROUTER_PORT ?? String(DEFAULT_ROUTER_PORT), 10) || DEFAULT_ROUTER_PORT,
     username: String(env.ROUTER_USER ?? ''),
     password: String(env.ROUTER_PASSWORD ?? ''),
+    tlsEnabled: String(env.ROUTER_TLS ?? '').trim().toLowerCase() === 'true',
+    privateVpnEnabled: String(env.ROUTER_PRIVATE_VPN ?? '').trim().toLowerCase() === 'true',
+    tlsCa: String(env.ROUTER_TLS_CA ?? '').trim(),
     timeoutMs: Number.isInteger(timeout) && timeout > 0 ? Math.min(timeout, 30000) : API_TIMEOUT_MS,
   };
 }
@@ -346,6 +359,9 @@ export class MikroTikRouterAdapter {
     const config = this.config();
     if (!config.host || !config.username || !config.password) {
       throw new Error('MikroTik live traffic is not configured.');
+    }
+    if (!config.tlsEnabled && !config.privateVpnEnabled) {
+      throw new Error('Live traffic requires certificate-validated API-SSL or an explicitly configured private VPN.');
     }
     const interfaceName = `<pppoe-${normalizedUsername}>`;
     const response = await this.request(config, '/interface/monitor-traffic', [

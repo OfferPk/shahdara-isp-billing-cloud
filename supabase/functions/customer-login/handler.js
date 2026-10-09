@@ -5,25 +5,24 @@ import {
   hmacHex,
   jsonResponse,
   readJson,
+  randomHex,
 } from '../_shared/customer-auth.js';
+import { sha256Hex } from '../_shared/customer-portal-bff.js';
 
 const INVALID_CREDENTIALS = 'Username or password is incorrect or unavailable.';
 const SERVICE_UNAVAILABLE = 'Sign-in is temporarily unavailable. Try again later.';
 const DUMMY_AUTH_DOMAIN = 'internal.shahdara.net';
 const OPAQUE_LOGIN_ID_PATTERN = /^sf-[0-9a-f]{32}$/;
 const PPPoE_LOGIN_ID_PATTERN = /^[\x21-\x7e]{1,64}$/;
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+$/;
+const SYNTHETIC_ALIAS_PATTERN = /^portal-[0-9a-f]{32}@internal\.shahdara\.net$/;
 
 function functionClients(env, createClient) {
   const url = env.get('SUPABASE_URL');
   const publicKey = env.get('SUPABASE_PUBLISHABLE_KEY') ?? env.get('SUPABASE_ANON_KEY');
   const serviceKey = env.get('SUPABASE_SERVICE_ROLE_KEY');
   const parsed = (() => { try { return new URL(url); } catch { return null; } })();
-  if (!parsed || parsed.protocol !== 'https:' || !publicKey || !serviceKey) return null;
+  if (!parsed || parsed.protocol !== 'https:' || !publicKey || !serviceKey || typeof createClient !== 'function') return null;
   return {
-    url,
-    publicKey,
-    serviceKey,
     serverClient: createClient(url, serviceKey, {
       auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
     }),
@@ -66,6 +65,20 @@ export function createCustomerLoginHandler({ env, createClient }) {
     const clients = functionClients(env, createClient);
     if (!clients) return genericFailure(503, origin);
 
+    const recordFailedLogin = async (resolution = null) => {
+      try {
+        await clients.serverClient.rpc('record_customer_portal_bff_login_event', {
+          p_event_type: 'login_failed',
+          p_outcome: 'denied',
+          p_login_hash: loginHash,
+          p_ip_hash: ipHash,
+          p_organization_id: typeof resolution?.organization_id === 'string' ? resolution.organization_id : null,
+          p_customer_id: typeof resolution?.customer_id === 'string' ? resolution.customer_id : null,
+          p_user_id: typeof resolution?.user_id === 'string' ? resolution.user_id : null,
+        });
+      } catch { /* Login denial remains generic if audit storage is unavailable. */ }
+    };
+
     try {
       const { data: limit, error: limitError } = await clients.serverClient.rpc('begin_customer_portal_login', {
         p_ip_hash: ipHash,
@@ -80,13 +93,13 @@ export function createCustomerLoginHandler({ env, createClient }) {
 
       const lookupId = usernameValid ? rawLogin : `sf-${loginHash.slice(0, 32)}`;
       const { data: resolution, error: resolveError } = await clients.serverClient.rpc(
-        'resolve_customer_portal_login', { p_login_id: lookupId },
+        'resolve_customer_portal_login', { p_login_username: lookupId },
       );
       if (resolveError || !resolution?.status) return genericFailure(503, origin);
 
-      const acceptedState = ['active', 'temporary'].includes(resolution.status)
+      const acceptedState = resolution.status === 'active'
         && typeof resolution.auth_email_alias === 'string'
-        && EMAIL_PATTERN.test(resolution.auth_email_alias)
+        && SYNTHETIC_ALIAS_PATTERN.test(resolution.auth_email_alias)
         && typeof resolution.user_id === 'string';
       const passwordCanAuthenticate = usernameValid && passwordValid;
       const authEmail = acceptedState && passwordCanAuthenticate
@@ -94,72 +107,41 @@ export function createCustomerLoginHandler({ env, createClient }) {
         : `invalid-${loginHash.slice(0, 32)}@${DUMMY_AUTH_DOMAIN}`;
       const authPassword = passwordValid ? rawPassword : 'invalid-placeholder-password';
 
-      // Do not log this request or either credential. This client uses only the public key;
-      // the service-role client is confined to server-side RPCs above and below.
+      // This temporary Auth session stays server-side and is always revoked before issuing a BFF token.
       const { data: signIn, error: signInError } = await clients.authClient.auth.signInWithPassword({
         email: authEmail,
         password: authPassword,
       });
-      if (signInError || !signIn?.session || !signIn?.user?.id) {
-        await clients.serverClient.rpc('record_customer_portal_login_event', {
-          p_event_type: 'login_failed', p_outcome: 'denied',
-          p_login_hash: loginHash, p_ip_hash: ipHash,
-          p_organization_id: acceptedState ? resolution.organization_id : null,
-          p_customer_id: acceptedState ? resolution.customer_id : null,
-          p_user_id: acceptedState ? resolution.user_id : null,
-        });
+      if (signInError || !signIn?.session?.access_token) {
+        await recordFailedLogin(acceptedState ? resolution : null);
         return genericFailure(401, origin);
       }
 
-      if (!acceptedState || !passwordCanAuthenticate || signIn.user.id !== resolution.user_id) {
-        // No session from a non-mapped Auth identity is ever returned to a browser.
-        await clients.serverClient.auth.admin.signOut(signIn.session.access_token, 'global').catch(() => {});
-        await clients.serverClient.rpc('record_customer_portal_login_event', {
-          p_event_type: 'login_failed', p_outcome: 'denied',
-          p_login_hash: loginHash, p_ip_hash: ipHash,
-          p_organization_id: acceptedState ? resolution.organization_id : null,
-          p_customer_id: acceptedState ? resolution.customer_id : null,
-          p_user_id: acceptedState ? resolution.user_id : null,
-        });
+      const { error: revokeError } = await clients.serverClient.auth.admin.signOut(signIn.session.access_token, 'global');
+      if (revokeError) return genericFailure(503, origin);
+
+      if (!acceptedState || !passwordCanAuthenticate || signIn.user?.id !== resolution.user_id) {
+        await recordFailedLogin(acceptedState ? resolution : null);
         return genericFailure(401, origin);
       }
 
-      if (resolution.status === 'temporary') {
-        const { data: claim, error: claimError } = await clients.serverClient.rpc(
-          'claim_customer_portal_temporary_password', { p_user_id: resolution.user_id },
-        );
-        if (claimError || claim?.status !== 'ok') {
-          await clients.serverClient.auth.admin.signOut(signIn.session.access_token, 'global').catch(() => {});
-          await clients.serverClient.rpc('record_customer_portal_login_event', {
-            p_event_type: 'temporary_login_rejected', p_outcome: 'denied',
-            p_login_hash: loginHash, p_ip_hash: ipHash,
-            p_organization_id: resolution.organization_id,
-            p_customer_id: resolution.customer_id,
-            p_user_id: resolution.user_id,
-          });
-          return genericFailure(401, origin);
-        }
-      } else if (resolution.status !== 'active') {
-        await clients.serverClient.auth.admin.signOut(signIn.session.access_token, 'global').catch(() => {});
+      const portalToken = randomHex(32);
+      const tokenHash = await sha256Hex(portalToken);
+      const { data: createdSession, error: sessionError } = await clients.serverClient.rpc(
+        'create_customer_portal_bff_session', {
+          p_user_id: resolution.user_id,
+          p_token_hash: tokenHash,
+          p_login_hash: loginHash,
+          p_ip_hash: ipHash,
+        },
+      );
+      if (sessionError || !createdSession?.status) return genericFailure(503, origin);
+      if (createdSession.status !== 'ok' || typeof createdSession.expires_at !== 'string') {
+        await recordFailedLogin(resolution);
         return genericFailure(401, origin);
       }
 
-      const { error: auditError } = await clients.serverClient.rpc('record_customer_portal_login_event', {
-        p_event_type: 'login_succeeded', p_outcome: 'success',
-        p_login_hash: loginHash, p_ip_hash: ipHash,
-        p_organization_id: resolution.organization_id,
-        p_customer_id: resolution.customer_id,
-        p_user_id: resolution.user_id,
-      });
-      if (auditError) {
-        await clients.serverClient.auth.admin.signOut(signIn.session.access_token, 'global').catch(() => {});
-        return genericFailure(503, origin);
-      }
-
-      // Supabase's normal session is passed directly to supabase.auth.setSession().
-      // It contains the opaque synthetic Auth identity in signed claims; the broker
-      // never returns the alias as a separate field or treats it as contact proof.
-      return jsonResponse(200, { session: signIn.session }, origin);
+      return jsonResponse(200, { portal_token: portalToken, expires_at: createdSession.expires_at }, origin);
     } catch {
       return genericFailure(503, origin);
     }

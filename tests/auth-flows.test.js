@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   authenticatePortalLogin,
-  isCustomerLoginFallbackError,
   isStaffUsername,
   loginModeFromHash,
   loginModeToHash,
@@ -10,7 +9,9 @@ import {
   usernameToAuthEmail,
 } from '../src/auth-flows.js';
 
-test('only the trimmed, case-insensitive admin alias is treated as staff login', () => {
+const portalToken = 'a'.repeat(64);
+
+ test('only the trimmed, case-insensitive admin alias is treated as staff login', () => {
   assert.equal(isStaffUsername(' admin '), true);
   assert.equal(isStaffUsername('ADMIN'), true);
   assert.equal(isStaffUsername('admin@example.com'), false);
@@ -18,7 +19,7 @@ test('only the trimmed, case-insensitive admin alias is treated as staff login',
   assert.equal(isStaffUsername('  '), false);
 });
 
-test('username/password login maps trimmed username to the invisible Supabase Auth alias', async () => {
+test('username/password helper remains available for admin Auth aliases only', async () => {
   const calls = [];
   const auth = {
     async signInWithPassword(credentials) {
@@ -27,23 +28,21 @@ test('username/password login maps trimmed username to the invisible Supabase Au
     },
   };
 
-  const result = await signInWithUsernamePassword(auth, ' ADMIN ', 'synthetic-user-password');
+  const result = await signInWithUsernamePassword(auth, ' ADMIN ', 'staff-password');
 
   assert.deepEqual(calls, [[
     'signInWithPassword',
-    { email: 'ADMIN@shahdara.local', password: 'synthetic-user-password' },
+    { email: 'ADMIN@shahdara.local', password: 'staff-password' },
   ]]);
   assert.equal(usernameToAuthEmail('  customer@isp  '), 'customer@isp@shahdara.local');
   assert.equal(result.error, null);
-  assert.equal('signUp' in auth, false);
-  assert.equal('updateUser' in auth, false);
 });
 
-test('empty usernames are rejected locally without email-format validation or an Auth request', async () => {
+test('empty admin usernames are rejected locally without an Auth request', async () => {
   let called = false;
   const result = await signInWithUsernamePassword({
     async signInWithPassword() { called = true; return { error: null }; },
-  }, '  ', 'synthetic-password');
+  }, '  ', 'password');
 
   assert.equal(called, false);
   assert.ok(result.error instanceof Error);
@@ -75,29 +74,30 @@ test('admin mode authenticates directly against Supabase Auth and never calls th
   assert.equal(result.error, null);
 });
 
-test('customer mode uses its broker and establishes only the returned portal session', async () => {
+test('customer mode returns only an opaque portal token and never establishes a Supabase Auth session', async () => {
   const calls = [];
-  const session = { access_token: 'access-token', refresh_token: 'refresh-token' };
   const auth = {
-    async setSession(value) { calls.push(['setSession', value]); return { error: null }; },
-    async signOut() { calls.push(['signOut']); },
+    async signInWithPassword(...args) { calls.push(['auth-sign-in', ...args]); throw new Error('customer Auth is forbidden'); },
+    async setSession(...args) { calls.push(['setSession', ...args]); throw new Error('customer Auth session is forbidden'); },
   };
   const functions = {
-    async invoke(...args) { calls.push(['broker', ...args]); return { data: { session }, error: null }; },
+    async invoke(...args) {
+      calls.push(['broker', ...args]);
+      return { data: { portal_token: portalToken, expires_at: '2026-10-09T10:00:00.000Z' }, error: null };
+    },
   };
 
-  const result = await authenticatePortalLogin({ auth, functions, mode: 'customer', username: 'subscriber-01', password: 'portal-secret' });
+  const result = await authenticatePortalLogin({ auth, functions, mode: 'customer', username: 'raja-arif', password: 'portal-secret' });
 
-  assert.equal(calls[0][0], 'broker');
-  assert.deepEqual(calls[0].slice(1), ['customer-login', { body: { username: 'subscriber-01', password: 'portal-secret' } }]);
-  assert.deepEqual(calls[1], ['setSession', session]);
+  assert.deepEqual(calls, [['broker', 'customer-login', { body: { username: 'raja-arif', password: 'portal-secret' } }]]);
   assert.equal(result.error, null);
+  assert.deepEqual(result.data, { portal_token: portalToken, expires_at: '2026-10-09T10:00:00.000Z' });
 });
 
-test('customer mode cannot use the reserved admin alias through broker fallback', async () => {
+test('customer mode rejects the reserved admin alias without calling Auth or the customer broker', async () => {
   const calls = [];
-  const auth = { async signInWithPassword(credentials) { calls.push(['auth', credentials]); return { data: null, error: null }; } };
-  const functions = { async invoke(...args) { calls.push(['broker', ...args]); return { data: null, error: { context: { status: 401 } } }; } };
+  const auth = { async signInWithPassword(...args) { calls.push(['auth', ...args]); } };
+  const functions = { async invoke(...args) { calls.push(['broker', ...args]); } };
 
   const result = await authenticatePortalLogin({ auth, functions, mode: 'customer', username: 'ADMIN', password: 'staff-secret' });
 
@@ -105,9 +105,30 @@ test('customer mode cannot use the reserved admin alias through broker fallback'
   assert.ok(result.error instanceof Error);
 });
 
-test('only customer-broker unauthorized responses permit customer username fallback', () => {
-  assert.equal(isCustomerLoginFallbackError({ context: { status: 401 } }), true);
-  assert.equal(isCustomerLoginFallbackError({ context: { status: 429 } }), false);
-  assert.equal(isCustomerLoginFallbackError({ context: { status: 503 } }), false);
-  assert.equal(isCustomerLoginFallbackError(new Error('network unavailable')), false);
+test('customer broker authorization failures are returned without a direct Auth fallback', async () => {
+  const calls = [];
+  const auth = { async signInWithPassword(...args) { calls.push(['auth', ...args]); return { data: null, error: null }; } };
+  const functions = { async invoke(...args) { calls.push(['broker', ...args]); return { data: null, error: { context: { status: 401 } } }; } };
+
+  const result = await authenticatePortalLogin({ auth, functions, mode: 'customer', username: 'raja-arif', password: 'wrong' });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0][0], 'broker');
+  assert.ok(result.error);
+});
+
+test('customer mode fails closed on malformed or expired-shape broker session responses', async () => {
+  for (const data of [
+    { session: { access_token: 'supabase-auth-jwt' }, expires_at: '2026-10-09T10:00:00.000Z' },
+    { portal_token: 'too-short', expires_at: '2026-10-09T10:00:00.000Z' },
+    { portal_token: portalToken, expires_at: 'not-a-date' },
+  ]) {
+    const result = await authenticatePortalLogin({
+      auth: {},
+      functions: { async invoke() { return { data, error: null }; } },
+      mode: 'customer', username: 'bajwa-house', password: 'portal-secret',
+    });
+    assert.ok(result.error instanceof Error);
+    assert.equal(result.data, null);
+  }
 });

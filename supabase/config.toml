@@ -17,6 +17,12 @@ verify_jwt = true
 [functions.customer-login]
 verify_jwt = false
 
+[functions.customer-portal-data]
+verify_jwt = false
+
+[functions.customer-portal-logout]
+verify_jwt = false
+
 [functions.manage-customer-credentials]
 verify_jwt = true
 

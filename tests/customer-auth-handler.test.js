@@ -62,10 +62,13 @@ function loginHarness(options = {}) {
             : { data: options.limit ?? { status: 'allowed' }, error: null };
           if (name === 'resolve_customer_portal_login') return { data: resolution, error: options.resolveError ?? null };
           if (name === 'claim_customer_portal_temporary_password') return { data: options.claim ?? { status: 'ok' }, error: options.claimError ?? null };
-          if (name === 'record_customer_portal_login_event') return { data: null, error: options.auditError ?? null };
+          if (name === 'record_customer_portal_bff_login_event') return { data: null, error: options.auditError ?? null };
+          if (name === 'create_customer_portal_bff_session') return options.createSessionError
+            ? { data: null, error: options.createSessionError }
+            : { data: options.createdSession ?? { status: 'ok', expires_at: '2026-10-09T10:00:00.000Z' }, error: null };
           throw new Error(`Unexpected RPC ${name}`);
         },
-        auth: { admin: { async signOut(token, scope) { calls.revoked.push({ token, scope }); return { error: null }; } } },
+        auth: { admin: { async signOut(token, scope) { calls.revoked.push({ token, scope }); return { error: options.signOutError ?? null }; } } },
       };
     }
     return {
@@ -75,7 +78,7 @@ function loginHarness(options = {}) {
           if (options.signInError || credentials.email.startsWith('invalid-')) {
             return { data: { session: null, user: null }, error: options.signInError ?? new Error('synthetic auth denial') };
           }
-          return { data: { session, user: { id: userId, email: alias } }, error: null };
+          return { data: { session, user: { id: options.authUserId ?? userId, email: alias } }, error: null };
         },
       },
     };
@@ -177,24 +180,31 @@ async function responseJson(response) {
   return response.status === 204 ? null : response.json();
 }
 
-test('broker maps an active username server-side and returns only the normal no-store Auth session', async () => {
+test('broker maps an active username, revokes the temporary Auth session, and returns only an opaque BFF token', async () => {
   const { handler, calls } = loginHarness();
   const response = await handler(request('customer-login', { body: { username, password: 'synthetic-permanent-password' } }));
   assert.equal(response.status, 200);
   assert.equal(response.headers.get('cache-control'), 'no-store, max-age=0');
   assert.equal(response.headers.get('access-control-allow-origin'), origin);
   const body = await responseJson(response);
-  assert.equal(body.session.access_token, session.access_token);
+  assert.match(body.portal_token, /^[0-9a-f]{64}$/);
+  assert.equal(body.expires_at, '2026-10-09T10:00:00.000Z');
+  assert.equal(body.session, undefined);
   assert.equal(body.auth_email_alias, undefined);
+  assert.equal(body.access_token, undefined);
+  assert.equal(body.refresh_token, undefined);
   assert.equal(calls.signIns.length, 1);
   assert.deepEqual(calls.signIns[0], { email: alias, password: 'synthetic-permanent-password' });
+  assert.deepEqual(calls.revoked, [{ token: session.access_token, scope: 'global' }]);
   assert.deepEqual(calls.rpcs.map(({ name }) => name), [
-    'begin_customer_portal_login', 'resolve_customer_portal_login', 'record_customer_portal_login_event',
+    'begin_customer_portal_login', 'resolve_customer_portal_login', 'create_customer_portal_bff_session',
   ]);
+  assert.match(calls.rpcs[2].args.p_token_hash, /^[0-9a-f]{64}$/);
+  assert.notEqual(calls.rpcs[2].args.p_token_hash, body.portal_token);
   assert.doesNotMatch(JSON.stringify(calls.rpcs), /synthetic-permanent-password/);
 });
 
-test('broker preserves exact printable PPPoE username casing for the server-side resolver', async () => {
+test('broker preserves exact printable PPPoE username casing for server-side account lookup', async () => {
   const pppoeUsername = 'Synthetic.Test@ISP';
   const { handler, calls } = loginHarness();
   const response = await handler(request('customer-login', {
@@ -202,9 +212,11 @@ test('broker preserves exact printable PPPoE username casing for the server-side
   }));
   assert.equal(response.status, 200);
   assert.equal(calls.rpcs[1].name, 'resolve_customer_portal_login');
-  assert.equal(calls.rpcs[1].args.p_login_id, pppoeUsername);
+  assert.equal(calls.rpcs[1].args.p_login_username, pppoeUsername);
+  assert.equal('p_login_id' in calls.rpcs[1].args, false);
   assert.equal(calls.signIns[0].email, alias);
   assert.equal(calls.signIns[0].password, 'synthetic-permanent-password');
+  assert.equal(calls.rpcs[2].name, 'create_customer_portal_bff_session');
   assert.doesNotMatch(JSON.stringify(calls.rpcs), /synthetic-permanent-password/);
 });
 
@@ -226,22 +238,18 @@ test('wrong, unknown, and expired credentials use the same generic response and 
   assert.doesNotMatch(JSON.stringify(await responseJson(response)), /synthetic auth detail/);
 });
 
-test('temporary sign-in is claimed once before a session is returned; a rejected claim is revoked', async () => {
-  const { handler, calls } = loginHarness({ resolution: {
-    status: 'temporary', user_id: userId, auth_email_alias: alias,
-    organization_id: organizationId, customer_id: customerId,
-  } });
-  const success = await handler(request('customer-login', { body: { username, password: 'synthetic-temp-password' } }));
-  assert.equal(success.status, 200);
-  assert.ok(calls.rpcs.some(({ name }) => name === 'claim_customer_portal_temporary_password'));
-  const rejected = loginHarness({
-    resolution: { status: 'temporary', user_id: userId, auth_email_alias: alias, organization_id: organizationId, customer_id: customerId },
-    claim: { status: 'rejected' },
-  });
-  const denied = await rejected.handler(request('customer-login', { body: { username, password: 'synthetic-temp-password' } }));
-  assert.equal(denied.status, 401);
-  assert.equal((await responseJson(denied)).error, 'Username or password is incorrect or unavailable.');
-  assert.deepEqual(rejected.calls.revoked, [{ token: session.access_token, scope: 'global' }]);
+test('Auth identity mismatch or failed revocation cannot produce a BFF session', async () => {
+  const mismatched = loginHarness({ authUserId: '50000000-0000-4000-8000-000000000005' });
+  const mismatchResponse = await mismatched.handler(request('customer-login', { body: { username, password: 'synthetic-password' } }));
+  assert.equal(mismatchResponse.status, 401);
+  assert.deepEqual(mismatched.calls.revoked, [{ token: session.access_token, scope: 'global' }]);
+  assert.equal(mismatched.calls.rpcs.some(({ name }) => name === 'create_customer_portal_bff_session'), false);
+
+  const revokeFailure = loginHarness({ signOutError: new Error('revoke failed') });
+  const denied = await revokeFailure.handler(request('customer-login', { body: { username, password: 'synthetic-password' } }));
+  assert.equal(denied.status, 503);
+  assert.equal((await responseJson(denied)).error, 'Sign-in is temporarily unavailable. Try again later.');
+  assert.equal(revokeFailure.calls.rpcs.some(({ name }) => name === 'create_customer_portal_bff_session'), false);
 });
 
 test('broker rejects untrusted origin, missing forwarded IP, and enforces keyed DB throttles before Auth', async () => {

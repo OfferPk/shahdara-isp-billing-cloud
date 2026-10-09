@@ -182,7 +182,8 @@ test('customer history enhancement uses only recorded customer-visible fields an
   assert.match(customerPortal, /summary\.creditAppliedCents/);
   assert.match(customerPortal, /customer_visible_summary/);
   assert.doesNotMatch(customerFacingCode, /phone|email|staff_notes|created_by|recorded_by|private_details/i);
-  assert.doesNotMatch(customerPortal, /username|due_date/i);
+  assert.match(customerPortal, /currentMonthBillDueLabel/);
+  assert.doesNotMatch(customerPortal, /pppoe_username/i);
 });
 
 test('bill dates are nullable, never inferred, and changed only by same-org Admin RPCs', async () => {
