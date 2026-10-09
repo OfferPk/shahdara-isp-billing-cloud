@@ -6,8 +6,8 @@ import { resolve } from 'node:path';
 const root = resolve(import.meta.dirname, '..');
 const read = (path) => readFile(resolve(root, path), 'utf8');
 
-test('review SQL keeps customer mapping and sessions private, hashed, and password-free', async () => {
-  const sql = await read('supabase/review/20261009140000_customer_portal_bff_auth_draft.sql');
+test('BFF migration keeps customer mapping and sessions private, hashed, and password-free', async () => {
+  const sql = await read('supabase/migrations/20261009083823_customer_portal_bff_auth.sql');
   assert.match(sql, /create table private\.customer_portal_bff_accounts[\s\S]*?login_username text not null unique/i);
   assert.match(sql, /create table private\.customer_portal_bff_sessions[\s\S]*?token_hash text not null unique/i);
   assert.match(sql, /revoke all on table private\.customer_portal_bff_accounts[\s\S]*?from public, anon, authenticated, service_role/i);
@@ -52,7 +52,7 @@ test('customer username/password login returns an opaque token only; admin authe
 });
 
 test('BFF dashboard excludes private customer contact/address fields and uses the approved support line', async () => {
-  const sql = await read('supabase/review/20261009140000_customer_portal_bff_auth_draft.sql');
+  const sql = await read('supabase/migrations/20261009083823_customer_portal_bff_auth.sql');
   const bffClient = await read('src/customer-bff-client.js');
   const main = await read('src/main.js');
   assert.match(sql, /'customer_number', c\.customer_number/);
@@ -66,7 +66,7 @@ test('BFF dashboard excludes private customer contact/address fields and uses th
 });
 
 test('bill status uses recorded bill/allocation rows and never generates invoices from customer login', async () => {
-  const sql = await read('supabase/review/20261009140000_customer_portal_bff_auth_draft.sql');
+  const sql = await read('supabase/migrations/20261009083823_customer_portal_bff_auth.sql');
   const main = await read('src/main.js');
   const usage = await read('src/customer-usage.js');
   assert.match(sql, /'due_date', b\.due_date/);

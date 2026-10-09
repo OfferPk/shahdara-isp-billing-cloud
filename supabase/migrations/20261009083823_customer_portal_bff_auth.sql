@@ -1,4 +1,4 @@
--- REVIEW ONLY. Do not move into supabase/migrations/ or apply without owner approval.
+-- Applied to production on 2026-10-09 via Supabase MCP migration version 20261009083823.
 -- Strict customer portal BFF: Supabase Auth verifies the private customer identity,
 -- while browsers receive only a separate opaque, read-only portal token.
 -- This migration contains no customer seeds, Auth-user creation, or password value.
