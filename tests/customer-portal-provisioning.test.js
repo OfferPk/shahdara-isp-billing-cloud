@@ -11,7 +11,10 @@ test('production provisioner defaults to dry-run and pins the approved project a
   assert.match(script, /CUSTOMER_PORTAL_EXPECTED_COUNT \?\? '101'/);
   assert.match(script, /CUSTOMER_PORTAL_ORGANIZATION_ID/);
   assert.match(script, /REQUIRED_TEST_USERNAMES = \['raja-arif', 'bajwa-house'\]/);
-  assert.match(script, /select\('id, organization_id, pppoe_username'\)/);
+  assert.match(script, /client\.rpc\('list_customer_portal_bff_provisioning_candidates'/);
+  assert.match(script, /p_organization_id: organizationId/);
+  assert.match(script, /id: row\.customer_id/);
+  assert.doesNotMatch(script, /\.from\('customers'\)/);
   assert.match(script, /if \(!APPLY\)[\s\S]*No Auth users or passwords were changed/);
 });
 

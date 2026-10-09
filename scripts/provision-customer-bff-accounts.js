@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 
 const APPROVED_PROJECT_REF = 'pocvrbwcfvtsupgdlouv';
 const REQUIRED_TEST_USERNAMES = ['raja-arif', 'bajwa-house'];
-const PAGE_SIZE = 1000;
+const MAX_CANDIDATE_COUNT = 10000;
 const APPLY = process.argv.includes('--apply');
 
 function requireEnvironment(name) {
@@ -29,21 +29,19 @@ function validateSettings() {
 }
 
 async function readLinkedCustomers(client, organizationId) {
-  const customers = [];
-  for (let offset = 0; offset < 50000; offset += PAGE_SIZE) {
-    const { data, error } = await client.from('customers')
-      .select('id, organization_id, pppoe_username')
-      .eq('organization_id', organizationId)
-      .eq('archived', false)
-      .not('pppoe_username', 'is', null)
-      .order('id', { ascending: true })
-      .range(offset, offset + PAGE_SIZE - 1);
-    if (error) throw new Error('Customer identity preflight could not be completed.');
-    const page = data ?? [];
-    customers.push(...page);
-    if (page.length < PAGE_SIZE) return customers;
+  const { data, error } = await client.rpc('list_customer_portal_bff_provisioning_candidates', {
+    p_organization_id: organizationId,
+  });
+  if (error) throw new Error('Customer identity preflight could not be completed.');
+  const rows = data ?? [];
+  if (!Array.isArray(rows) || rows.length > MAX_CANDIDATE_COUNT) {
+    throw new Error('Customer identity preflight exceeded its bounded result limit.');
   }
-  throw new Error('Customer identity preflight exceeded its bounded page limit.');
+  return rows.map((row) => ({
+    id: row.customer_id,
+    organization_id: row.organization_id,
+    pppoe_username: row.pppoe_username,
+  }));
 }
 
 function validateCustomerSet(customers, { organizationId, expectedCount }) {

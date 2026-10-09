@@ -2,7 +2,7 @@
 
 **Owner authorization:** The owner approved the complete strict BFF rollout, including the fixed shared customer password, create-only account provisioning, Pages publication, and the two named login checks. The accepted residual risk is that a customer who obtains both a private synthetic Auth alias and the shared password could potentially sign in directly to Supabase Auth and change that Auth password; the portal itself exposes no password-change or recovery flow.
 
-**Current status:** The production BFF schema is applied and versioned below. PR #77 remains open and unmerged. Its code and local test/build checks are ready, but required GitHub checks must pass on the final commit. No BFF Edge Functions are deployed and no customer Auth accounts have been provisioned in this rollout.
+**Current status:** Production BFF schema and the least-privilege provisioning-candidate RPC are applied. Supabase recorded the latter with ledger version `20261009092355` and migration name `20261009090000_customer_portal_bff_candidates`; the tool accepts a migration name and assigns the execution timestamp as its version. PR #77 remains open and unmerged. No BFF Edge Functions are deployed, and no customer Auth accounts have been provisioned in this rollout.
 
 ## Production facts and boundaries
 
@@ -15,7 +15,9 @@
 
 ## Applied production schema
 
-The canonical migration is [`20261009083823_customer_portal_bff_auth.sql`](../supabase/migrations/20261009083823_customer_portal_bff_auth.sql), matching production’s recorded migration version `20261009083823` (`customer_portal_bff_auth`). Supabase MCP confirmed four private BFF tables are present, RLS-enabled, and empty; the eleven BFF RPCs grant execution only to `service_role` (not `anon` or `authenticated`). No customer rows, package assignments, bills, receipts, RouterOS data, Auth users, or BFF account mappings were modified or created by the migration.
+The canonical migrations are [`20261009083823_customer_portal_bff_auth.sql`](../supabase/migrations/20261009083823_customer_portal_bff_auth.sql) and [`20261009092355_customer_portal_bff_candidates.sql`](../supabase/migrations/20261009092355_customer_portal_bff_candidates.sql). Production records the first as version `20261009083823` and the candidate-reader migration as version `20261009092355`, name `20261009090000_customer_portal_bff_candidates`.
+
+The original private BFF tables remain RLS-enabled and empty. The candidate-reader RPC is owned by `postgres`, uses `SECURITY DEFINER` with an empty `search_path`, returns only `customer_id`, `organization_id`, and `pppoe_username` for non-archived PPPoE identities in the approved organization, and grants `EXECUTE` only to `service_role`. The `service_role` still has no direct `SELECT` privilege on `public.customers`; no broad table grant was made. The original BFF auth/session/dashboard RPCs and this provisioning reader are unavailable to `anon` and `authenticated`.
 
 The schema stores private PPPoE-to-Auth account mappings and opaque portal-token hashes; the browser will never receive Supabase Auth access/refresh tokens or synthetic aliases. Login is verified server-side, the temporary Auth session is revoked before a separate eight-hour read-only BFF token is issued, and logout/account locking revoke BFF sessions. The RPC dashboard projection is read-only and customer-scoped.
 
@@ -23,13 +25,14 @@ The schema stores private PPPoE-to-Auth account mappings and opaque portal-token
 
 1. Configure the Edge Function runtime settings server-side only: `APP_ORIGIN=https://offerpk.github.io` and a newly generated `PORTAL_RATE_LIMIT_HMAC_KEY`. Keep `SUPABASE_SERVICE_ROLE_KEY` on the server; never pass it through a `VITE_*` variable or browser bundle.
 2. Deploy `customer-login`, `customer-portal-data`, and `customer-portal-logout` with `verify_jwt=false` because each function enforces the approved origin and its own customer authentication/session contract. Do not deploy customer password-change or recovery endpoints for this flow.
-3. Run [`scripts/provision-customer-bff-accounts.js`](../scripts/provision-customer-bff-accounts.js) in dry-run mode first, then apply only if all 101 non-archived PPPoE identities and both requested usernames pass. Provisioning reserves/preflights every mapping before creating Auth users; it creates new users only, never resets/deletes an existing Auth user, and stops on existing, conflicting, or non-active states for owner review.
-4. Merge PR #77 to protected `main` only after both required checks (`app-tests` and `disposable-pgtap`) pass. The Pages workflow uses the approved public project URL and only the public publishable/anon key; its push-to-main workflow publishes the static site at [the official portal](https://offerpk.github.io/shahdara-isp-billing-cloud/).
+3. The updated provisioner now fetches only the three approved identity fields through the service-role-only RPC. Its default dry-run passed for **101** linked subscriber identities, including both requested usernames; the aggregate count of existing portal mappings is **0**. No Auth users or passwords were changed. Actual provisioning remains create-only, reserves/preflights all mappings before creating users, and stops for any active/conflicting/non-active state; it never resets or deletes existing Auth users.
+4. Merge PR #77 to protected `main` only after both required checks (`app-tests` and `disposable-pgtap`) pass on the final pushed commit. The Pages workflow uses the approved public project URL and only the public publishable/anon key; its push-to-main workflow publishes the static site at [the official portal](https://offerpk.github.io/shahdara-isp-billing-cloud/).
 5. After functions, accounts, and Pages are live, verify customer login and customer-specific dashboard loading only for `raja-arif` and `bajwa-house`. Confirm logout/expiry and that no Auth tokens, aliases, credentials, addresses, private phones, or invoice rows are logged or returned beyond the owner-scoped dashboard contract.
 
 ## Validation and rollback
 
-- After the login RPC parameter was aligned with the production signature, the full local suite passed: **534 tests, 0 failures**. The production-configured Pages build succeeded. A local bundle check confirmed the approved project URL and public anon key were present and the server-only service-role key was absent.
+- After the provisioning reader was integrated, the full local suite passed: **534 tests, 0 failures**. The prior production-configured Pages build succeeded. A local bundle check confirmed the approved project URL and public anon key were present and the server-only service-role key was absent.
+- The applied candidate-reader migration and its SQL function body parse locally; security checks confirm the expected owner, `SECURITY DEFINER`, empty `search_path`, service-role-only execute, and absence of a `public.customers` table grant.
 - Vite reports the existing main JavaScript chunk is 506.57 kB raw (135.51 kB gzip), slightly above its advisory 500 kB threshold; this is a warning, not a build failure.
 - If a later approved step fails, disable customer login and stop the affected rollout. Do not reinstate direct customer Auth fallback, reset/delete Auth users, drop the private schema, or alter billing. Keep the audit state for owner review and revoke/lock BFF sessions as needed.
 
