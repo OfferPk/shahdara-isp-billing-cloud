@@ -212,7 +212,8 @@ test('broker preserves exact printable PPPoE username casing for server-side acc
   }));
   assert.equal(response.status, 200);
   assert.equal(calls.rpcs[1].name, 'resolve_customer_portal_login');
-  assert.equal(calls.rpcs[1].args.p_login_id, pppoeUsername);
+  assert.equal(calls.rpcs[1].args.p_login_username, pppoeUsername);
+  assert.equal('p_login_id' in calls.rpcs[1].args, false);
   assert.equal(calls.signIns[0].email, alias);
   assert.equal(calls.signIns[0].password, 'synthetic-permanent-password');
   assert.equal(calls.rpcs[2].name, 'create_customer_portal_bff_session');

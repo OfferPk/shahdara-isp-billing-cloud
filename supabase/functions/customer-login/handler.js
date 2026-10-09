@@ -93,7 +93,7 @@ export function createCustomerLoginHandler({ env, createClient }) {
 
       const lookupId = usernameValid ? rawLogin : `sf-${loginHash.slice(0, 32)}`;
       const { data: resolution, error: resolveError } = await clients.serverClient.rpc(
-        'resolve_customer_portal_login', { p_login_id: lookupId },
+        'resolve_customer_portal_login', { p_login_username: lookupId },
       );
       if (resolveError || !resolution?.status) return genericFailure(503, origin);
 
