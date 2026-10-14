@@ -115,6 +115,20 @@ button:focus-visible, a:focus-visible { outline: 3px solid #102e27; outline-offs
 .admin-metrics .metric__sparkline { display: block; width: 76px; height: 24px; overflow: visible; color: var(--metric-accent, #177b59); }
 .admin-metrics .metric__sparkline polyline { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .admin-metrics .metric__sparkline circle { fill: var(--analytics-card, #fff); stroke: currentColor; stroke-width: 1.5; }
+.admin-metrics { gap: 16px; }
+.admin-metrics .metric { display: flex; flex-direction: column; align-items: stretch; gap: 10px; min-height: 176px; padding: 18px 19px 16px; border-radius: 18px; box-shadow: 0 8px 24px rgba(24,54,45,.06); }
+.admin-metrics .metric__top { min-height: 40px; }
+.admin-metrics .metric__label { letter-spacing: .01em; }
+.admin-metrics .metric__icon { width: 40px; height: 40px; border-radius: 13px; }
+.admin-metrics .metric strong { font-size: clamp(22px, 2.4vw, 29px); font-variant-numeric: tabular-nums; line-height: 1.1; }
+.admin-metrics .metric small { line-height: 1.45; }
+.admin-metrics .metric__comparison { width: fit-content; margin: 0; padding: 4px 8px; border: 1px solid var(--metric-border, var(--line)); border-radius: 999px; color: var(--ink); background: color-mix(in srgb, var(--paper) 45%, var(--metric-tint, var(--mint))); font-size: 10px; font-variant-numeric: tabular-nums; line-height: 1.4; }
+.admin-metrics a.metric { transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease; }
+.admin-metrics a.metric:hover { transform: translateY(-3px); border-color: var(--metric-accent); box-shadow: 0 16px 34px rgba(24,54,45,.12); }
+.admin-metrics a.metric:focus-visible { outline-color: var(--metric-accent); }
+.admin-metrics .metric__action { display: inline-flex; align-items: center; gap: 7px; width: fit-content; margin-top: auto; padding-top: 3px; text-decoration: none; }
+.admin-metrics .metric__action::after { width: 7px; height: 7px; border: solid currentColor; border-width: 2px 2px 0 0; content: ''; transform: rotate(45deg); transition: transform .18s ease; }
+.admin-metrics a.metric:hover .metric__action::after { transform: translateX(2px) rotate(45deg); }
 .month-panel { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 16px; padding: 14px 18px; }
 .month-panel label { display: flex; flex-direction: row; align-items: center; gap: 10px; }
 .month-panel input { width: 160px; min-height: 36px; }

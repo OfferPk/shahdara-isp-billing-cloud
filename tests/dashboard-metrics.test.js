@@ -165,6 +165,11 @@ test('Admin metric tones and mobile breakpoints keep all cards readable on narro
   assert.match(styles, /^\.admin-metrics \.metric__sparkline polyline \{/m);
   assert.match(styles, /\.customer-fab-options \{[^}]*max-height: min\(68vh, 480px\);[^}]*overflow-y: auto;/);
   assert.match(styles, /@media \(max-width: 600px\)[\s\S]*?\.admin-metrics \{ grid-template-columns: 1fr; \}/);
+  assert.match(styles, /^\.admin-metrics \.metric \{ display: flex; flex-direction: column;[^}]*min-height: 176px;/m);
+  assert.match(styles, /^\.admin-metrics \.metric__comparison \{[^}]*border-radius: 999px;/m);
+  assert.match(styles, /^\.admin-metrics \.metric__action \{[^}]*margin-top: auto;/m);
+  assert.match(styles, /^\.admin-metrics a\.metric:hover \{[^}]*transform: translateY\(-3px\)/m);
+  assert.match(styles, /^\.admin-metrics a\.metric:focus-visible \{[^}]*outline-color: var\(--metric-accent\)/m);
   assert.doesNotMatch(styles, /^\.metric::before/m);
   assert.doesNotMatch(styles, /^\.metric__(?:icon|label|top)\b/m);
 });
