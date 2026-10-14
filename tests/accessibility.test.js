@@ -313,3 +313,13 @@ test('dual login tabs remain explicit while unrelated feature panels keep their 
   assert.match(styles, /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.feature-toggle-button \{ transition: none; \}/);
   assert.match(styles, /\.feature-toggle-button \{ display: flex; width: 100%;[^\n]*min-height: 44px;/);
 });
+
+
+test('sign-in layout is responsive, theme-aware, and remains hidden until shown', () => {
+  assert.match(styles, /\.auth-panel\[hidden\]\s*\{\s*display:\s*none;\s*\}/);
+  assert.match(styles, /\.auth-panel\s*\{[\s\S]*?display:\s*grid;[\s\S]*?grid-template-areas:[\s\S]*?"eyebrow tabs"[\s\S]*?"title description"[\s\S]*?"intro form"/);
+  assert.match(styles, /@media \(max-width: 760px\)[\s\S]*?\.auth-panel\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\);[\s\S]*?grid-template-areas:\s*"eyebrow" "title" "intro" "tabs" "description" "form"/);
+  assert.match(styles, /:root\[data-theme="dark"\] \.auth-panel\s*\{/);
+  assert.match(index, /id="auth-panel" hidden/);
+  assert.match(index, /id="login-mode-tabs"[^>]*role="tablist"/);
+});

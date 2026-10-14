@@ -1472,3 +1472,97 @@ td { color: #25433b; }
   .usage-fup__heading { flex-direction: column; }
   .usage-fup__summary { line-height: 1.55; }
 }
+
+
+/* Polished, responsive sign-in experience for the isolated cloud portal. */
+.auth-panel {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  grid-template-columns: minmax(0, .9fr) minmax(300px, 1fr);
+  grid-template-areas:
+    "eyebrow tabs"
+    "title description"
+    "intro form";
+  align-items: start;
+  gap: 12px clamp(24px, 4vw, 48px);
+  width: min(100%, 960px);
+  min-height: 450px;
+  margin: clamp(28px, 6vh, 72px) auto 32px;
+  padding: clamp(28px, 4vw, 52px);
+  overflow: hidden;
+  border: 1px solid rgba(126, 173, 151, .4);
+  border-radius: 26px;
+  background: linear-gradient(111deg, #123f34 0%, #0f5a43 47.5%, #f7fbf8 47.6%, #fff 100%);
+  box-shadow: 0 28px 80px rgba(11, 55, 39, .16);
+}
+.auth-panel[hidden] { display: none; }
+.auth-panel::before {
+  position: absolute;
+  z-index: 0;
+  left: -142px;
+  bottom: -214px;
+  width: 440px;
+  aspect-ratio: 1;
+  border: 1px solid rgba(199, 247, 221, .16);
+  border-radius: 50%;
+  background: radial-gradient(circle, transparent 0 34%, rgba(199, 247, 221, .22) 34.2% 34.6%, transparent 34.8% 51%, rgba(199, 247, 221, .16) 51.2% 51.6%, transparent 51.8% 68%, rgba(199, 247, 221, .13) 68.2% 68.6%, transparent 68.8%), radial-gradient(circle at 52% 48%, rgba(111, 222, 169, .22), transparent 69%);
+  content: '';
+  pointer-events: none;
+}
+.auth-panel::after {
+  position: absolute;
+  z-index: 0;
+  top: -120px;
+  left: 28%;
+  width: 260px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(126, 232, 187, .18), transparent 68%);
+  content: '';
+  pointer-events: none;
+}
+.auth-panel > * { position: relative; z-index: 1; }
+.auth-panel > .eyebrow { grid-area: eyebrow; align-self: end; margin: 0 0 -5px; color: #a9efd0; }
+.auth-panel > h1 { grid-area: title; max-width: 12ch; margin: 0; color: #fff; font-size: clamp(31px, 4vw, 46px); line-height: 1.04; text-wrap: balance; }
+.auth-panel > p:not(.eyebrow):not(#login-mode-description) { grid-area: intro; max-width: 39ch; margin: 0; color: rgba(245, 255, 249, .84); font-size: 15px; line-height: 1.75; }
+.auth-panel .login-mode-tabs { grid-area: tabs; align-self: end; margin: 0; border-color: #dce6e1; background: #edf4ef; }
+.auth-panel #login-mode-description { grid-area: description; min-height: 38px; margin: 0; color: #53695f; font-size: 13px; line-height: 1.55; }
+.auth-panel #login-options { grid-area: form; min-width: 0; }
+.auth-panel .auth-method-panel { margin: 0; padding: 21px; border-color: #dbe8e1; border-radius: 19px; background: rgba(255, 255, 255, .94); box-shadow: 0 14px 36px rgba(19, 65, 49, .09); }
+.auth-panel .auth-method-panel h2 { margin: 0 0 18px; font-size: clamp(18px, 2vw, 22px); }
+.auth-panel .stack { gap: 12px; }
+.auth-panel input { min-height: 48px; border-radius: 12px; }
+.auth-panel .button.primary { min-height: 50px; border-radius: 12px; letter-spacing: .01em; }
+.auth-panel .login-mode-tab { min-height: 48px; }
+.auth-panel .form-message { min-height: 0; }
+:root[data-theme="dark"] .auth-panel {
+  border-color: #385446;
+  background: linear-gradient(111deg, #0d332a 0%, #145640 47.5%, #18251f 47.6%, #17231d 100%);
+  box-shadow: 0 28px 80px rgba(0, 0, 0, .36);
+}
+:root[data-theme="dark"] .auth-panel > .eyebrow { color: #a9efd0; }
+:root[data-theme="dark"] .auth-panel > p:not(.eyebrow):not(#login-mode-description) { color: #d5e8dd; }
+:root[data-theme="dark"] .auth-panel #login-mode-description { color: #b9cbc1; }
+:root[data-theme="dark"] .auth-panel .auth-method-panel { border-color: #3a5548; background: #1c2a23; box-shadow: 0 14px 36px rgba(0, 0, 0, .18); }
+:root[data-theme="dark"] .auth-panel .login-mode-tabs { border-color: #354840; background: #111a15; }
+@media (max-width: 760px) {
+  .auth-panel {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "eyebrow" "title" "intro" "tabs" "description" "form";
+    gap: 12px;
+    width: min(100%, 560px);
+    min-height: 0;
+    margin: 24px auto;
+    padding: clamp(23px, 6vw, 34px);
+    border-radius: 22px;
+    background: linear-gradient(180deg, #123f34 0%, #0f5a43 43%, #f7fbf8 43.1%, #fff 100%);
+  }
+  .auth-panel > h1 { max-width: 17ch; font-size: clamp(30px, 7vw, 38px); }
+  .auth-panel > p:not(.eyebrow):not(#login-mode-description) { max-width: 52ch; margin-bottom: 8px; font-size: 14px; }
+  .auth-panel .login-mode-tabs { margin-top: 2px; }
+  .auth-panel .auth-method-panel { padding: clamp(16px, 4vw, 21px); }
+  :root[data-theme="dark"] .auth-panel { background: linear-gradient(180deg, #0d332a 0%, #145640 43%, #18251f 43.1%, #17231d 100%); }
+  .auth-panel::before { left: -205px; bottom: -230px; opacity: .8; }
+  .auth-panel::after { top: -150px; left: 45%; }
+}
