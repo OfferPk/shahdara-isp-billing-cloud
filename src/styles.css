@@ -1472,3 +1472,117 @@ td { color: #25433b; }
   .usage-fup__heading { flex-direction: column; }
   .usage-fup__summary { line-height: 1.55; }
 }
+
+
+/* Focused polish for the portal's sign-in and setup entry surfaces. */
+.auth-panel,
+.config-panel {
+  position: relative;
+  overflow: hidden;
+  width: min(100%, 640px);
+  margin: clamp(28px, 6vw, 62px) auto 28px;
+  padding: clamp(24px, 4vw, 38px);
+  border-color: #cbded2;
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at 94% 5%, rgba(83, 166, 121, .14), transparent 15rem),
+    linear-gradient(150deg, #fff 0%, #fbfdfc 58%, #f2f8f4 100%);
+  box-shadow: 0 24px 70px rgba(20, 54, 42, .11), 0 4px 14px rgba(20, 54, 42, .04);
+}
+.auth-panel h1,
+.config-panel h1 {
+  max-width: 18ch;
+  line-height: 1.06;
+  letter-spacing: -.045em;
+}
+.auth-panel > p:not(.eyebrow),
+.config-panel > p:not(.eyebrow) {
+  max-width: 56ch;
+  margin: 14px 0 0;
+  color: #536b60;
+  font-size: 14px;
+  line-height: 1.7;
+}
+.auth-panel .login-mode-tabs {
+  gap: 5px;
+  margin: 24px 0 10px;
+  padding: 5px;
+  border-color: #d4e3d9;
+  border-radius: 16px;
+  background: #eff6f1;
+}
+.auth-panel .login-mode-tab {
+  min-height: 48px;
+  border-radius: 12px;
+  transition: background .16s ease, border-color .16s ease, color .16s ease, box-shadow .16s ease;
+}
+.auth-panel .login-mode-tab.is-active {
+  border-color: #acd3ba;
+  color: #124a36;
+  background: #fff;
+  box-shadow: 0 5px 14px rgba(18, 74, 54, .1);
+}
+.auth-method-panel {
+  margin: 15px 0 0;
+  padding: 19px;
+  border-color: #e0ebe4;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, .76);
+  box-shadow: none;
+}
+.auth-method-panel h2 { margin: 0 0 17px; font-size: 19px; }
+.auth-panel .stack { gap: 13px; }
+.auth-panel label { gap: 8px; color: #294a3e; }
+.auth-panel input {
+  min-height: 50px;
+  border-color: #d0dfd6;
+  border-radius: 12px;
+  background: #fff;
+  transition: border-color .16s ease, box-shadow .16s ease;
+}
+.auth-panel input:hover:not(:focus) { border-color: #9eb9aa; }
+.auth-panel .button.primary {
+  min-height: 52px;
+  margin-top: 5px;
+  border-radius: 12px;
+  box-shadow: 0 10px 22px rgba(18, 101, 71, .2);
+}
+.auth-panel .form-message { margin-top: 13px; }
+
+:root[data-theme="dark"] :is(.auth-panel, .config-panel) {
+  border-color: #354b40;
+  background:
+    radial-gradient(circle at 94% 5%, rgba(87, 159, 115, .16), transparent 15rem),
+    linear-gradient(150deg, #1c2a22 0%, #19251f 58%, #17231d 100%);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, .38), 0 4px 14px rgba(0, 0, 0, .18);
+}
+:root[data-theme="dark"] .config-panel { border-top-color: #b98532; }
+:root[data-theme="dark"] :is(.auth-panel > p:not(.eyebrow), .config-panel > p:not(.eyebrow)) { color: #b8c9bf; }
+:root[data-theme="dark"] .auth-panel .login-mode-tabs { border-color: #354b40; background: #121a15; }
+:root[data-theme="dark"] .auth-panel .login-mode-tab { color: #c6ddd0; }
+:root[data-theme="dark"] .auth-panel .login-mode-tab:hover { background: #24362c; }
+:root[data-theme="dark"] .auth-panel .login-mode-tab.is-active {
+  border-color: #4b8265;
+  color: #dcf5e6;
+  background: #24362c;
+  box-shadow: 0 5px 14px rgba(0, 0, 0, .2);
+}
+:root[data-theme="dark"] .auth-method-panel {
+  border-color: #30453a;
+  background: rgba(20, 32, 25, .78);
+  box-shadow: none;
+}
+:root[data-theme="dark"] .auth-panel label { color: #c6d7ce; }
+:root[data-theme="dark"] .auth-panel input { border-color: #496156; background: #111a15; }
+
+@media (max-width: 600px) {
+  .auth-panel,
+  .config-panel {
+    margin: 24px auto 18px;
+    padding: 22px 17px;
+    border-radius: 20px;
+  }
+  .auth-method-panel { margin-top: 13px; padding: 15px 13px; border-radius: 15px; }
+  .auth-panel .login-mode-tabs { margin-top: 19px; }
+  .auth-panel .login-mode-tab { padding-inline: 7px; font-size: 12px; }
+}
