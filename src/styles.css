@@ -1472,3 +1472,212 @@ td { color: #25433b; }
   .usage-fup__heading { flex-direction: column; }
   .usage-fup__summary { line-height: 1.55; }
 }
+
+
+/* Refined Emerald shell: clearer hierarchy, calmer surfaces, and a compact mobile nav. */
+body {
+  background:
+    radial-gradient(ellipse at 8% 0%, rgba(119, 201, 159, .16), transparent 34rem),
+    radial-gradient(ellipse at 96% 20%, rgba(137, 184, 221, .12), transparent 30rem),
+    #f2f5f3;
+}
+.site-header {
+  padding-block: 10px;
+  border-bottom-color: rgba(23, 52, 47, .1);
+}
+.brand-mark {
+  width: 46px;
+  height: 46px;
+  border: 1px solid rgba(255, 255, 255, .48);
+  border-radius: 15px;
+  box-shadow: 0 8px 20px rgba(23, 123, 89, .2);
+}
+.brand strong { font-size: 16px; }
+.header-tools { gap: 12px; }
+.environment-tag { letter-spacing: .055em; }
+main { padding-top: 34px; }
+.panel {
+  border-radius: 20px;
+  background: var(--paper);
+  box-shadow: 0 14px 38px rgba(24, 54, 45, .055);
+}
+.config-panel,
+.auth-panel {
+  width: min(100%, 620px);
+  margin: clamp(38px, 7vh, 82px) auto 30px;
+  padding: clamp(25px, 4vw, 38px);
+  border-radius: 24px;
+}
+.config-panel {
+  border: 1px solid #eadbb8;
+  border-top: 4px solid #d5a045;
+  background: linear-gradient(145deg, #fff, #fffaf0);
+  box-shadow: 0 20px 54px rgba(81, 64, 26, .09);
+}
+.auth-panel {
+  position: relative;
+  border: 1px solid #d6e5dc;
+  border-top: 0;
+  background: linear-gradient(145deg, #fff 0%, #fbfdfb 62%, #f2f8f4 100%);
+  box-shadow: 0 24px 64px rgba(24, 54, 45, .1), 0 3px 10px rgba(24, 54, 45, .035);
+}
+.auth-panel::before {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 5px;
+  border-radius: 24px 24px 0 0;
+  background: linear-gradient(90deg, #14704f, #53b98b 62%, #aad8bc);
+  content: '';
+  pointer-events: none;
+}
+.auth-panel .eyebrow {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  margin: 2px 0 12px;
+  padding: 7px 10px;
+  border: 1px solid #d1e7d9;
+  border-radius: 999px;
+  background: #eff8f2;
+  letter-spacing: .09em;
+}
+.auth-panel h1 { max-width: 18ch; font-size: clamp(30px, 4.5vw, 40px); }
+.auth-panel > p:not(.eyebrow) { max-width: 58ch; margin: 12px 0 0; color: #596d64; }
+.auth-panel .auth-method-panel {
+  margin: 20px 0 0;
+  padding: clamp(16px, 3vw, 22px);
+  border-color: #e1ebe5;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, .76);
+  box-shadow: 0 7px 20px rgba(24, 54, 45, .035);
+}
+.auth-method-panel h2 { margin-bottom: 16px; font-size: 19px; }
+.auth-panel input { min-height: 48px; border-radius: 12px; }
+.auth-panel .login-mode-tabs { margin-top: 22px; border-radius: 14px; }
+.auth-panel .login-mode-tab { min-height: 48px; }
+.auth-panel .button.primary {
+  min-height: 48px;
+  border-radius: 12px;
+  box-shadow: 0 9px 20px rgba(18, 101, 71, .19);
+}
+.auth-panel .button.primary:hover { box-shadow: 0 12px 24px rgba(18, 101, 71, .24); }
+.portal-heading {
+  align-items: center;
+  margin-bottom: 16px;
+  padding: 20px 24px;
+  border: 1px solid #dce8e1;
+  border-radius: 22px;
+  background: linear-gradient(120deg, rgba(255, 255, 255, .98), rgba(242, 249, 245, .96));
+  box-shadow: 0 10px 28px rgba(24, 54, 45, .045);
+}
+.portal-heading h1 { letter-spacing: -.045em; }
+.portal-heading .muted { margin-top: 6px; }
+.header-actions { align-items: center; }
+.portal-nav {
+  gap: 6px;
+  margin: 0 0 18px;
+  padding: 7px;
+  border: 1px solid #dce8e1;
+  border-radius: 17px;
+  background: rgba(255, 255, 255, .72);
+  box-shadow: 0 7px 20px rgba(24, 54, 45, .035);
+}
+.portal-nav a {
+  flex: 0 0 auto;
+  min-height: 42px;
+  padding-inline: 14px;
+  border-color: transparent;
+  background: transparent;
+  transition: border-color .16s ease, color .16s ease, background .16s ease, transform .16s ease;
+}
+.portal-nav a:hover { transform: translateY(-1px); }
+.admin-metrics .metric {
+  border-radius: 18px;
+  box-shadow: 0 12px 28px rgba(24, 54, 45, .055);
+}
+.site-footer {
+  max-width: 920px;
+  margin-top: 28px;
+  padding: 16px 10px 0;
+  border-top: 1px solid rgba(23, 52, 47, .09);
+}
+
+:root[data-theme="dark"] body {
+  background:
+    radial-gradient(ellipse at 8% 0%, rgba(55, 119, 83, .2), transparent 34rem),
+    radial-gradient(ellipse at 96% 20%, rgba(58, 91, 119, .15), transparent 30rem),
+    #111814;
+}
+:root[data-theme="dark"] .site-header { border-bottom-color: rgba(204, 232, 218, .15); }
+:root[data-theme="dark"] .panel { background: var(--paper); }
+:root[data-theme="dark"] .config-panel {
+  border-color: #695634;
+  border-top-color: #b88a3c;
+  background: linear-gradient(145deg, #202820, #29251c);
+  box-shadow: 0 20px 54px rgba(0, 0, 0, .26);
+}
+:root[data-theme="dark"] .auth-panel {
+  border-color: #354d40;
+  background: linear-gradient(145deg, #1c2b23 0%, #19251f 68%, #17231d 100%);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, .3);
+}
+:root[data-theme="dark"] .auth-panel .eyebrow {
+  border-color: #365b46;
+  color: #9be2b8;
+  background: #1c3527;
+}
+:root[data-theme="dark"] .auth-panel > p:not(.eyebrow) { color: #b2c3ba; }
+:root[data-theme="dark"] .auth-panel .auth-method-panel {
+  border-color: #354840;
+  background: rgba(17, 26, 21, .58);
+  box-shadow: 0 7px 20px rgba(0, 0, 0, .13);
+}
+:root[data-theme="dark"] .portal-heading {
+  border-color: var(--line);
+  background: linear-gradient(120deg, #1a2821, #17231d);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, .18);
+}
+:root[data-theme="dark"] .portal-nav {
+  border-color: var(--line);
+  background: rgba(25, 37, 31, .84);
+  box-shadow: 0 7px 20px rgba(0, 0, 0, .14);
+}
+:root[data-theme="dark"] .portal-nav a { background: transparent; }
+:root[data-theme="dark"] .site-footer { border-top-color: rgba(204, 232, 218, .13); }
+
+@media (max-width: 760px) {
+  .portal-nav {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    scrollbar-width: thin;
+    scroll-snap-type: x proximity;
+  }
+  .portal-nav a { scroll-snap-align: start; }
+}
+@media (max-width: 600px) {
+  main { padding-top: 22px; }
+  .config-panel,
+  .auth-panel {
+    width: 100%;
+    margin: 25px auto 22px;
+    padding: 23px 18px;
+    border-radius: 20px;
+  }
+  .auth-panel::before { border-radius: 20px 20px 0 0; }
+  .auth-panel .auth-method-panel { margin-top: 17px; padding: 15px; }
+  .portal-heading { align-items: stretch; padding: 18px; border-radius: 18px; }
+  .portal-nav { margin-bottom: 14px; padding: 6px; border-radius: 15px; }
+  .portal-nav a { min-height: 44px; padding-inline: 12px; }
+  .site-footer { margin-top: 22px; padding-inline: 4px; }
+}
+
+/* Keep the sign-in action visually close to the first screen on typical laptops. */
+.auth-panel { margin-top: clamp(20px, 4vh, 54px); }
+.auth-panel h1 { max-width: 28ch; font-size: clamp(30px, 3.3vw, 38px); }
+
+@media (min-width: 601px) {
+  .site-header { min-height: 72px; padding-block: 8px; }
+  main { padding-top: 24px; }
+  .auth-panel { margin-top: clamp(16px, 3vh, 42px); padding-block: 28px 32px; }
+}
