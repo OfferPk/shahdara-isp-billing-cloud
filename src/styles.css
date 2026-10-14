@@ -1472,3 +1472,91 @@ td { color: #25433b; }
   .usage-fup__heading { flex-direction: column; }
   .usage-fup__summary { line-height: 1.55; }
 }
+
+
+/* Split, responsive sign-in experience. The decorative network stays out of the accessibility tree. */
+.auth-panel:not([hidden]) {
+  display: grid;
+  grid-template-columns: minmax(245px, .86fr) minmax(0, 1.14fr);
+  align-items: stretch;
+  column-gap: clamp(22px, 4vw, 56px);
+  row-gap: 12px;
+  align-content: start;
+  width: min(100%, 1080px);
+  margin: clamp(24px, 4vw, 48px) auto 28px;
+  padding: 14px;
+  overflow: hidden;
+  background: linear-gradient(135deg, rgba(255,255,255,.99), rgba(247,251,248,.96));
+}
+.auth-panel__visual {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  grid-column: 1;
+  grid-row: 1 / span 6;
+  min-height: 530px;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid rgba(166, 230, 197, .2);
+  border-radius: 17px;
+  background: radial-gradient(circle at 50% 45%, rgba(57, 177, 126, .22), transparent 36%), radial-gradient(circle at 16% 12%, rgba(138, 204, 247, .12), transparent 35%), linear-gradient(145deg, #123d32 0%, #102d25 52%, #0b211a 100%);
+}
+.auth-panel__visual::before,
+.auth-panel__visual::after {
+  position: absolute;
+  z-index: -1;
+  width: 74%;
+  aspect-ratio: 1;
+  border: 1px solid rgba(184, 236, 208, .16);
+  border-radius: 50%;
+  content: '';
+}
+.auth-panel__visual::before { box-shadow: 0 0 0 27px rgba(184,236,208,.035), 0 0 0 56px rgba(184,236,208,.025); }
+.auth-panel__visual::after { width: 48%; border-color: rgba(184, 236, 208, .12); }
+.auth-panel__network { position: absolute; width: min(88%, 360px); height: auto; overflow: visible; }
+.auth-panel__network path { fill: none; stroke: rgba(183, 231, 205, .36); stroke-width: 1.35; stroke-linecap: round; stroke-linejoin: round; }
+.auth-panel__network circle { fill: #a6efc4; stroke: rgba(235, 255, 243, .56); stroke-width: 2; }
+.auth-panel__visual-mark {
+  display: grid;
+  width: 82px;
+  height: 82px;
+  place-items: center;
+  border: 1px solid rgba(255,255,255,.48);
+  border-radius: 25px;
+  color: #fff;
+  background: linear-gradient(145deg, #34a976, #176849);
+  box-shadow: 0 18px 48px rgba(0,0,0,.32), 0 0 0 10px rgba(197,245,216,.08);
+  font: 850 25px Manrope, sans-serif;
+  letter-spacing: -.07em;
+}
+.auth-panel > :not(.auth-panel__visual) { grid-column: 2; width: min(100%, 500px); justify-self: center; }
+.auth-panel > .eyebrow { align-self: end; margin: 16px 0 0; }
+.auth-panel > h1 { font-size: clamp(30px, 3.2vw, 42px); }
+.auth-panel > p:not(.eyebrow) { max-width: 56ch; margin: 0; }
+.auth-panel .login-mode-tabs { margin: 13px 0 8px; }
+.auth-panel .login-mode-tab { min-height: 50px; border-radius: 11px; }
+.auth-panel .auth-method-panel { margin: 0; padding: 17px; border-radius: 15px; background: linear-gradient(145deg, #fff, #f7faf8); box-shadow: 0 8px 24px rgba(23, 52, 47, .045); }
+.auth-panel .auth-method-panel h2 { margin-bottom: 12px; font-size: 18px; }
+.auth-panel .stack { gap: 12px; }
+.auth-panel input { min-height: 49px; border-radius: 12px; }
+.auth-panel .button { min-height: 48px; border-radius: 12px; }
+.auth-panel .button.primary { background: linear-gradient(120deg, #19875f, #0e6749); box-shadow: 0 9px 20px rgba(18, 101, 71, .19); }
+.auth-panel .button.primary:hover { background: linear-gradient(120deg, #147651, #0c583e); }
+:root[data-theme="dark"] .auth-panel:not([hidden]) { border-color: var(--line); }
+:root[data-theme="dark"] .auth-panel .auth-method-panel { background: linear-gradient(145deg, #1c2c23, #17231d); }
+@media (max-width: 760px) {
+  .auth-panel:not([hidden]) { grid-template-columns: minmax(0, 1fr); gap: 15px; margin: 18px auto 18px; padding: 12px; }
+  .auth-panel__visual { grid-column: 1; grid-row: auto; min-height: 172px; }
+  .auth-panel__visual::before { width: 54%; }
+  .auth-panel__visual::after { width: 34%; }
+  .auth-panel__network { width: min(56%, 230px); }
+  .auth-panel__visual-mark { width: 62px; height: 62px; border-radius: 20px; font-size: 20px; }
+  .auth-panel > :not(.auth-panel__visual) { grid-column: 1; width: 100%; }
+  .auth-panel > .eyebrow { margin-top: 3px; }
+  .auth-panel > h1 { font-size: clamp(27px, 7vw, 36px); }
+}
+@media (max-width: 600px) {
+  .auth-panel .auth-method-panel { padding: 14px; }
+  .auth-panel .login-mode-tabs { gap: 5px; padding: 4px; }
+  .auth-panel .login-mode-tab { padding: 8px 6px; font-size: 12px; }
+}
