@@ -947,7 +947,8 @@ if (!supabase) {
     const links = kind === 'admin'
       ? [['#admin-overview', 'Overview'], ['#admin-pppoe-sessions', 'Active Sessions'], ['#customer-list', 'Customers'], ['#admin-packages', 'Packages / Plans'], ['#admin-bills', 'Bills'], ['#admin-receipts', 'Receipts'], ['#admin-incidents', 'Service incidents'], ['#admin-network-diagnostics', 'AI Network Engineer · Simulation'], ...(pageState.context?.role === 'owner' ? [['#company-branding', 'Company profile']] : [])]
       : [['#customer-account', 'My account'], ['#customer-usage', 'Usage dashboard'], ['#customer-expiry', 'Service expiry'], ['#customer-billing', 'Billing history'], ['#customer-incidents', 'Service updates']];
-    return `<nav class="portal-nav" aria-label="${escapeHtml(t('Portal navigation'))}">${links.map(([href, label]) => `<a href="${href}">${escapeHtml(t(label))}</a>`).join('')}</nav>`;
+    const customerNavClass = kind === 'customer' ? ' portal-nav--customer' : '';
+    return `<nav class="portal-nav${customerNavClass}" aria-label="${escapeHtml(t('Portal navigation'))}">${links.map(([href, label]) => `<a href="${href}">${escapeHtml(t(label))}</a>`).join('')}</nav>`;
   }
 
   function wirePortalBase() {
